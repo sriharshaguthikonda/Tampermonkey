@@ -689,199 +689,55 @@
             element.scrollIntoView({
                 behavior: 'smooth',
                 block: 'nearest',
-                inline: 'nearest'
-            });
-        }
     }
 
-    function clearHighlights() {
-        highlightedElements.forEach(element => {
-            element.classList.remove('tts-current-word', 'tts-current-sentence');
-        });
-        highlightedElements = [];
-    }
-
-    function highlightCurrentText(charIndex, length) {
-        // Find which text node contains the current character
-        let currentCharCount = 0;
-        let targetNode = null;
-        let relativeIndex = 0;
-
-        for (let i = 0; i < textNodes.length; i++) {
-            const nodeInfo = textNodes[i];
-            const nodeTextLength = nodeInfo.text.length;
-
-            if (currentCharCount + nodeTextLength >= charIndex) {
-                targetNode = nodeInfo;
-                relativeIndex = charIndex - currentCharCount;
-                break;
+    // Highlight the paragraph
+    for (const nodeInfo of this.textNodesForHighlighting) {
+        const nodeTextLength = nodeInfo.text.length;
+        if (charIndex >= totalCharCount && charIndex < totalCharCount + nodeTextLength) {
+            let parentElement = nodeInfo.node.parentElement;
+            while(parentElement && !this.paragraphsList.some(p => p.element === parentElement)) {
+                parentElement = parentElement.parentElement;
             }
-            currentCharCount += nodeTextLength + 1; // +1 for space between nodes
-        }
-
-        if (targetNode) {
-            clearHighlights();
-
-            // Highlight the parent element
-            const parentElement = targetNode.node.parentElement;
             if (parentElement) {
+                // Add highlight to the paragraph
                 parentElement.classList.add('tts-current-sentence');
-                highlightedElements.push(parentElement);
-
-                // Gentle scroll to the highlighted element
-                gentleScrollToElement(parentElement);
-            }
-        }
-    }
-
-    // MODIFIED: Stop TTS function that handles both manual and auto-reading
-    function stopTTS() {
-        let stoppedSomething = false;
-
-        // Stop manual TTS
-        if (currentUtterance || ttsActive) {
-            speechSynthesis.cancel();
-            currentUtterance = null;
-            ttsActive = false;
-            document.body.style.cursor = 'default';
-            clearHighlights();
-            console.log('Manual TTS stopped');
-            stoppedSomething = true;
-        }
-
-        // Stop auto-reading TTS
-        if (autoReadingCurrentUtterance) {
-            speechSynthesis.cancel();
-            autoReadingCurrentUtterance = null;
-            console.log('Auto-reading TTS stopped');
-            stoppedSomething = true;
-        }
-
-        // Stop auto-reading queue processing
-        if (isProcessingQueue) {
-            isProcessingQueue = false;
-            readQueue = []; // Clear the queue
-            console.log('Auto-reading queue stopped and cleared');
-            stoppedSomething = true;
-        }
-
-        if (stoppedSomething) {
-            showNotification('All TTS stopped');
-        }
-
-        return stoppedSomething;
-    }
-
-    // MODIFIED: Listen for Ctrl + Shift + U to toggle TTS (now stops everything)
-    document.addEventListener('keydown', function(e) {
-        if (e.ctrlKey && e.shiftKey && e.key === 'U') {
-            e.preventDefault();
-
-            // Stop all TTS activity first
-            if (stopTTS()) {
-                return; // If something was stopped, don't activate new TTS
-            }
-
-            // Otherwise, activate TTS mode
-            console.log('TTS mode activated - click where you want to start reading to end of page');
-
-            // Add one-time mouse click listener
-            document.addEventListener('click', handleMouseClick, { once: true });
-
-            // Visual feedback
-            document.body.style.cursor = 'crosshair';
-
-            // Show notification
-            showNotification('Click where you want to start reading to end of page');
-
-            // Auto-cancel crosshair mode after 10 seconds
-            setTimeout(() => {
-                document.body.style.cursor = 'default';
-            }, 10000);
-        }
-
-        // Listen for Ctrl + Shift + A to toggle auto-reading
-        if (e.ctrlKey && e.shiftKey && e.key === 'A') {
-            e.preventDefault();
-
-            if (autoReadingEnabled) {
-                stopAutoReading();
-            } else {
-                startAutoReading();
-            }
-        }
-
-        // Stop TTS with Escape key
-        if (e.key === 'Escape') {
-            stopTTS();
-        }
-    });
-
-    // Visual notification function
-    function showNotification(message, duration = 3000) {
-        // Remove any existing notification
-        const existing = document.getElementById('tts-notification');
-        if (existing) {
-            document.body.removeChild(existing);
-        }
-
-        const notification = document.createElement('div');
-        notification.id = 'tts-notification';
-        notification.textContent = message;
-        notification.style.position = 'fixed';
-        notification.style.bottom = '20px';
-        notification.style.left = '50%';
-        notification.style.transform = 'translateX(-50%)';
-        notification.style.backgroundColor = 'rgba(0, 0, 0, 0.8)';
-        notification.style.color = 'white';
-        notification.style.padding = '10px 20px';
-        notification.style.borderRadius = '5px';
-        notification.style.zIndex = '10000';
-        notification.style.transition = 'opacity 0.3s';
-        notification.style.fontFamily = 'Arial, sans-serif';
-        notification.style.fontSize = '14px';
-        notification.style.pointerEvents = 'none';
-        notification.style.whiteSpace = 'nowrap';
-        notification.style.maxWidth = '90%';
-        notification.style.overflow = 'hidden';
-        notification.style.textOverflow = 'ellipsis';
-
-        document.body.appendChild(notification);
-
-        // Auto-remove after specified duration (default 3 seconds)
-        setTimeout(() => {
-            if (notification.parentNode) {
-                notification.style.opacity = '0';
-                setTimeout(() => {
-                    if (notification.parentNode) {
-                        document.body.removeChild(notification);
+                this.highlightedElements.push(parentElement);
+                
+                // Add word-level highlighting
+                const range = document.createRange();
+                const textNode = nodeInfo.node;
+                const text = textNode.textContent;
+                const localCharIndex = charIndex - totalCharCount;
+                
+                // Find word boundaries in this text node
+                const nodeWords = text.split(/\s+/);
+                let nodePos = 0;
+                
+                for (const word of nodeWords) {
+                    const wordPos = text.indexOf(word, nodePos);
+                    if (wordPos <= localCharIndex && localCharIndex <= wordPos + word.length) {
+                        range.setStart(textNode, wordPos);
+                        range.setEnd(textNode, wordPos + word.length);
+                        
+                        const span = document.createElement('span');
+                        span.className = 'tts-current-word';
+                        range.surroundContents(span);
+                        
+                        // Store reference to remove later
+                        this.highlightedElements.push(span);
+                        break;
                     }
-                }, 300);
+                    nodePos = wordPos + word.length + 1;
+                }
+                
+                this.gentleScrollToElement(parentElement);
             }
-        }, duration);
+            return;
+        }
+        totalCharCount += nodeTextLength + 1;
     }
-
-    document.addEventListener('beforeunload', () => {
-        stopTTS();
-    });
-
-    window.addEventListener('pagehide', () => {
-        stopTTS();
-    });
-
-    // Add CSS for highlighting
-    const style = document.createElement('style');
-    style.textContent = `
-        .msreadout-line-highlight {
-            background-color: rgba(255, 255, 0, 0.3) !important;
-        }
-        .msreadout-word-highlight {
-            background-color: rgba(255, 255, 0, 0.5) !important;
-        }
-        .msreadout-inactive-highlight {
-            background-color: rgba(255, 255, 0, 0.2) !important;
-        }
-        .tts-current-sentence {
+}
             background-color: rgba(0, 255, 0, 0.3) !important;
             border-left: 4px solid #00ff00 !important;
             padding-left: 5px !important;
