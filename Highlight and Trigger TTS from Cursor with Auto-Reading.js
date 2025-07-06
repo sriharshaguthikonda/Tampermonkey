@@ -352,22 +352,31 @@
             window.addEventListener('beforeunload', () => this.stopTTS(false));
         },
         
+
+
+
+
         createUI() {
             const style = document.createElement('style');
             style.textContent = `
                 .tts-current-sentence {
                     background-color: rgba(20, 180, 20, 0.15) !important;
+                    border-left: 4px solid rgba(0, 255, 0, 1) !important;
+                    padding-left: 8px !important;
                     outline: 1px solid rgba(20, 180, 20, 0.4) !important;
                     transition: all 0.3s ease-in-out !important;
                 }
                 .tts-current-word {
                     background-color: rgba(255, 255, 0, 0.85) !important;
+                    border-left: 4px solid rgba(238, 255, 0, 1) !important;
                     color: black !important;
                     border-radius: 3px;
                 }
                 .tts-navigation-focus {
                     background-color: rgba(0, 123, 255, 0.3) !important;
                     outline: 2px solid rgba(0, 123, 255, 0.9) !important;
+                    border-left: 4px solid #3498db !important;
+                    padding-left: 8px !important;
                     box-shadow: 0 0 12px rgba(0, 123, 255, 0.7) !important;
                     transition: all 0.1s ease-in-out !important;
                     animation: tts-pulse 0.5s infinite ease-in-out;
@@ -379,6 +388,9 @@
                 }
             `;
             document.head.appendChild(style);
+
+
+            
 
             const uiPanel = document.createElement('div');
             uiPanel.id = 'tts-control-panel';
