@@ -442,46 +442,51 @@
             window.addEventListener('beforeunload', () => this.stopTTS(false));
         },
         
+   
+
+
+
+
+
+
         createUI() {
             const style = document.createElement('style');
             style.textContent = `
-                .tts-current-sentence, .tts-new-paragraph-highlight {
+                .tts-current-sentence {
                     background-color: rgba(46, 204, 113, 0.08) !important;
                     border-left: 4px solid #2ecc71 !important;
+                    border-right: 1px solid #2ecc71 !important;
+                    border-bottom: 1px solid #2ecc71 !important;
+                    border-top: 1px solid #2ecc71 !important;
                     padding-left: 10px !important;
-                    transition: all 0.3s ease-in-out !important;
                 }
                 .tts-current-word {
                     background-color: rgba(250, 210, 50, 0.9) !important;
+                    font-weight: bold !important;
                     color: black !important;
                     border-radius: 3px;
                     transform: scale(1.02);
                     box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-                    transition: transform 0.1s ease-out, background-color 0.1s ease-out;
                 }
                 .tts-navigation-focus {
-                    background-color: rgba(52, 152, 219, 0.1) !important;
+                    background-color: rgba(52, 152, 219, 0.3) !important;
                     border-left: 4px solid #3498db !important;
+                    border-bottom: 1px solid #3498db !important;
+                    border-right: 1px solid #3498db !important;
+                    border-top: 1px solid #3498db !important;
                     padding-left: 10px !important;
-                    transition: all 0.2s ease-in-out !important;
-                    animation: tts-pulse 1.2s infinite ease-in-out;
-                }
-                .tts-new-paragraph-highlight {
-                     border-left-color: #9b59b6 !important; /* Purple for new content */
-                     background-color: rgba(155, 89, 182, 0.1) !important;
                 }
                 .tts-focus-fade-out {
                     border-left-color: transparent !important;
                     background-color: transparent !important;
-                    transition: all 0.5s ease-out !important;
                 }
-                 @keyframes tts-pulse {
-                    0% { box-shadow: 0 0 0 0 rgba(52, 152, 219, 0.5); }
-                    70% { box-shadow: 0 0 0 10px rgba(52, 152, 219, 0); }
-                    100% { box-shadow: 0 0 0 0 rgba(52, 152, 219, 0); }
-                }
+
             `;
             document.head.appendChild(style);
+
+
+
+
 
             const uiPanel = document.createElement('div');
             uiPanel.id = 'tts-control-panel';
