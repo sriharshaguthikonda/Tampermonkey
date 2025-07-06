@@ -1,10 +1,10 @@
 // ==UserScript==
-// @name         Universal TTS Reader with Precision Navigation & Highlighting
+// @name         Highlight and Trigger TTS from Cursor with Auto-Reading
 // @namespace    http://tampermonkey.net/
-// @version      2.2
-// @description  An intelligent, content-aware TTS reader that auto-reads new content, skips code/emojis, and has robust navigation.
-// @author       Your Name (updated by AI)
-// @match        *://*/*
+// @version      0.4
+// @description  Add a highlight class to text under cursor, trigger Edge TTS, and auto-read new paragraphs
+// @author       Your Name
+// @match        https://chatgpt.com/c/*
 // @grant        none
 // ==/UserScript==
 
@@ -63,7 +63,7 @@
 
 
 
-        
+
         init() {
             this.waitForPageLoad(() => {
                 this.startAutoReading();
