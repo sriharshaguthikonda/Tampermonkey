@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Universal TTS Reader with Precision Navigation & Highlighting
 // @namespace    http://tampermonkey.net/
-// @version      1.5
-// @description  A robust TTS reader with continuous reading, precise arrow-key navigation on complex sites, and word-by-word highlighting.
+// @version      1.8
+// @description  A highly accurate TTS reader with continuous reading, precise navigation on complex sites, preview highlights, and word-by-word highlighting.
 // @author       Your Name (updated by AI)
 // @match        *://*/*
 // @grant        none
@@ -18,9 +18,8 @@
         continuousReadingActive: false,
         pageFullyLoaded: false,
         lastScrollTime: 0,
-        currentParagraphIndex: -1,
-        paragraphsList: [],
-        lastSpokenElement: null, // NEW: Track the last element being spoken
+        lastSpokenElement: null,
+        navigationTimeoutId: null,
         processedParagraph: {
             element: null,
             originalHTML: '',
@@ -28,13 +27,12 @@
         },
 
         CONFIG: {
-            // Updated selectors for better targeting on sites like ChatGPT
-            CANDIDATE_SELECTORS: 'p, li, h1, h2, h3, h4, h5, h6, td, th, pre, .markdown, div[class*="content"]',
-            // Ignore user prompt containers on ChatGPT and other common UI elements
+            CANDIDATE_SELECTORS: 'p, li, h1, h2, h3, h4, h5, h6, td, th, pre, .markdown, div[class*="content"], article',
             IGNORE_SELECTORS: 'nav, script, style, noscript, header, footer, button, a, form, [aria-hidden="true"], [data-message-author-role="user"]',
-            MIN_TEXT_LENGTH: 15,
-            SPEECH_RATE: 1.5,
-            SCROLL_THROTTLE_MS: 3000,
+            MIN_TEXT_LENGTH: 20,
+            SPEECH_RATE: 1.3, // CHANGED: Lowered default speed for more comfortable initial use.
+            SCROLL_THROTTLE_MS: 1500,
+            NAV_READ_DELAY_MS: 650, // CHANGED: Increased delay for a more deliberate navigation feel.
             HOTKEYS: {
                 ACTIVATE: 'U',
                 PAUSE_RESUME: 'P',
@@ -48,7 +46,7 @@
             this.waitForPageLoad();
             this.createUI();
             this.setupEventListeners();
-            this.loadVoices().then(() => this.initParagraphNavigation());
+            this.loadVoices();
         },
 
         waitForPageLoad() {
@@ -72,41 +70,38 @@
             return element.innerText.trim().replace(/\s+/g, ' ');
         },
 
-        isParagraphElement(element) {
-            if (!element || !element.tagName || element.offsetParent === null || window.getComputedStyle(element).visibility === 'hidden') return false;
+        isVisiblyReadable(element) {
+            if (!element || !element.tagName || element.offsetParent === null || window.getComputedStyle(element).visibility === 'hidden' || window.getComputedStyle(element).display === 'none') {
+                return false;
+            }
             if (element.closest(this.CONFIG.IGNORE_SELECTORS)) return false;
-            return this.getTextFromElement(element).length >= this.CONFIG.MIN_TEXT_LENGTH;
+            const text = this.getTextFromElement(element);
+            return text.length >= this.CONFIG.MIN_TEXT_LENGTH;
         },
 
         findAllParagraphs() {
-            const allCandidates = Array.from(document.querySelectorAll(this.CONFIG.CANDIDATE_SELECTORS));
-            const uniqueParagraphs = new Set();
+            let candidates = Array.from(document.querySelectorAll(this.CONFIG.CANDIDATE_SELECTORS));
+            let readableCandidates = candidates.filter(el => this.isVisiblyReadable(el));
+            const candidateSet = new Set(readableCandidates);
 
-            allCandidates.forEach(candidate => {
-                if (this.isParagraphElement(candidate)) {
-                    // This logic avoids adding a parent if its children are already candidates
-                    const hasReadableChild = candidate.querySelector(this.CONFIG.CANDIDATE_SELECTORS);
-                    if (!hasReadableChild || !this.isParagraphElement(hasReadableChild)) {
-                         uniqueParagraphs.add(candidate);
-                    } else {
-                        // Add parent only if it has significant text content of its own
-                        const childTextLength = Array.from(candidate.children).reduce((sum, child) => sum + this.getTextFromElement(child).length, 0);
-                        if(this.getTextFromElement(candidate).length > childTextLength + this.CONFIG.MIN_TEXT_LENGTH) {
-                            uniqueParagraphs.add(candidate);
-                        }
+            const finalParagraphs = readableCandidates.filter(el => {
+                for (const otherEl of candidateSet) {
+                    if (el !== otherEl && el.contains(otherEl)) {
+                        return false;
                     }
                 }
+                return true;
             });
 
-            return Array.from(uniqueParagraphs).map(element => ({
+            return finalParagraphs.map(element => ({
                 element: element,
                 text: this.getTextFromElement(element)
             }));
         },
 
         clearHighlights() {
-            document.querySelectorAll('.tts-current-sentence, .tts-current-word').forEach(el => {
-                el.classList.remove('tts-current-sentence', 'tts-current-word');
+            document.querySelectorAll('.tts-current-sentence, .tts-current-word, .tts-navigation-focus').forEach(el => {
+                el.classList.remove('tts-current-sentence', 'tts-current-word', 'tts-navigation-focus');
             });
         },
 
@@ -205,44 +200,43 @@
 
             this.speechSynthesis.speak(utterance);
         },
-
+        
         readFromParagraph(index) {
             if (!this.continuousReadingActive) {
                 this.revertParagraph();
                 return;
             }
-
+        
             if (index < 0 || index >= this.paragraphsList.length) {
-                this.stopTTS(false); // Stop if we've gone out of bounds
+                this.stopTTS(false);
                 return;
             }
-
+        
             this.currentParagraphIndex = index;
             const para = this.paragraphsList[index];
-            this.lastSpokenElement = para.element; // Update state immediately
-
+            this.lastSpokenElement = para.element;
+        
             const textToRead = this.prepareParagraphForReading(para.element);
             if (!textToRead) {
-                this.readFromParagraph(index + 1); // Skip if preparation fails
+                this.navigate(1);
                 return;
             }
-
+        
             this.clearHighlights();
             para.element.classList.add('tts-current-sentence');
             this.gentleScrollToElement(para.element);
-
-            this.triggerTTS(textToRead, () => this.readFromParagraph(index + 1));
+            
+            this.triggerTTS(textToRead, () => this.navigate(1));
         },
-
+        
         stopTTS(notify = true) {
-            this.continuousReadingActive = false; // This is the crucial flag to break the onend chain
+            this.continuousReadingActive = false;
+            clearTimeout(this.navigationTimeoutId);
             if (this.speechSynthesis.speaking || this.speechSynthesis.pending) {
-                this.ttsActive = false;
-                this.isPaused = false;
                 this.speechSynthesis.cancel();
-                if (notify) this.showNotification('All TTS stopped');
             }
-            this.revertParagraph(); // Always clean up markup
+            this.revertParagraph();
+            if (notify) this.showNotification('All TTS stopped');
             return true;
         },
 
@@ -259,52 +253,48 @@
             }
         },
 
-        initParagraphNavigation() {
-            if (!this.pageFullyLoaded) return;
-            this.paragraphsList = this.findAllParagraphs();
-        },
-
-        // **REWRITTEN NAVIGATION LOGIC**
-        navigate(direction) { // +1 for next, -1 for previous
+        navigate(direction) {
             this.stopTTS(false);
-
-            // Rescan the DOM for the most current layout
+            
             this.paragraphsList = this.findAllParagraphs();
-
             if (this.paragraphsList.length === 0) {
                 this.showNotification("No readable text found.");
                 return;
             }
-
+            
             let currentIndex = -1;
-            // Find the index of the last element we spoke
             if (this.lastSpokenElement) {
                 currentIndex = this.paragraphsList.findIndex(p => p.element === this.lastSpokenElement);
             }
 
-            // If we couldn't find it (or it's the first run), find the first visible paragraph
             if (currentIndex === -1) {
                 const threshold = window.innerHeight * 0.2;
                 currentIndex = this.paragraphsList.findIndex(p => p.element.getBoundingClientRect().bottom > threshold);
-                currentIndex = (currentIndex === -1) ? 0 : currentIndex;
+                currentIndex = (currentIndex === -1) ? 0 : currentIndex - 1; 
             }
 
             const newIndex = currentIndex + direction;
 
             if (newIndex >= 0 && newIndex < this.paragraphsList.length) {
-                this.continuousReadingActive = true;
-                this.readFromParagraph(newIndex);
+                const targetElement = this.paragraphsList[newIndex].element;
+                this.clearHighlights();
+                targetElement.classList.add('tts-navigation-focus');
+                this.gentleScrollToElement(targetElement);
+                this.lastSpokenElement = targetElement;
+
+                this.navigationTimeoutId = setTimeout(() => {
+                    this.continuousReadingActive = true;
+                    this.readFromParagraph(newIndex);
+                }, this.CONFIG.NAV_READ_DELAY_MS);
             } else {
-                this.showNotification(direction > 0 ? "End of page." : "Start of page.");
-                this.continuousReadingActive = false;
+                 this.showNotification(direction > 0 ? "End of page." : "Start of page.");
             }
         },
 
-        // Click-to-start is a special case of navigation
         startReadingAtElement(element) {
             this.stopTTS(false);
-            this.initParagraphNavigation(); // Rescan
-
+            this.paragraphsList = this.findAllParagraphs();
+            
             const startParaIndex = this.paragraphsList.findIndex(p => p.element.contains(element));
             if (startParaIndex !== -1) {
                 this.continuousReadingActive = true;
@@ -346,7 +336,7 @@
 
                     document.body.style.cursor = 'crosshair';
                     this.showNotification('Click where you want to start reading');
-
+                    
                     const clickHandler = (ev) => {
                         ev.preventDefault();
                         ev.stopPropagation();
@@ -361,21 +351,31 @@
             });
             window.addEventListener('beforeunload', () => this.stopTTS(false));
         },
-
-        // ... (UI, showNotification, makeDraggable, gentleScrollToElement functions remain the same) ...
+        
         createUI() {
             const style = document.createElement('style');
             style.textContent = `
                 .tts-current-sentence {
                     background-color: rgba(20, 180, 20, 0.15) !important;
                     outline: 1px solid rgba(20, 180, 20, 0.4) !important;
-                    transition: background-color 0.3s, outline 0.3s;
+                    transition: all 0.3s ease-in-out !important;
                 }
                 .tts-current-word {
-                    background-color: rgba(255, 255, 0, 0.7) !important;
+                    background-color: rgba(255, 255, 0, 0.85) !important;
                     color: black !important;
                     border-radius: 3px;
-                    box-shadow: 0 0 5px rgba(0,0,0,0.3);
+                }
+                .tts-navigation-focus {
+                    background-color: rgba(0, 123, 255, 0.3) !important;
+                    outline: 2px solid rgba(0, 123, 255, 0.9) !important;
+                    box-shadow: 0 0 12px rgba(0, 123, 255, 0.7) !important;
+                    transition: all 0.1s ease-in-out !important;
+                    animation: tts-pulse 0.5s infinite ease-in-out;
+                }
+                @keyframes tts-pulse {
+                    0% { background-color: rgba(0, 123, 255, 0.15); box-shadow: 0 0 8px rgba(0, 123, 255, 0.4); }
+                    50% { background-color: rgba(0, 123, 255, 0.25); box-shadow: 0 0 16px rgba(0, 123, 255, 0.7); }
+                    100% { background-color: rgba(0, 123, 255, 0.15); box-shadow: 0 0 8px rgba(0, 123, 255, 0.4); }
                 }
             `;
             document.head.appendChild(style);
@@ -432,7 +432,7 @@
         },
 
         gentleScrollToElement(element) {
-            if (Date.now() - this.lastScrollTime < this.CONFIG.SCROLL_THROTTLE_MS) return;
+            if (Date.now() - this.lastScrollTime < 1000) return;
             const rect = element.getBoundingClientRect();
             if (rect.top < 0 || rect.bottom > window.innerHeight) {
                 this.lastScrollTime = Date.now();
