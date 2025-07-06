@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Universal TTS Reader with Precision Navigation & Highlighting
 // @namespace    http://tampermonkey.net/
-// @version      2.0
-// @description  An intelligent, content-aware TTS reader that skips code blocks. Features continuous reading, precise navigation, preview highlights, and word-by-word highlighting.
+// @version      2.1
+// @description  An intelligent, content-aware TTS reader that skips code and emojis. Features continuous reading, precise navigation, preview highlights, and word-by-word highlighting.
 // @author       Your Name (updated by AI)
 // @match        *://*/*
 // @grant        none
@@ -29,7 +29,6 @@
 
         CONFIG: {
             CANDIDATE_SELECTORS: 'p, li, h1, h2, h3, h4, h5, h6, td, th, .markdown, div[class*="content"], article',
-            // **UPDATED**: Added selectors to explicitly ignore code blocks and common syntax highlighting markup.
             IGNORE_SELECTORS: 'nav, script, style, noscript, header, footer, button, a, form, [aria-hidden="true"], [data-message-author-role="user"], pre, code, [class*="code"], [class*="language-"], [class*="highlight"], .token',
             MIN_TEXT_LENGTH: 20,
             SPEECH_RATE: 1.3,
@@ -41,7 +40,9 @@
                 NAV_NEXT: 'ArrowRight',
                 NAV_PREV: 'ArrowLeft',
                 STOP: 'Escape'
-            }
+            },
+            // Comprehensive regex to remove emojis and many symbols. 'u' flag is for Unicode.
+            EMOJI_REGEX: /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE0F}]/ug
         },
 
         init() {
@@ -67,10 +68,16 @@
             });
         },
 
+        cleanTextForTTS(text) {
+            // Remove emojis and replace multiple spaces with a single space
+            return text.replace(this.CONFIG.EMOJI_REGEX, '').replace(/\s+/g, ' ');
+        },
+
         getTextFromElement(element) {
             if (!element) return '';
-            // innerText is better at respecting CSS for hidden content than textContent.
-            return element.innerText.trim().replace(/\s+/g, ' ');
+            // Get raw text, then clean it for length checks etc.
+            const rawText = element.innerText || '';
+            return this.cleanTextForTTS(rawText);
         },
 
         isVisiblyReadable(element) {
@@ -87,8 +94,6 @@
             let readableCandidates = candidates.filter(el => this.isVisiblyReadable(el));
             const candidateSet = new Set(readableCandidates);
 
-            // Keep an element only if it does NOT contain another valid candidate.
-            // This prioritizes the most deeply nested readable blocks ("leaf nodes").
             const finalParagraphs = readableCandidates.filter(el => {
                 for (const otherEl of candidateSet) {
                     if (el !== otherEl && el.contains(otherEl)) {
@@ -134,7 +139,10 @@
 
             nodesToProcess.forEach(node => {
                 const fragment = document.createDocumentFragment();
-                const parts = node.textContent.split(/(\s+)/);
+                // **THE FIX IS HERE**: Clean the text *before* splitting and creating spans.
+                const cleanedText = this.cleanTextForTTS(node.textContent);
+                const parts = cleanedText.split(/(\s+)/);
+
                 parts.forEach(part => {
                     if (/\S/.test(part)) {
                         const span = document.createElement('span');
@@ -149,7 +157,8 @@
             });
 
             this.processedParagraph.wordSpans = wordSpans;
-            return paraElement.innerText.trim().replace(/\s+/g, ' ');
+            // The text to be spoken is now derived from the cleaned, emoji-free spans.
+            return this.processedParagraph.wordSpans.map(s => s.textContent).join(' ');
         },
 
         highlightCurrentWord(event) {
@@ -300,7 +309,6 @@
             this.stopTTS(false);
             this.paragraphsList = this.findAllParagraphs();
 
-            // Find the most specific paragraph element that was clicked
             const containingParagraph = this.paragraphsList.find(p => p.element.contains(element));
 
             if (containingParagraph) {
@@ -349,8 +357,6 @@
             });
             window.addEventListener('beforeunload', () => this.stopTTS(false));
         },
-
-
 
         createUI() {
             const style = document.createElement('style');
