@@ -38,11 +38,11 @@
         CONFIG: {
             CANDIDATE_SELECTORS: 'p, li, h1, h2, h3, h4, h5, h6, td, th, .markdown, div[class*="content"], article',
             IGNORE_SELECTORS: 'nav, script, style, noscript, header, footer, button, a, form, [aria-hidden="true"], [data-message-author-role="user"], pre, code, [class*="code"], [class*="language-"], [class*="highlight"], .token',
-            MIN_TEXT_LENGTH: 20,
+            MIN_TEXT_LENGTH: 10,
             SPEECH_RATE: 1.3,
             SCROLL_THROTTLE_MS: 1500,
-            NAV_READ_DELAY_MS: 650,
-            NAV_THROTTLE_MS: 400,
+            NAV_READ_DELAY_MS: 350,
+            NAV_THROTTLE_MS: 30,
             HOTKEYS: {
                 ACTIVATE: 'U',
                 PAUSE_RESUME: 'P',
