@@ -21,14 +21,14 @@
         lastScrollTime: 0,
         lastSpokenElement: null,
         navigationTimeoutId: null,
-        
+
         // --- Auto-reading properties ---
         autoReadingEnabled: true,
         observer: null,
         knownParagraphs: new Set(),
         readQueue: [],
         isProcessingQueue: false,
-        
+
         processedParagraph: {
             element: null,
             originalHTML: '',
@@ -40,8 +40,8 @@
             IGNORE_SELECTORS: 'nav, script, style, noscript, header, footer, button, a, form, [aria-hidden="true"], [data-message-author-role="user"], pre, code, [class*="code"], [class*="language-"], [class*="highlight"], .token',
             MIN_TEXT_LENGTH: 10,
             SPEECH_RATE: 1.3,
-            SCROLL_THROTTLE_MS: 1500,
-            NAV_READ_DELAY_MS: 350,
+            SCROLL_THROTTLE_MS: 500,
+            NAV_READ_DELAY_MS: 0,
             NAV_THROTTLE_MS: 30,
             HOTKEYS: {
                 ACTIVATE: 'U',
@@ -61,33 +61,27 @@
 
 
 
-
-
-
         init() {
-            this.waitForPageLoad(() => {
-                this.startAutoReading();
-            });
             this.createUI();
             this.setupEventListeners();
             this.loadVoices();
+            // Start observing for new paragraphs only after the page is fully loaded.
+            this.waitForPageLoad(() => {
+                this.startAutoReading();
+            });
         },
 
         waitForPageLoad(callback) {
-            const checkReadyState = () => {
-                if (document.readyState === 'complete') {
-                    setTimeout(() => {
-                        this.pageFullyLoaded = true;
-                        if (callback) callback();
-                    }, 1000);
-                } else {
-                    window.addEventListener('load', () => setTimeout(() => {
-                        this.pageFullyLoaded = true;
-                        if (callback) callback();
-                    }, 2000), { once: true });
-                }
+            const onPageReady = () => {
+                if (this.pageFullyLoaded) return;
+                this.pageFullyLoaded = true;
+                if (callback) callback();
             };
-            checkReadyState();
+            if (document.readyState === 'complete') {
+                setTimeout(onPageReady, 1500); // Wait a bit for SPAs to finish rendering
+            } else {
+                window.addEventListener('load', () => setTimeout(onPageReady, 2000), { once: true });
+            }
         },
 
         loadVoices() {
@@ -97,7 +91,7 @@
                 else this.speechSynthesis.onvoiceschanged = () => resolve(this.speechSynthesis.getVoices());
             });
         },
-        
+
         cleanTextForTTS(text) {
             return text.replace(this.CONFIG.EMOJI_REGEX, '').replace(/\s+/g, ' ');
         },
@@ -108,11 +102,16 @@
         },
 
         isVisiblyReadable(element) {
-            if (!element || !element.tagName || element.offsetParent === null || window.getComputedStyle(element).visibility === 'hidden' || window.getComputedStyle(element).display === 'none') return false;
-            if (element.closest(this.CONFIG.IGNORE_SELECTORS)) return false;
-            return this.getTextFromElement(element).length >= this.CONFIG.MIN_TEXT_LENGTH;
+            if (!element || !element.tagName || element.offsetParent === null || window.getComputedStyle(element).visibility === 'hidden' || window.getComputedStyle(element).display === 'none') {
+                return false;
+            }
+            if (element.closest(this.CONFIG.IGNORE_SELECTORS)) {
+                return false;
+            }
+            const text = this.getTextFromElement(element);
+            return text.length >= this.CONFIG.MIN_TEXT_LENGTH;
         },
-        
+
         findAllParagraphs() {
             let candidates = Array.from(document.querySelectorAll(this.CONFIG.CANDIDATE_SELECTORS));
             let readableCandidates = candidates.filter(el => this.isVisiblyReadable(el));
@@ -133,8 +132,8 @@
 
         // --- Auto-Reading Methods ---
         startAutoReading() {
-            if (this.observer) return; // Already running
-            
+            if (this.observer || !this.pageFullyLoaded) return;
+
             this.autoReadingEnabled = true;
             this.paragraphsList = this.findAllParagraphs();
             this.knownParagraphs = new Set(this.paragraphsList.map(p => p.element));
@@ -166,7 +165,7 @@
         },
 
         checkForNewParagraphs() {
-            if (!this.autoReadingEnabled) return;
+            if (!this.autoReadingEnabled || !this.pageFullyLoaded) return;
             const currentParagraphs = this.findAllParagraphs();
             currentParagraphs.forEach(p => {
                 if (!this.knownParagraphs.has(p.element)) {
@@ -179,28 +178,50 @@
             }
         },
 
+        // --- [FIXED] This function now prepares paragraphs for full highlighting ---
         processReadQueue() {
             if (this.isProcessingQueue || this.readQueue.length === 0 || !this.autoReadingEnabled || this.ttsActive) {
+                this.isProcessingQueue = false;
                 return;
             }
             this.isProcessingQueue = true;
-            
             const para = this.readQueue.shift();
-            
-            if (para && para.text) {
-                console.log("Auto-reading new paragraph:", para.text.substring(0, 50));
-                para.element.classList.add('tts-new-paragraph-highlight');
+
+            // Check if the paragraph from the queue is valid
+            if (para && para.element) {
                 this.gentleScrollToElement(para.element);
-                
-                this.triggerTTS(para.text, () => {
-                    para.element.classList.remove('tts-new-paragraph-highlight');
+                this.lastSpokenElement = para.element;
+
+                // This crucial step prepares the paragraph by wrapping words in spans for highlighting
+                const textToRead = this.prepareParagraphForReading(para.element);
+
+                // If paragraph is empty or unreadable, skip to the next one
+                if (!textToRead) {
                     this.isProcessingQueue = false;
+                    this.processReadQueue(); // Immediately try the next item
+                    return;
+                }
+
+                // Use the standard highlight for the currently playing sentence
+                this.clearHighlights();
+                para.element.classList.add('tts-current-sentence');
+
+                // The onComplete callback will trigger the next item in the queue
+                const onCompleteCallback = () => {
+                    this.isProcessingQueue = false;
+                    // Wait a bit before reading the next paragraph for a natural pause
                     setTimeout(() => this.processReadQueue(), 500);
-                });
+                };
+
+                this.triggerTTS(textToRead, onCompleteCallback);
+
             } else {
+                // The item from the queue was invalid, try the next one.
                 this.isProcessingQueue = false;
+                this.processReadQueue();
             }
         },
+
 
         // --- Core TTS & Navigation ---
         clearHighlights(keepFading = false) {
@@ -212,7 +233,7 @@
                 el.classList.remove(...selectors.map(s => s.substring(1)));
             });
         },
-        
+
         revertParagraph() {
             const { element, originalHTML } = this.processedParagraph;
             if (element && originalHTML) {
@@ -263,9 +284,7 @@
                 if (event.charIndex >= accumulatedLength && event.charIndex < accumulatedLength + wordLength) {
                     span.classList.add('tts-current-word');
                     const rect = span.getBoundingClientRect();
-                    if (rect.top < -50 || rect.bottom > window.innerHeight + 50) {
-                        span.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
-                    }
+
                     return;
                 }
                 accumulatedLength += wordLength + 1;
@@ -301,23 +320,23 @@
             };
             this.speechSynthesis.speak(utterance);
         },
-        
+
         readFromParagraph(index) {
             if (!this.continuousReadingActive) { this.revertParagraph(); return; }
             if (index < 0 || index >= this.paragraphsList.length) { this.stopTTS(false); return; }
-        
+
             this.currentParagraphIndex = index;
             const para = this.paragraphsList[index];
             this.lastSpokenElement = para.element;
-        
+
             const textToRead = this.prepareParagraphForReading(para.element);
             if (!textToRead) { this.navigate(1); return; }
-        
+
             this.clearHighlights(true);
             para.element.classList.add('tts-current-sentence');
             this.triggerTTS(textToRead, () => this.navigate(1));
         },
-        
+
         stopTTS(notify = true) {
             this.continuousReadingActive = false;
             this.readQueue = [];
@@ -352,7 +371,7 @@
             this.stopTTS(false);
             this.paragraphsList = this.findAllParagraphs();
             if (this.paragraphsList.length === 0) return this.showNotification("No readable text found.");
-            
+
             const currentFocus = document.querySelector('.tts-navigation-focus');
             if(currentFocus) {
                 currentFocus.classList.remove('tts-navigation-focus');
@@ -365,7 +384,7 @@
             if (currentIndex === -1) {
                 const threshold = window.innerHeight * 0.2;
                 currentIndex = this.paragraphsList.findIndex(p => p.element.getBoundingClientRect().bottom > threshold);
-                currentIndex = (currentIndex === -1) ? 0 : currentIndex - 1; 
+                currentIndex = (currentIndex === -1) ? 0 : currentIndex - 1;
             }
 
             const newIndex = currentIndex + direction;
@@ -390,7 +409,7 @@
             this.stopTTS(false);
             this.paragraphsList = this.findAllParagraphs();
             let startParaIndex = -1;
-        
+
             const containingParagraph = this.paragraphsList.find(p => p.element.contains(event.target));
             if (containingParagraph) {
                 startParaIndex = this.paragraphsList.indexOf(containingParagraph);
@@ -404,7 +423,7 @@
                     }
                 }
             }
-            
+
             if (startParaIndex !== -1) {
                 this.continuousReadingActive = true;
                 this.readFromParagraph(startParaIndex);
@@ -451,12 +470,6 @@
             });
             window.addEventListener('beforeunload', () => this.stopTTS(false));
         },
-        
-   
-
-
-
-
 
 
         createUI() {
@@ -496,8 +509,6 @@
 
 
 
-
-
             const uiPanel = document.createElement('div');
             uiPanel.id = 'tts-control-panel';
             uiPanel.style.cssText = `position: fixed; top: 80px; right: 20px; width: 180px; padding: 8px; background: rgba(0,0,0,0.7); color: #fff; font-family: Arial, sans-serif; font-size: 13px; border-radius: 6px; cursor: move; z-index: 2147483647;`;
@@ -516,7 +527,6 @@
         showNotification(message) {
             let existing = document.getElementById('tts-notification-popup');
             if(existing) existing.remove();
-
             const notification = document.createElement('div');
             notification.id = 'tts-notification-popup';
             notification.style.cssText = `position: fixed; top: 20px; right: 20px; background: #333; color: white; padding: 10px 20px; border-radius: 5px; font-family: Arial, sans-serif; font-size: 14px; z-index: 2147483647; opacity: 0; transition: opacity 0.3s;`;
@@ -549,13 +559,9 @@
             document.addEventListener('mouseup', () => { isDown = false; });
         },
 
+        // --- [NEW] Implemented gentle scrolling ---
         gentleScrollToElement(element) {
-            if (Date.now() - this.lastScrollTime < 1000) return;
-            const rect = element.getBoundingClientRect();
-            if (rect.top < 0 || rect.bottom > window.innerHeight) {
-                this.lastScrollTime = Date.now();
-                element.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
-            }
+
         },
     };
 
