@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Universal TTS Reader with Precision Navigation & Highlighting
 // @namespace    http://tampermonkey.net/
-// @version      1.3
-// @description  A robust TTS reader with continuous reading, precise arrow-key navigation, and word-by-word highlighting.
+// @version      1.5
+// @description  A robust TTS reader with continuous reading, precise arrow-key navigation on complex sites, and word-by-word highlighting.
 // @author       Your Name (updated by AI)
 // @match        *://*/*
 // @grant        none
@@ -20,7 +20,7 @@
         lastScrollTime: 0,
         currentParagraphIndex: -1,
         paragraphsList: [],
-        highlightedElements: [],
+        lastSpokenElement: null, // NEW: Track the last element being spoken
         processedParagraph: {
             element: null,
             originalHTML: '',
@@ -28,9 +28,11 @@
         },
 
         CONFIG: {
-            CANDIDATE_SELECTORS: 'p, li, h1, h2, h3, h4, h5, h6, td, th, pre, div[class*="content"]',
-            IGNORE_SELECTORS: 'nav, script, style, noscript, header, footer, button, a, form, [aria-hidden="true"]',
-            MIN_TEXT_LENGTH: 10,
+            // Updated selectors for better targeting on sites like ChatGPT
+            CANDIDATE_SELECTORS: 'p, li, h1, h2, h3, h4, h5, h6, td, th, pre, .markdown, div[class*="content"]',
+            // Ignore user prompt containers on ChatGPT and other common UI elements
+            IGNORE_SELECTORS: 'nav, script, style, noscript, header, footer, button, a, form, [aria-hidden="true"], [data-message-author-role="user"]',
+            MIN_TEXT_LENGTH: 15,
             SPEECH_RATE: 1.5,
             SCROLL_THROTTLE_MS: 3000,
             HOTKEYS: {
@@ -46,19 +48,12 @@
             this.waitForPageLoad();
             this.createUI();
             this.setupEventListeners();
-            this.loadVoices().then(() => {
-                const startInterval = setInterval(() => {
-                    if (this.pageFullyLoaded) {
-                        clearInterval(startInterval);
-                        this.initParagraphNavigation();
-                    }
-                }, 500);
-            });
+            this.loadVoices().then(() => this.initParagraphNavigation());
         },
 
         waitForPageLoad() {
             if (document.readyState === 'complete') {
-                this.pageFullyLoaded = true;
+                setTimeout(() => { this.pageFullyLoaded = true; }, 1000);
             } else {
                 window.addEventListener('load', () => setTimeout(() => { this.pageFullyLoaded = true; }, 2000));
             }
@@ -74,47 +69,45 @@
 
         getTextFromElement(element) {
             if (!element) return '';
-            // Use innerText which is better at approximating rendered text, ignoring hidden elements.
             return element.innerText.trim().replace(/\s+/g, ' ');
         },
 
         isParagraphElement(element) {
-            if (!element || !element.tagName || element.offsetParent === null) return false;
+            if (!element || !element.tagName || element.offsetParent === null || window.getComputedStyle(element).visibility === 'hidden') return false;
             if (element.closest(this.CONFIG.IGNORE_SELECTORS)) return false;
-            // Check for direct text content to avoid including parent containers with no text of their own.
-            const hasDirectText = Array.from(element.childNodes).some(node => node.nodeType === Node.TEXT_NODE && node.textContent.trim().length > 0);
-            if (!hasDirectText && element.children.length > 0) {
-                 // It might be a container of other valid elements, but we prefer leaf nodes.
-            }
             return this.getTextFromElement(element).length >= this.CONFIG.MIN_TEXT_LENGTH;
         },
 
         findAllParagraphs() {
             const allCandidates = Array.from(document.querySelectorAll(this.CONFIG.CANDIDATE_SELECTORS));
-            const paragraphs = new Set(); // Use a Set to avoid duplicates
+            const uniqueParagraphs = new Set();
+
             allCandidates.forEach(candidate => {
                 if (this.isParagraphElement(candidate)) {
-                    // Find the most specific element containing the text
-                    let leafElement = candidate;
-                    let childElement = candidate.querySelector(this.CONFIG.CANDIDATE_SELECTORS);
-                    while(childElement && this.isParagraphElement(childElement)) {
-                        leafElement = childElement;
-                        childElement = childElement.querySelector(this.CONFIG.CANDIDATE_SELECTORS);
+                    // This logic avoids adding a parent if its children are already candidates
+                    const hasReadableChild = candidate.querySelector(this.CONFIG.CANDIDATE_SELECTORS);
+                    if (!hasReadableChild || !this.isParagraphElement(hasReadableChild)) {
+                         uniqueParagraphs.add(candidate);
+                    } else {
+                        // Add parent only if it has significant text content of its own
+                        const childTextLength = Array.from(candidate.children).reduce((sum, child) => sum + this.getTextFromElement(child).length, 0);
+                        if(this.getTextFromElement(candidate).length > childTextLength + this.CONFIG.MIN_TEXT_LENGTH) {
+                            uniqueParagraphs.add(candidate);
+                        }
                     }
-                    paragraphs.add(leafElement);
                 }
             });
-            return Array.from(paragraphs).map(element => ({
+
+            return Array.from(uniqueParagraphs).map(element => ({
                 element: element,
                 text: this.getTextFromElement(element)
             }));
         },
 
         clearHighlights() {
-            this.highlightedElements.forEach(el => el.classList.remove('tts-current-sentence'));
-            this.highlightedElements = [];
-            const currentWord = document.querySelector('.tts-current-word');
-            if(currentWord) currentWord.classList.remove('tts-current-word');
+            document.querySelectorAll('.tts-current-sentence, .tts-current-word').forEach(el => {
+                el.classList.remove('tts-current-sentence', 'tts-current-word');
+            });
         },
 
         revertParagraph() {
@@ -127,69 +120,54 @@
         },
 
         prepareParagraphForReading(paraElement) {
-            this.revertParagraph(); // Revert any previous paragraph first
-
+            this.revertParagraph();
             if (!paraElement || !paraElement.parentNode) return null;
 
             this.processedParagraph.element = paraElement;
             this.processedParagraph.originalHTML = paraElement.innerHTML;
-
             const wordSpans = [];
             const walker = document.createTreeWalker(paraElement, NodeFilter.SHOW_TEXT, null, false);
             const nodesToProcess = [];
             while(walker.nextNode()) {
-                if (walker.currentNode.textContent.trim().length > 0) {
-                     nodesToProcess.push(walker.currentNode);
-                }
+                if (walker.currentNode.textContent.trim().length > 0) nodesToProcess.push(walker.currentNode);
             }
 
             nodesToProcess.forEach(node => {
                 const fragment = document.createDocumentFragment();
-                // Split by whitespace but keep it, to preserve document spacing
                 const parts = node.textContent.split(/(\s+)/);
                 parts.forEach(part => {
-                    if (/\S/.test(part)) { // It's a word
+                    if (/\S/.test(part)) {
                         const span = document.createElement('span');
                         span.textContent = part;
                         fragment.appendChild(span);
                         wordSpans.push(span);
-                    } else { // It's whitespace
+                    } else {
                         fragment.appendChild(document.createTextNode(part));
                     }
                 });
-                if (node.parentNode) {
-                    node.parentNode.replaceChild(fragment, node);
-                }
+                if (node.parentNode) node.parentNode.replaceChild(fragment, node);
             });
 
             this.processedParagraph.wordSpans = wordSpans;
-            return paraElement.textContent.trim().replace(/\s+/g, ' ');
+            return paraElement.innerText.trim().replace(/\s+/g, ' ');
         },
-
 
         highlightCurrentWord(event) {
             if (event.name !== 'word') return;
-
-            // Clear previous word's highlight
             const prevWord = document.querySelector('.tts-current-word');
             if (prevWord) prevWord.classList.remove('tts-current-word');
 
-            const charIndex = event.charIndex;
             let accumulatedLength = 0;
-
             for (const span of this.processedParagraph.wordSpans) {
                 const wordLength = span.textContent.length;
-                if (charIndex >= accumulatedLength && charIndex < accumulatedLength + wordLength) {
+                if (event.charIndex >= accumulatedLength && event.charIndex < accumulatedLength + wordLength) {
                     span.classList.add('tts-current-word');
-                    // Gently scroll the word into view if it's off-screen
                     const rect = span.getBoundingClientRect();
-                    const isVisible = rect.top >= 0 && rect.bottom <= window.innerHeight;
-                    if(!isVisible) {
+                    if (rect.top < 0 || rect.bottom > window.innerHeight) {
                         span.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
                     }
                     return;
                 }
-                // The +1 accounts for the space character when we joined the text for the utterance
                 accumulatedLength += wordLength + 1;
             }
         },
@@ -212,59 +190,60 @@
 
             utterance.onend = () => {
                 this.ttsActive = false;
-                if (onComplete) onComplete();
+                if (onComplete && this.continuousReadingActive) {
+                    onComplete();
+                } else {
+                    this.revertParagraph();
+                }
             };
             utterance.onerror = (e) => {
                 console.error("Speech Synthesis Error:", e);
                 this.ttsActive = false;
                 this.revertParagraph();
-                if (onComplete) onComplete();
+                if (onComplete && this.continuousReadingActive) onComplete();
             };
 
             this.speechSynthesis.speak(utterance);
         },
 
         readFromParagraph(index) {
-            if (!this.continuousReadingActive || index < 0 || index >= this.paragraphsList.length) {
-                this.continuousReadingActive = false;
+            if (!this.continuousReadingActive) {
                 this.revertParagraph();
                 return;
             }
-            this.currentParagraphIndex = index;
-            const para = this.paragraphsList[index];
 
-            if (!para || !para.text) {
-                this.readFromParagraph(index + 1); // Skip invalid paragraphs
+            if (index < 0 || index >= this.paragraphsList.length) {
+                this.stopTTS(false); // Stop if we've gone out of bounds
                 return;
             }
 
+            this.currentParagraphIndex = index;
+            const para = this.paragraphsList[index];
+            this.lastSpokenElement = para.element; // Update state immediately
+
             const textToRead = this.prepareParagraphForReading(para.element);
-             if (!textToRead) {
+            if (!textToRead) {
                 this.readFromParagraph(index + 1); // Skip if preparation fails
                 return;
             }
 
-            // Highlight the entire paragraph
+            this.clearHighlights();
             para.element.classList.add('tts-current-sentence');
-            this.highlightedElements.push(para.element);
-
             this.gentleScrollToElement(para.element);
+
             this.triggerTTS(textToRead, () => this.readFromParagraph(index + 1));
         },
 
         stopTTS(notify = true) {
-            this.continuousReadingActive = false;
+            this.continuousReadingActive = false; // This is the crucial flag to break the onend chain
             if (this.speechSynthesis.speaking || this.speechSynthesis.pending) {
                 this.ttsActive = false;
                 this.isPaused = false;
                 this.speechSynthesis.cancel();
-                this.revertParagraph();
                 if (notify) this.showNotification('All TTS stopped');
-                return true;
             }
-            // Even if not speaking, ensure any leftover markup is gone
-            this.revertParagraph();
-            return false;
+            this.revertParagraph(); // Always clean up markup
+            return true;
         },
 
         pauseResumeTTS() {
@@ -281,25 +260,62 @@
         },
 
         initParagraphNavigation() {
+            if (!this.pageFullyLoaded) return;
             this.paragraphsList = this.findAllParagraphs();
-            const threshold = window.innerHeight * 0.2;
-            let startIndex = this.paragraphsList.findIndex(p => p.element.getBoundingClientRect().bottom > threshold);
-            this.currentParagraphIndex = startIndex !== -1 ? startIndex : 0;
         },
 
-        goToParagraph(index) {
-            if (index < 0 || index >= this.paragraphsList.length) {
-                this.stopTTS(false);
+        // **REWRITTEN NAVIGATION LOGIC**
+        navigate(direction) { // +1 for next, -1 for previous
+            this.stopTTS(false);
+
+            // Rescan the DOM for the most current layout
+            this.paragraphsList = this.findAllParagraphs();
+
+            if (this.paragraphsList.length === 0) {
+                this.showNotification("No readable text found.");
                 return;
-            };
-            this.stopTTS(false); // Stop any previous reading before starting a new one.
-            this.continuousReadingActive = true;
-            this.readFromParagraph(index);
+            }
+
+            let currentIndex = -1;
+            // Find the index of the last element we spoke
+            if (this.lastSpokenElement) {
+                currentIndex = this.paragraphsList.findIndex(p => p.element === this.lastSpokenElement);
+            }
+
+            // If we couldn't find it (or it's the first run), find the first visible paragraph
+            if (currentIndex === -1) {
+                const threshold = window.innerHeight * 0.2;
+                currentIndex = this.paragraphsList.findIndex(p => p.element.getBoundingClientRect().bottom > threshold);
+                currentIndex = (currentIndex === -1) ? 0 : currentIndex;
+            }
+
+            const newIndex = currentIndex + direction;
+
+            if (newIndex >= 0 && newIndex < this.paragraphsList.length) {
+                this.continuousReadingActive = true;
+                this.readFromParagraph(newIndex);
+            } else {
+                this.showNotification(direction > 0 ? "End of page." : "Start of page.");
+                this.continuousReadingActive = false;
+            }
+        },
+
+        // Click-to-start is a special case of navigation
+        startReadingAtElement(element) {
+            this.stopTTS(false);
+            this.initParagraphNavigation(); // Rescan
+
+            const startParaIndex = this.paragraphsList.findIndex(p => p.element.contains(element));
+            if (startParaIndex !== -1) {
+                this.continuousReadingActive = true;
+                this.readFromParagraph(startParaIndex);
+            } else {
+                this.showNotification('No readable text found there.');
+            }
         },
 
         setupEventListeners() {
             document.addEventListener('keydown', (e) => {
-                // Ignore key events in input fields
                 const activeEl = document.activeElement;
                 if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable)) {
                     return;
@@ -309,49 +325,50 @@
                 const combo = e.ctrlKey && e.shiftKey;
                 const KEY = this.CONFIG.HOTKEYS;
 
+                switch (key) {
+                    case KEY.NAV_NEXT:
+                        e.preventDefault();
+                        this.navigate(1);
+                        break;
+                    case KEY.NAV_PREV:
+                        e.preventDefault();
+                        this.navigate(-1);
+                        break;
+                    case KEY.STOP:
+                        e.preventDefault();
+                        this.stopTTS();
+                        break;
+                }
+
                 if (combo && key.toUpperCase() === KEY.ACTIVATE) {
                     e.preventDefault();
-                    if (this.stopTTS(false)) return;
+                    if (this.ttsActive) { this.stopTTS(); return; }
+
                     document.body.style.cursor = 'crosshair';
                     this.showNotification('Click where you want to start reading');
+
                     const clickHandler = (ev) => {
                         ev.preventDefault();
                         ev.stopPropagation();
                         document.body.style.cursor = 'default';
-                        this.initParagraphNavigation(); // Re-scan paragraphs on click
-                        const clickedElement = ev.target;
-                        if(clickedElement){
-                             const startParaIndex = this.paragraphsList.findIndex(p => p.element.contains(clickedElement));
-                             if (startParaIndex !== -1) {
-                                this.goToParagraph(startParaIndex);
-                             } else {
-                                this.showNotification('No readable text found there.');
-                             }
-                        }
+                        this.startReadingAtElement(ev.target);
                     };
                     document.addEventListener('click', clickHandler, { once: true, capture: true });
                 } else if (combo && key.toUpperCase() === KEY.PAUSE_RESUME) {
                     e.preventDefault();
                     this.pauseResumeTTS();
-                } else if (key === KEY.NAV_NEXT) {
-                    e.preventDefault();
-                    this.goToParagraph(this.currentParagraphIndex + 1);
-                } else if (key === KEY.NAV_PREV) {
-                    e.preventDefault();
-                    this.goToParagraph(this.currentParagraphIndex - 1);
-                } else if (key === KEY.STOP) {
-                    this.stopTTS();
                 }
             });
             window.addEventListener('beforeunload', () => this.stopTTS(false));
         },
 
+        // ... (UI, showNotification, makeDraggable, gentleScrollToElement functions remain the same) ...
         createUI() {
             const style = document.createElement('style');
             style.textContent = `
                 .tts-current-sentence {
-                    background-color: rgba(0, 255, 0, 0.2) !important;
-                    outline: 1px solid rgba(0, 255, 0, 0.6) !important;
+                    background-color: rgba(20, 180, 20, 0.15) !important;
+                    outline: 1px solid rgba(20, 180, 20, 0.4) !important;
                     transition: background-color 0.3s, outline 0.3s;
                 }
                 .tts-current-word {
@@ -365,7 +382,7 @@
 
             const uiPanel = document.createElement('div');
             uiPanel.id = 'tts-control-panel';
-            uiPanel.style.cssText = `position: fixed; top: 80px; right: 20px; width: 180px; padding: 8px; background: rgba(0,0,0,0.7); color: #fff; font-family: Arial, sans-serif; font-size: 13px; border-radius: 6px; cursor: move; z-index: 10001;`;
+            uiPanel.style.cssText = `position: fixed; top: 80px; right: 20px; width: 180px; padding: 8px; background: rgba(0,0,0,0.7); color: #fff; font-family: Arial, sans-serif; font-size: 13px; border-radius: 6px; cursor: move; z-index: 2147483647;`;
             uiPanel.innerHTML = `<div style="font-weight:bold; text-align:center; margin-bottom: 5px;">TTS Reader</div><label for="tts-speed" style="display:block; margin-bottom:4px;">Speed: <span id="speed-value">${this.CONFIG.SPEECH_RATE.toFixed(1)}</span>x</label><input type="range" id="tts-speed" min="0.5" max="2.5" step="0.1" value="${this.CONFIG.SPEECH_RATE}" style="width:100%;">`;
             document.body.appendChild(uiPanel);
 
@@ -384,7 +401,7 @@
 
             const notification = document.createElement('div');
             notification.id = 'tts-notification-popup';
-            notification.style.cssText = `position: fixed; top: 20px; right: 20px; background: #333; color: white; padding: 10px 20px; border-radius: 5px; font-family: Arial, sans-serif; font-size: 14px; z-index: 10002; opacity: 0; transition: opacity 0.3s;`;
+            notification.style.cssText = `position: fixed; top: 20px; right: 20px; background: #333; color: white; padding: 10px 20px; border-radius: 5px; font-family: Arial, sans-serif; font-size: 14px; z-index: 2147483647; opacity: 0; transition: opacity 0.3s;`;
             notification.textContent = message;
             document.body.appendChild(notification);
             setTimeout(() => { notification.style.opacity = '1'; }, 10);
@@ -417,8 +434,7 @@
         gentleScrollToElement(element) {
             if (Date.now() - this.lastScrollTime < this.CONFIG.SCROLL_THROTTLE_MS) return;
             const rect = element.getBoundingClientRect();
-            const isVisible = rect.top >= 0 && rect.bottom <= window.innerHeight;
-            if (!isVisible) {
+            if (rect.top < 0 || rect.bottom > window.innerHeight) {
                 this.lastScrollTime = Date.now();
                 element.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
             }
