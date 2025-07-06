@@ -2,7 +2,7 @@
 // @name         Universal TTS Reader with Precision Navigation & Highlighting
 // @namespace    http://tampermonkey.net/
 // @version      2.1
-// @description  An intelligent, content-aware TTS reader that skips code and emojis. Features continuous reading, precise navigation, preview highlights, and word-by-word highlighting.
+// @description  An intelligent, content-aware TTS reader with input throttling for smooth, paced navigation. Features continuous reading, precise navigation, preview highlights, and word-by-word highlighting.
 // @author       Your Name (updated by AI)
 // @match        *://*/*
 // @grant        none
@@ -15,6 +15,7 @@
         speechSynthesis: window.speechSynthesis,
         ttsActive: false,
         isPaused: false,
+        isNavigating: false, // NEW: Flag to throttle navigation input
         continuousReadingActive: false,
         pageFullyLoaded: false,
         lastScrollTime: 0,
@@ -30,10 +31,11 @@
         CONFIG: {
             CANDIDATE_SELECTORS: 'p, li, h1, h2, h3, h4, h5, h6, td, th, .markdown, div[class*="content"], article',
             IGNORE_SELECTORS: 'nav, script, style, noscript, header, footer, button, a, form, [aria-hidden="true"], [data-message-author-role="user"], pre, code, [class*="code"], [class*="language-"], [class*="highlight"], .token',
-            MIN_TEXT_LENGTH: 20,
+            MIN_TEXT_LENGTH: 10,
             SPEECH_RATE: 1.3,
             SCROLL_THROTTLE_MS: 1500,
-            NAV_READ_DELAY_MS: 650,
+            NAV_READ_DELAY_MS: 450,
+            NAV_THROTTLE_MS: 20, // NEW: Cooldown between arrow key navigations
             HOTKEYS: {
                 ACTIVATE: 'U',
                 PAUSE_RESUME: 'P',
@@ -41,9 +43,15 @@
                 NAV_PREV: 'ArrowLeft',
                 STOP: 'Escape'
             },
-            // Comprehensive regex to remove emojis and many symbols. 'u' flag is for Unicode.
             EMOJI_REGEX: /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE0F}]/ug
         },
+
+
+
+
+
+
+
 
         init() {
             this.waitForPageLoad();
@@ -69,13 +77,11 @@
         },
 
         cleanTextForTTS(text) {
-            // Remove emojis and replace multiple spaces with a single space
             return text.replace(this.CONFIG.EMOJI_REGEX, '').replace(/\s+/g, ' ');
         },
 
         getTextFromElement(element) {
             if (!element) return '';
-            // Get raw text, then clean it for length checks etc.
             const rawText = element.innerText || '';
             return this.cleanTextForTTS(rawText);
         },
@@ -96,9 +102,7 @@
 
             const finalParagraphs = readableCandidates.filter(el => {
                 for (const otherEl of candidateSet) {
-                    if (el !== otherEl && el.contains(otherEl)) {
-                        return false;
-                    }
+                    if (el !== otherEl && el.contains(otherEl)) return false;
                 }
                 return true;
             });
@@ -109,9 +113,13 @@
             }));
         },
 
-        clearHighlights() {
-            document.querySelectorAll('.tts-current-sentence, .tts-current-word, .tts-navigation-focus').forEach(el => {
-                el.classList.remove('tts-current-sentence', 'tts-current-word', 'tts-navigation-focus');
+        clearHighlights(keepFading = false) {
+            const selectors = ['.tts-current-sentence', '.tts-current-word'];
+            if (!keepFading) {
+                selectors.push('.tts-navigation-focus', '.tts-focus-fade-out');
+            }
+            document.querySelectorAll(selectors.join(', ')).forEach(el => {
+                el.classList.remove(...selectors.map(s => s.substring(1)));
             });
         },
 
@@ -139,7 +147,6 @@
 
             nodesToProcess.forEach(node => {
                 const fragment = document.createDocumentFragment();
-                // **THE FIX IS HERE**: Clean the text *before* splitting and creating spans.
                 const cleanedText = this.cleanTextForTTS(node.textContent);
                 const parts = cleanedText.split(/(\s+)/);
 
@@ -157,7 +164,6 @@
             });
 
             this.processedParagraph.wordSpans = wordSpans;
-            // The text to be spoken is now derived from the cleaned, emoji-free spans.
             return this.processedParagraph.wordSpans.map(s => s.textContent).join(' ');
         },
 
@@ -236,9 +242,8 @@
                 return;
             }
 
-            this.clearHighlights();
+            this.clearHighlights(true);
             para.element.classList.add('tts-current-sentence');
-            this.gentleScrollToElement(para.element);
 
             this.triggerTTS(textToRead, () => this.navigate(1));
         },
@@ -268,12 +273,20 @@
         },
 
         navigate(direction) {
+            if (this.isNavigating) return;
+            this.isNavigating = true;
+            setTimeout(() => { this.isNavigating = false; }, this.CONFIG.NAV_THROTTLE_MS);
+
             this.stopTTS(false);
 
             this.paragraphsList = this.findAllParagraphs();
-            if (this.paragraphsList.length === 0) {
-                this.showNotification("No readable text found.");
-                return;
+            if (this.paragraphsList.length === 0) return this.showNotification("No readable text found.");
+
+            const currentFocus = document.querySelector('.tts-navigation-focus');
+            if(currentFocus) {
+                currentFocus.classList.remove('tts-navigation-focus');
+                currentFocus.classList.add('tts-focus-fade-out');
+                setTimeout(() => currentFocus.classList.remove('tts-focus-fade-out'), 500);
             }
 
             let currentIndex = -1;
@@ -291,7 +304,7 @@
 
             if (newIndex >= 0 && newIndex < this.paragraphsList.length) {
                 const targetElement = this.paragraphsList[newIndex].element;
-                this.clearHighlights();
+                this.clearHighlights(true);
                 targetElement.classList.add('tts-navigation-focus');
                 this.gentleScrollToElement(targetElement);
                 this.lastSpokenElement = targetElement;
@@ -305,27 +318,40 @@
             }
         },
 
-        startReadingAtElement(element) {
+        // **REWRITTEN CLICK-TO-START LOGIC**
+        startReadingOnClick(event) {
             this.stopTTS(false);
             this.paragraphsList = this.findAllParagraphs();
+            let startParaIndex = -1;
 
-            const containingParagraph = this.paragraphsList.find(p => p.element.contains(element));
-
+            // First, try to find a paragraph that directly contains the clicked element
+            const containingParagraph = this.paragraphsList.find(p => p.element.contains(event.target));
             if (containingParagraph) {
-                 const startParaIndex = this.paragraphsList.indexOf(containingParagraph);
-                 this.continuousReadingActive = true;
-                 this.readFromParagraph(startParaIndex);
+                startParaIndex = this.paragraphsList.indexOf(containingParagraph);
             } else {
-                this.showNotification('No readable text found there.');
+                // FALLBACK: If no direct hit, find the first readable paragraph below the click position
+                const clickY = event.clientY;
+                for(let i = 0; i < this.paragraphsList.length; i++) {
+                    const rect = this.paragraphsList[i].element.getBoundingClientRect();
+                    if (rect.top > clickY) {
+                        startParaIndex = i;
+                        break;
+                    }
+                }
+            }
+
+            if (startParaIndex !== -1) {
+                this.continuousReadingActive = true;
+                this.readFromParagraph(startParaIndex);
+            } else {
+                this.showNotification('No readable text found at or below your click.');
             }
         },
 
         setupEventListeners() {
             document.addEventListener('keydown', (e) => {
                 const activeEl = document.activeElement;
-                if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable)) {
-                    return;
-                }
+                if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable)) return;
 
                 const key = e.key;
                 const combo = e.ctrlKey && e.shiftKey;
@@ -347,7 +373,7 @@
                         ev.preventDefault();
                         ev.stopPropagation();
                         document.body.style.cursor = 'default';
-                        this.startReadingAtElement(ev.target);
+                        this.startReadingOnClick(ev); // Use new smart handler
                     };
                     document.addEventListener('click', clickHandler, { once: true, capture: true });
                 } else if (combo && key.toUpperCase() === KEY.PAUSE_RESUME) {
@@ -362,36 +388,36 @@
             const style = document.createElement('style');
             style.textContent = `
                 .tts-current-sentence {
-                    background-color: rgba(20, 180, 20, 0.15) !important;
-                    border-left: 4px solid rgba(0, 255, 0, 1) !important;
-                    padding-left: 8px !important;
-                    outline: 1px solid rgba(20, 180, 20, 0.4) !important;
-                    transition: all 0.3s ease-in-out !important;
+                    background-color: rgba(46, 204, 113, 0.08) !important;
+                    border-left: 4px solid #2ecc71 !important;
+                    border-right: 1px solid #2ecc71 !important;
+                    border-bottom: 1px solid #2ecc71 !important;
+                    border-top: 1px solid #2ecc71 !important;
+                    padding-left: 10px !important;
                 }
                 .tts-current-word {
-                    background-color: rgba(255, 255, 0, 0.85) !important;
-                    border-left: 4px solid rgba(238, 255, 0, 1) !important;
+                    background-color: rgba(250, 210, 50, 0.9) !important;
+                    font-weight: bold !important;
                     color: black !important;
                     border-radius: 3px;
+                    transform: scale(1.02);
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
                 }
                 .tts-navigation-focus {
-                    background-color: rgba(0, 123, 255, 0.3) !important;
-                    outline: 2px solid rgba(0, 123, 255, 0.9) !important;
+                    background-color: rgba(52, 152, 219, 0.3) !important;
                     border-left: 4px solid #3498db !important;
-                    padding-left: 8px !important;
-                    box-shadow: 0 0 12px rgba(0, 123, 255, 0.7) !important;
-                    transition: all 0.1s ease-in-out !important;
-                    animation: tts-pulse 0.5s infinite ease-in-out;
+                    border-bottom: 1px solid #3498db !important;
+                    border-right: 1px solid #3498db !important;
+                    border-top: 1px solid #3498db !important;
+                    padding-left: 10px !important;
                 }
-                @keyframes tts-pulse {
-                    0% { background-color: rgba(0, 123, 255, 0.15); box-shadow: 0 0 8px rgba(0, 123, 255, 0.4); }
-                    50% { background-color: rgba(0, 123, 255, 0.25); box-shadow: 0 0 16px rgba(0, 123, 255, 0.7); }
-                    100% { background-color: rgba(0, 123, 255, 0.15); box-shadow: 0 0 8px rgba(0, 123, 255, 0.4); }
+                .tts-focus-fade-out {
+                    border-left-color: transparent !important;
+                    background-color: transparent !important;
                 }
+
             `;
             document.head.appendChild(style);
-
-
 
             const uiPanel = document.createElement('div');
             uiPanel.id = 'tts-control-panel';
