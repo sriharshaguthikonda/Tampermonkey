@@ -384,6 +384,17 @@
             window.addEventListener('beforeunload', () => this.stopTTS(false));
         },
 
+
+
+
+
+
+
+
+
+
+
+
         createUI() {
             const style = document.createElement('style');
             style.textContent = `
@@ -418,6 +429,16 @@
 
             `;
             document.head.appendChild(style);
+
+
+
+
+
+
+
+
+
+            
 
             const uiPanel = document.createElement('div');
             uiPanel.id = 'tts-control-panel';
