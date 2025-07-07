@@ -1,12 +1,20 @@
 // ==UserScript==
-// @name         Universal TTS Reader with Precision Navigation & Highlighting
+// @name         *** ChatGPT Universal TTS Reader with Precision Navigation & Highlighting
 // @namespace    http://tampermonkey.net/
 // @version      2.4
 // @description  An intelligent, content-aware TTS reader with a responsive, "in-game" waypoint arrow that only appears for off-screen content. Features continuous reading and word-by-word highlighting.
 // @author       Your Name (updated by AI)
+// @match        https://chat.openai.com/c/*
+// @match        https://chat.openai.com/g/*
+// @match        https://chat.openai.com/?*
+// @match        https://chat.openai.com/*
 // @match        https://chatgpt.com/c/*
+// @match        https://chatgpt.com/g/*
+// @match        https://chatgpt.com/?*
+// @match        https://chatgpt.com/*
 // @grant        none
 // ==/UserScript==
+
 
 (function() {
     'use strict';
@@ -22,26 +30,16 @@
         navigationTimeoutId: null,
         pointerLoopId: null,
         paragraphsList: [],
-        processedParagraph: {
-            element: null,
-            originalHTML: '',
-            wordSpans: []
-        },
+        processedParagraph: { element: null, originalHTML: '', wordSpans: [] },
 
         CONFIG: {
             CANDIDATE_SELECTORS: 'p, li, h1, h2, h3, h4, h5, h6, td, th, .markdown, div[class*="content"], article',
-            IGNORE_SELECTORS: 'nav, script, style, noscript, header, footer, button, a, form, [aria-hidden="true"], [data-message-author-role="user"], pre, code, [class*="code"], [class*="language-"], [class*="highlight"], .token',
+            IGNORE_SELECTORS: 'nav, script, style, noscript, header, footer, button, a, form, [aria-hidden="true"], [data-message-author-role="user"], pre, code, [class*="code"], [class*="language-"], [class*="highlight"], .token, #thread-bottom-container',
             MIN_TEXT_LENGTH: 10,
             SPEECH_RATE: 1.3,
-            NAV_READ_DELAY_MS: 450,
+            NAV_READ_DELAY_MS: 0,
             NAV_THROTTLE_MS: 20,
-            HOTKEYS: {
-                ACTIVATE: 'U',
-                PAUSE_RESUME: 'P',
-                NAV_NEXT: 'ArrowRight',
-                NAV_PREV: 'ArrowLeft',
-                STOP: 'Escape'
-            },
+            HOTKEYS: { ACTIVATE: 'U', PAUSE_RESUME: 'P', NAV_NEXT: 'ArrowRight', NAV_PREV: 'ArrowLeft', STOP: 'Escape' },
             EMOJI_REGEX: /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE0F}]/ug
         },
 
@@ -322,6 +320,8 @@
         },
 
         startReadingOnClick(event) {
+            if (event.target.closest('#thread-bottom-container')) return;
+
             this.stopTTS(false);
             this.paragraphsList = this.findAllParagraphs();
             let startParaIndex = -1;
