@@ -7,7 +7,8 @@ An Edge extension that converts ChatGPT conversations into speech with highlight
 - **Text-to-Speech**: Converts ChatGPT responses to natural-sounding speech
 - **Word Highlighting**: Visually tracks the currently spoken word
 - **Improved Highlighting Reliability**: Fixed DOM exceptions that could occur during per-word highlighting
-- **Navigation Controls**: Easily navigate between paragraphs
+- **Emoji Skipping**: Emojis are marked with `aria-hidden` so they're not spoken
+- **Navigation Controls**: Navigate sentence by sentence
 - **Customizable Speed**: Adjust the speech rate to your preference
 - **Keyboard Shortcuts**: Control playback with keyboard shortcuts
 - **Responsive UI**: Clean and intuitive interface
