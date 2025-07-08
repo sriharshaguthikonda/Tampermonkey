@@ -87,7 +87,18 @@ class TTSReader {
             switch (e.key) {
                 case this.CONFIG.HOTKEYS.ACTIVATE:
                     e.preventDefault();
-                    this.startReadingFromCursor();
+                    if (this.ttsActive) {
+                        this.stopTTS();
+                        return;
+                    }
+                    document.body.style.cursor = 'crosshair';
+                    const clickHandler = (ev) => {
+                        ev.preventDefault();
+                        ev.stopPropagation();
+                        document.body.style.cursor = '';
+                        this.startReadingOnClick(ev);
+                    };
+                    document.addEventListener('click', clickHandler, { once: true, capture: true });
                     break;
                 case this.CONFIG.HOTKEYS.PAUSE_RESUME:
                     e.preventDefault();
@@ -186,8 +197,37 @@ class TTSReader {
         // Start reading from the first paragraph
         this.currentParagraphIndex = 0;
         this.readParagraph(paragraphs[0]);
-        
+
         console.log('Started reading from cursor');
+    }
+
+    // Start reading based on a user click
+    startReadingOnClick(event) {
+        this.stopTTS(false);
+        this.paragraphsList = this.findAllParagraphs();
+
+        let startIndex = -1;
+        const containing = this.paragraphsList.find(p => p.element.contains(event.target));
+        if (containing) {
+            startIndex = this.paragraphsList.indexOf(containing);
+        } else {
+            const clickY = event.clientY;
+            for (let i = 0; i < this.paragraphsList.length; i++) {
+                const rect = this.paragraphsList[i].element.getBoundingClientRect();
+                if (rect.top > clickY) {
+                    startIndex = i;
+                    break;
+                }
+            }
+        }
+
+        if (startIndex !== -1) {
+            this.currentParagraphIndex = startIndex;
+            this.continuousReadingActive = true;
+            this.readParagraph(this.paragraphsList[startIndex]);
+        } else {
+            console.log('No readable text found at or below your click');
+        }
     }
 
     // Read a specific paragraph
@@ -199,6 +239,7 @@ class TTSReader {
         
         this.currentUtterance = new SpeechSynthesisUtterance(text);
         this.currentUtterance.rate = this.CONFIG.SPEECH_RATE;
+        this.currentParagraph = paragraph;
         
         // Set up event handlers
         this.currentUtterance.onboundary = (event) => {
@@ -211,6 +252,7 @@ class TTSReader {
         this.currentUtterance.onend = () => {
             this.ttsActive = false;
             this.currentUtterance = null;
+            this.hidePointerArrow();
             // Move to next paragraph if in continuous mode
             if (this.continuousReadingActive && this.paragraphsList.length > this.currentParagraphIndex + 1) {
                 this.currentParagraphIndex++;
@@ -228,6 +270,7 @@ class TTSReader {
         this.ttsActive = true;
         this.isPaused = false;
         window.speechSynthesis.speak(this.currentUtterance);
+        this.updatePointerArrow();
     }
     
     // Pause or resume TTS
@@ -257,6 +300,7 @@ class TTSReader {
         this.ttsActive = false;
         this.isPaused = false;
         this.clearHighlights();
+        this.hidePointerArrow();
         
         if (notify) {
             console.log('TTS Stopped');
@@ -404,6 +448,53 @@ class TTSReader {
                 parent.normalize(); // Combine adjacent text nodes
             }
         });
+    }
+
+    // Continuously update the pointer arrow to guide the user
+    updatePointerArrow() {
+        if (!this.ttsActive || !this.currentParagraph) {
+            this.hidePointerArrow();
+            return;
+        }
+
+        if (!this.pointerEl) {
+            this.pointerEl = document.createElement('div');
+            this.pointerEl.id = 'tts-pointer';
+            this.pointerEl.className = 'tts-pointer';
+            document.body.appendChild(this.pointerEl);
+        }
+
+        const rect = this.currentParagraph.element.getBoundingClientRect();
+        const viewport = { w: window.innerWidth, h: window.innerHeight };
+
+        const isVisible = rect.bottom > 0 && rect.top < viewport.h;
+        if (isVisible) {
+            this.pointerEl.style.opacity = '0';
+        } else {
+            const origin = { x: viewport.w / 2, y: viewport.h / 2 };
+            const target = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+            const angle = Math.atan2(target.y - origin.y, target.x - origin.x);
+            const deg = angle * 180 / Math.PI + 90;
+            const radius = 80;
+            const x = origin.x + radius * Math.cos(angle);
+            const y = origin.y + radius * Math.sin(angle);
+            this.pointerEl.style.left = `${x}px`;
+            this.pointerEl.style.top = `${y}px`;
+            this.pointerEl.style.transform = `translate(-50%, -50%) rotate(${deg}deg)`;
+            this.pointerEl.style.opacity = '1';
+        }
+
+        this.pointerLoopId = requestAnimationFrame(() => this.updatePointerArrow());
+    }
+
+    hidePointerArrow() {
+        if (this.pointerEl) {
+            this.pointerEl.style.opacity = '0';
+        }
+        if (this.pointerLoopId) {
+            cancelAnimationFrame(this.pointerLoopId);
+            this.pointerLoopId = null;
+        }
     }
 
     // ... [Other methods from the original script] ...
