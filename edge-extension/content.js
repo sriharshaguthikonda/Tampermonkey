@@ -375,41 +375,31 @@ class TTSReader {
     
     // Highlight the current word being spoken
     highlightCurrentWord(event, container) {
-        if (!container || !event.charIndex || !event.charLength) return;
-        
+        if (!container || typeof event.charIndex !== 'number' || typeof event.charLength !== 'number') return;
+
         // Clear previous highlights
         this.clearHighlights();
-        
-        // Get the text content and find the current word
-        const text = container.textContent || '';
-        const wordStart = event.charIndex;
-        const wordEnd = wordStart + event.charLength;
-        const word = text.substring(wordStart, wordEnd);
-        
-        if (!word.trim()) return;
-        
-        // Create a range for the current word
-        const range = document.createRange();
-        const textNode = this.findTextNode(container, wordStart);
-        
-        if (!textNode) return;
-        
+
+        const info = this.findTextNode(container, event.charIndex);
+        if (!info) return;
+
+        const { node, startIndex } = info;
+        const startOffset = event.charIndex - startIndex;
+        const endOffset = startOffset + event.charLength;
+
         try {
-            range.setStart(textNode, wordStart);
-            range.setEnd(textNode, wordEnd);
-            
-            // Create a highlight span
+            const range = document.createRange();
+            range.setStart(node, startOffset);
+            range.setEnd(node, endOffset);
+
             const highlightSpan = document.createElement('span');
             highlightSpan.className = 'tts-highlight';
-            highlightSpan.textContent = word;
-            
-            // Apply the highlight
+            highlightSpan.textContent = range.toString();
+
             range.deleteContents();
             range.insertNode(highlightSpan);
-            
-            // Scroll the highlighted word into view
+
             highlightSpan.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            
         } catch (e) {
             console.error('Error highlighting word:', e);
         }
@@ -423,18 +413,18 @@ class TTSReader {
             null,
             false
         );
-        
+
         let currentIndex = 0;
         let node;
-        
-        while (node = walker.nextNode()) {
+
+        while ((node = walker.nextNode())) {
             const nodeLength = node.textContent.length;
             if (currentIndex + nodeLength > charIndex) {
-                return node;
+                return { node, startIndex: currentIndex };
             }
             currentIndex += nodeLength;
         }
-        
+
         return null;
     }
     
