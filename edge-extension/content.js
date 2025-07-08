@@ -437,6 +437,8 @@ class TTSReader {
 
         const { node, startIndex } = info;
         const startOffset = event.charIndex - startIndex;
+        if (event.charLength <= 0) return;
+
         const endOffset = startOffset + event.charLength;
 
         try {
@@ -446,6 +448,7 @@ class TTSReader {
 
             const highlightSpan = document.createElement('span');
             highlightSpan.className = 'tts-highlight';
+            highlightSpan.setAttribute('aria-hidden', 'true');
             highlightSpan.textContent = range.toString();
 
             range.deleteContents();

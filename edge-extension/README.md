@@ -43,7 +43,7 @@ An Edge extension that converts ChatGPT conversations into speech with highlight
 1. Navigate to [ChatGPT](https://chat.openai.com/)
 2. Click the extension icon in the toolbar
 3. Use the controls to start/stop reading
-4. Use the navigation buttons to move between paragraphs
+4. Use the navigation buttons to move between sentences
 5. Adjust the speech rate using the slider
 
 ### Keyboard Shortcuts
@@ -51,7 +51,7 @@ An Edge extension that converts ChatGPT conversations into speech with highlight
 - **U**: Activate crosshair to choose where reading starts
 - **P**: Pause/Resume reading
 - **Escape**: Stop reading
-- **Left/Right Arrows**: Navigate between paragraphs
+- **Left/Right Arrows**: Navigate between sentences
 
 ## Building for Distribution
 
