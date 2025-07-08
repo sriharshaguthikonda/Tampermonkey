@@ -10,6 +10,9 @@ An Edge extension that converts ChatGPT conversations into speech with highlight
 - **Customizable Speed**: Adjust the speech rate to your preference
 - **Keyboard Shortcuts**: Control playback with keyboard shortcuts
 - **Responsive UI**: Clean and intuitive interface
+- **Crosshair Start**: Press the activation key and click anywhere to begin
+  reading from that paragraph
+- **Pointer Arrow**: An arrow guides you to off-screen text when reading
 
 ## Installation
 
@@ -43,7 +46,7 @@ An Edge extension that converts ChatGPT conversations into speech with highlight
 
 ### Keyboard Shortcuts
 
-- **U**: Start reading from cursor position
+- **U**: Activate crosshair to choose where reading starts
 - **P**: Pause/Resume reading
 - **Escape**: Stop reading
 - **Left/Right Arrows**: Navigate between paragraphs

@@ -8,6 +8,12 @@
     transition: background-color 0.3s ease;
 }
 
+.tts-highlight {
+    background-color: rgba(255, 235, 59, 0.8);
+    border-radius: 3px;
+    padding: 0 2px;
+}
+
 .tts-navigation-focus {
     background-color: rgba(33, 150, 243, 0.2);
     border-left: 3px solid #2196F3;
@@ -43,6 +49,20 @@
 
 /* Pointer arrow styles */
 .tts-pointer {
+    position: fixed;
+    width: 0;
+    height: 0;
+    border-left: 8px solid transparent;
+    border-right: 8px solid transparent;
+    border-bottom: 12px solid #ff5722;
+    z-index: 10000;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s ease-in-out, transform 0.2s ease-in-out;
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.2));
+}
+
+#tts-pointer {
     position: fixed;
     width: 0;
     height: 0;
