@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         *** ChatGPT Universal TTS Reader with Precision Navigation & Highlighting
+// @name         *** ChatGPT Universal TTS Reader with Precision Navigation & Highlighting (Ignore Content Root)
 // @namespace    http://tampermonkey.net/
-// @version      2.4
-// @description  An intelligent, content-aware TTS reader with a responsive, "in-game" waypoint arrow that only appears for off-screen content. Features continuous reading and word-by-word highlighting.
+// @version      2.5
+// @description  TTS reader skips designated UI elements under #content-root
 // @author       Your Name (updated by AI)
 // @match        https://chat.openai.com/c/*
 // @match        https://chat.openai.com/g/*
@@ -12,9 +12,9 @@
 // @match        https://chatgpt.com/g/*
 // @match        https://chatgpt.com/?*
 // @match        https://chatgpt.com/*
+// @match        file:///*
 // @grant        none
 // ==/UserScript==
-
 
 (function() {
     'use strict';
@@ -34,7 +34,8 @@
 
         CONFIG: {
             CANDIDATE_SELECTORS: 'p, li, h1, h2, h3, h4, h5, h6, td, th, .markdown, div[class*="content"], article',
-            IGNORE_SELECTORS: 'nav, script, style, noscript, header, footer, button, a, form, [aria-hidden="true"], [data-message-author-role="user"], pre, code, [class*="code"], [class*="language-"], [class*="highlight"], .token, #thread-bottom-container',
+            // Add #content-root and all its descendants to ignore list
+            IGNORE_SELECTORS: '.settings-header, nav, script, style, noscript, header, footer, button, a, form, [aria-hidden="true"], [data-message-author-role="user"], pre, code, [class*="code"], [class*="language-"], [class*="highlight"], .token, #thread-bottom-container, #content-root, #content-root *',
             MIN_TEXT_LENGTH: 10,
             SPEECH_RATE: 1.3,
             NAV_READ_DELAY_MS: 0,
@@ -184,6 +185,7 @@
             this.isPaused = false;
             const utterance = new SpeechSynthesisUtterance(text);
             utterance.rate = this.CONFIG.SPEECH_RATE;
+            utterance.volume = 0.9;
             const voices = this.speechSynthesis.getVoices();
             const preferredVoice = voices.find(v => v.name.includes('Ava') && !v.name.includes('Multilingual')) || voices.find(v => v.lang.startsWith('en'));
             if(preferredVoice) utterance.voice = preferredVoice;
@@ -437,7 +439,7 @@
             // ... (rest of the UI panel code remains the same) ...
             const uiPanel = document.createElement('div');
             uiPanel.id = 'tts-control-panel';
-            uiPanel.style.cssText = `position: fixed; top: 80px; right: 20px; width: 180px; padding: 8px; background: rgba(0,0,0,0.7); color: #fff; font-family: Arial, sans-serif; font-size: 13px; border-radius: 6px; cursor: move; z-index: 2147483647;`;
+            uiPanel.style.cssText = `position: fixed; top: 80px; left: 10%; width: 180px; padding: 8px; background: rgba(0,0,0,0.7); color: #fff; font-family: Arial, sans-serif; font-size: 13px; border-radius: 6px; cursor: move; z-index: 2147483647;`;
             uiPanel.innerHTML = `<div style="font-weight:bold; text-align:center; margin-bottom: 5px;">TTS Reader</div><label for="tts-speed" style="display:block; margin-bottom:4px;">Speed: <span id="speed-value">${this.CONFIG.SPEECH_RATE.toFixed(1)}</span>x</label><input type="range" id="tts-speed" min="0.5" max="2.5" step="0.1" value="${this.CONFIG.SPEECH_RATE}" style="width:100%;">`;
             document.body.appendChild(uiPanel);
 
