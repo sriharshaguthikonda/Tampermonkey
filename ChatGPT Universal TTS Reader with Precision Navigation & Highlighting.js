@@ -51,6 +51,7 @@
         autoReadDebounceId: null,
         lastAutoReadMessageElement: null,
         lastAutoReadTriggeredAt: 0,
+        autoReadMessageActivity: new WeakMap(),
         processedParagraph: { element: null, originalHTML: '', wordSpans: [], wordOffsets: [] },
 
         CONFIG: {
@@ -73,6 +74,7 @@
             SHOW_DIAGNOSTICS_PANEL: true,
             AUTO_READ_NEW_MESSAGES: false,
             AUTO_READ_COOLDOWN_MS: 1500,
+            AUTO_READ_STABLE_MS: 800,
             HOTKEYS: { ACTIVATE: 'U', PAUSE_RESUME: 'P', NAV_NEXT: 'ArrowRight', NAV_PREV: 'ArrowLeft', STOP: 'Escape' },
             EMOJI_REGEX: /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE0F}]/ug
         },
@@ -406,9 +408,18 @@
                 if (!this.CONFIG.AUTO_READ_NEW_MESSAGES) return;
                 if (this.continuousReadingActive || this.ttsActive || this.isNavigating || this.navKeyHeld) return;
 
+                const now = Date.now();
+                const touchedMessages = new Set();
                 let shouldTrigger = false;
                 for (const mutation of mutations) {
                     if (mutation.type !== 'childList' || mutation.addedNodes.length === 0) continue;
+                    const targetElement = mutation.target && mutation.target.nodeType === Node.ELEMENT_NODE
+                        ? mutation.target
+                        : mutation.target && mutation.target.parentElement;
+                    const targetMessage = targetElement ? targetElement.closest('[data-message-author-role="assistant"]') : null;
+                    if (targetMessage) {
+                        touchedMessages.add(targetMessage);
+                    }
                     for (const node of mutation.addedNodes) {
                         if (node.nodeType === Node.TEXT_NODE) {
                             const parentElement = node.parentElement;
@@ -429,6 +440,12 @@
                         }
                     }
                     if (shouldTrigger) break;
+                }
+
+                if (touchedMessages.size > 0) {
+                    for (const messageElement of touchedMessages) {
+                        this.autoReadMessageActivity.set(messageElement, now);
+                    }
                 }
 
                 if (shouldTrigger) {
@@ -477,6 +494,11 @@
             if (this.lastAutoReadMessageElement === messageElement) return;
             const now = Date.now();
             if (this.lastAutoReadTriggeredAt && now - this.lastAutoReadTriggeredAt < this.CONFIG.AUTO_READ_COOLDOWN_MS) return;
+            const lastMutationAt = this.autoReadMessageActivity.get(messageElement);
+            if (lastMutationAt && now - lastMutationAt < this.CONFIG.AUTO_READ_STABLE_MS) {
+                this.scheduleAutoRead();
+                return;
+            }
 
             const startIndex = this.paragraphsList.findIndex(p => messageElement.contains(p.element));
             if (startIndex === -1) return;
