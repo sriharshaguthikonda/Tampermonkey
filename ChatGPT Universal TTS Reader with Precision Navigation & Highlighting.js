@@ -37,6 +37,7 @@
         paragraphsDirty: true,
         currentParagraphIndex: -1,
         pendingNavIndex: -1,
+        navKeyHeld: false,
         processedParagraph: { element: null, originalHTML: '', wordSpans: [], wordOffsets: [] },
 
         CONFIG: {
@@ -44,11 +45,12 @@
             // Add #content-root and all its descendants to ignore list
             IGNORE_SELECTORS: '.settings-header, nav, script, style, noscript, header, footer, button, a, form, [aria-hidden="true"], [data-message-author-role="user"], pre, code, [class*="code"], [class*="language-"], [class*="highlight"], .token, #thread-bottom-container, #content-root, #content-root *',
             MIN_TEXT_LENGTH: 10,
-            SPEECH_RATE: 1.3,
+            SPEECH_RATE: 1.7,
             QUEUE_LOOKAHEAD: 1,
             NAV_READ_DELAY_MS: 0,
             NAV_THROTTLE_MS: 20,
             NAV_FOCUS_HOLD_MS: 400,
+            NAV_KEYUP_READ_DELAY_MS: 150,
             SCROLL_THROTTLE_MS: 250,
             SCROLL_EDGE_PADDING: 80,
             HOTKEYS: { ACTIVATE: 'U', PAUSE_RESUME: 'P', NAV_NEXT: 'ArrowRight', NAV_PREV: 'ArrowLeft', STOP: 'Escape' },
@@ -402,7 +404,8 @@
             }
         },
 
-        navigate(direction) {
+        navigate(direction, options = {}) {
+            const previewOnly = options.previewOnly === true;
             if (this.isNavigating) return;
             this.isNavigating = true;
             setTimeout(() => { this.isNavigating = false; }, this.CONFIG.NAV_THROTTLE_MS);
@@ -443,14 +446,26 @@
 
                 this.pendingNavIndex = newIndex;
                 clearTimeout(this.navigationTimeoutId);
-                this.navigationTimeoutId = setTimeout(() => {
-                    if (this.pendingNavIndex === -1) return;
-                    this.continuousReadingActive = true;
-                    this.readFromParagraph(this.pendingNavIndex);
-                }, this.CONFIG.NAV_FOCUS_HOLD_MS);
+                if (!previewOnly) {
+                    this.navigationTimeoutId = setTimeout(() => {
+                        if (this.pendingNavIndex === -1) return;
+                        this.continuousReadingActive = true;
+                        this.readFromParagraph(this.pendingNavIndex);
+                    }, this.CONFIG.NAV_FOCUS_HOLD_MS);
+                }
             } else {
                  this.showNotification(direction > 0 ? "End of page." : "Start of page.");
             }
+        },
+
+        startReadingFromPendingNav() {
+            if (this.pendingNavIndex === -1) return;
+            clearTimeout(this.navigationTimeoutId);
+            this.navigationTimeoutId = setTimeout(() => {
+                if (this.pendingNavIndex === -1) return;
+                this.continuousReadingActive = true;
+                this.readFromParagraph(this.pendingNavIndex);
+            }, this.CONFIG.NAV_KEYUP_READ_DELAY_MS);
         },
 
         startReadingOnClick(event) {
@@ -492,8 +507,16 @@
                 const KEY = this.CONFIG.HOTKEYS;
 
                 switch (key) {
-                    case KEY.NAV_NEXT: e.preventDefault(); this.navigate(1); break;
-                    case KEY.NAV_PREV: e.preventDefault(); this.navigate(-1); break;
+                    case KEY.NAV_NEXT:
+                        e.preventDefault();
+                        this.navKeyHeld = true;
+                        this.navigate(1, { previewOnly: true });
+                        break;
+                    case KEY.NAV_PREV:
+                        e.preventDefault();
+                        this.navKeyHeld = true;
+                        this.navigate(-1, { previewOnly: true });
+                        break;
                     case KEY.STOP: e.preventDefault(); this.stopTTS(); break;
                 }
 
@@ -513,6 +536,18 @@
                 } else if (combo && key.toUpperCase() === KEY.PAUSE_RESUME) {
                     e.preventDefault();
                     this.pauseResumeTTS();
+                }
+            });
+            document.addEventListener('keyup', (e) => {
+                const activeEl = document.activeElement;
+                if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable)) return;
+
+                const key = e.key;
+                const KEY = this.CONFIG.HOTKEYS;
+                if (key === KEY.NAV_NEXT || key === KEY.NAV_PREV) {
+                    e.preventDefault();
+                    this.navKeyHeld = false;
+                    this.startReadingFromPendingNav();
                 }
             });
             window.addEventListener('beforeunload', () => this.stopTTS(false));
