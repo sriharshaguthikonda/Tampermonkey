@@ -40,6 +40,9 @@
         navKeyHeld: false,
         prewrappedParagraphs: new Map(),
         wordHighlightActiveForCurrent: false,
+        pendingReverts: [],
+        pendingRevertId: null,
+        pendingRevertUsesIdle: false,
         processedParagraph: { element: null, originalHTML: '', wordSpans: [], wordOffsets: [] },
 
         CONFIG: {
@@ -48,7 +51,7 @@
             IGNORE_SELECTORS: '.settings-header, nav, script, style, noscript, header, footer, button, a, form, [aria-hidden="true"], [data-message-author-role="user"], pre, code, [class*="code"], [class*="language-"], [class*="highlight"], .token, #thread-bottom-container, #content-root, #content-root *',
             MIN_TEXT_LENGTH: 10,
             SPEECH_RATE: 1.7,
-            QUEUE_LOOKAHEAD: 1,
+            QUEUE_LOOKAHEAD: 3,
             NAV_READ_DELAY_MS: 0,
             NAV_THROTTLE_MS: 20,
             NAV_FOCUS_HOLD_MS: 800,
@@ -58,6 +61,7 @@
             SCROLL_EDGE_PADDING: 80,
             WORD_HIGHLIGHT_ENABLED: true,
             PREWRAP_IDLE_TIMEOUT_MS: 250,
+            DEFERRED_REVERT_IDLE_MS: 250,
             HOTKEYS: { ACTIVATE: 'U', PAUSE_RESUME: 'P', NAV_NEXT: 'ArrowRight', NAV_PREV: 'ArrowLeft', STOP: 'Escape' },
             EMOJI_REGEX: /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE0F}]/ug
         },
@@ -165,7 +169,9 @@
         },
 
         prepareParagraphForReading(paraElement) {
-            this.revertParagraph();
+            if (this.processedParagraph.element && this.processedParagraph.element !== paraElement) {
+                this.deferProcessedParagraphRevert();
+            }
             if (!paraElement || !paraElement.parentNode) return null;
 
             if (!this.wordHighlightActiveForCurrent) {
@@ -300,6 +306,61 @@
                 }
             }
             this.prewrappedParagraphs.clear();
+        },
+
+        deferProcessedParagraphRevert() {
+            const { element, originalHTML } = this.processedParagraph;
+            if (element && originalHTML) {
+                this.pendingReverts.push({ element, originalHTML });
+                this.schedulePendingRevert();
+            }
+            this.processedParagraph = { element: null, originalHTML: '', wordSpans: [], wordOffsets: [] };
+            this.currentWordSpan = null;
+        },
+
+        schedulePendingRevert() {
+            if (this.pendingRevertId) return;
+            const run = () => {
+                this.pendingRevertId = null;
+                this.pendingRevertUsesIdle = false;
+                if (this.pendingReverts.length === 0) return;
+                const next = this.pendingReverts.shift();
+                if (next && next.element && next.element.isConnected && next.originalHTML) {
+                    next.element.innerHTML = next.originalHTML;
+                }
+                if (this.pendingReverts.length > 0) {
+                    this.schedulePendingRevert();
+                }
+            };
+
+            if ('requestIdleCallback' in window) {
+                this.pendingRevertUsesIdle = true;
+                this.pendingRevertId = requestIdleCallback(run, { timeout: this.CONFIG.DEFERRED_REVERT_IDLE_MS });
+            } else {
+                this.pendingRevertUsesIdle = false;
+                this.pendingRevertId = setTimeout(run, this.CONFIG.DEFERRED_REVERT_IDLE_MS);
+            }
+        },
+
+        cancelPendingRevert() {
+            if (!this.pendingRevertId) return;
+            if (this.pendingRevertUsesIdle && 'cancelIdleCallback' in window) {
+                cancelIdleCallback(this.pendingRevertId);
+            } else {
+                clearTimeout(this.pendingRevertId);
+            }
+            this.pendingRevertId = null;
+            this.pendingRevertUsesIdle = false;
+        },
+
+        flushPendingReverts() {
+            this.cancelPendingRevert();
+            while (this.pendingReverts.length > 0) {
+                const next = this.pendingReverts.shift();
+                if (next && next.element && next.element.isConnected && next.originalHTML) {
+                    next.element.innerHTML = next.originalHTML;
+                }
+            }
         },
 
         setWordHighlightEnabled(enabled) {
@@ -453,7 +514,8 @@
         onUtteranceEnd(index) {
             this.ttsActive = false;
             this.queuedParagraphs.delete(index);
-            this.revertParagraph();
+            this.clearHighlights(true);
+            this.deferProcessedParagraphRevert();
 
             if (!this.continuousReadingActive) return;
 
@@ -472,6 +534,7 @@
             console.error('Speech Synthesis Error:', error);
             this.ttsActive = false;
             this.queuedParagraphs.delete(index);
+            this.flushPendingReverts();
             this.revertParagraph();
             if (!this.continuousReadingActive) return;
 
@@ -501,6 +564,7 @@
             }
             this.queuedParagraphs.clear();
             this.clearPrewrappedParagraphs();
+            this.flushPendingReverts();
             this.revertParagraph();
             this.currentParagraphIndex = -1;
             this.wordHighlightActiveForCurrent = false;
