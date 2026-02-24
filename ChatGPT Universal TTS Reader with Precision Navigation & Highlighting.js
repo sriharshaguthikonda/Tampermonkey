@@ -117,6 +117,17 @@
             this.prunePrewrappedParagraphs();
         },
 
+        refreshParagraphIndex(currentIndex) {
+            if (this.paragraphsDirty) {
+                this.refreshParagraphsIfNeeded(true);
+            }
+            if (this.lastSpokenElement) {
+                const idx = this.paragraphsList.findIndex(p => p.element === this.lastSpokenElement);
+                if (idx !== -1) return idx;
+            }
+            return currentIndex;
+        },
+
         cleanTextForTTS(text) {
             return text.replace(this.CONFIG.EMOJI_REGEX, '').replace(/\s+/g, ' ');
         },
@@ -489,6 +500,9 @@
 
         enqueueParagraph(index) {
             if (!this.continuousReadingActive) return;
+            if (this.paragraphsDirty) {
+                this.refreshParagraphsIfNeeded(true);
+            }
             if (index < 0 || index >= this.paragraphsList.length) return;
             if (this.queuedParagraphs.has(index)) return;
 
@@ -515,6 +529,9 @@
 
         queueFromIndex(startIndex) {
             this.queuedParagraphs.clear();
+            if (this.paragraphsDirty) {
+                this.refreshParagraphsIfNeeded(true);
+            }
             const maxIndex = Math.min(this.paragraphsList.length - 1, startIndex + this.CONFIG.QUEUE_LOOKAHEAD);
             for (let i = startIndex; i <= maxIndex; i++) {
                 this.enqueueParagraph(i);
@@ -559,8 +576,9 @@
 
             if (!this.continuousReadingActive) return;
 
+            const refreshedIndex = this.refreshParagraphIndex(index);
             const lastIndex = this.paragraphsList.length - 1;
-            if (index >= lastIndex) {
+            if (refreshedIndex >= lastIndex) {
                 this.stopTTS(false);
                 this.showNotification('End of page.');
                 return;
@@ -581,8 +599,13 @@
 
         prewarmNextUtterance(index) {
             if (!this.continuousReadingActive) return;
-            const nextIndex = index + this.CONFIG.QUEUE_LOOKAHEAD + 1;
-            if (nextIndex < 0 || nextIndex >= this.paragraphsList.length) return;
+            let nextIndex = index + this.CONFIG.QUEUE_LOOKAHEAD + 1;
+            if (nextIndex < 0 || nextIndex >= this.paragraphsList.length) {
+                if (this.paragraphsDirty) {
+                    this.refreshParagraphsIfNeeded(true);
+                }
+                if (nextIndex < 0 || nextIndex >= this.paragraphsList.length) return;
+            }
             this.enqueueParagraph(nextIndex);
         },
 
