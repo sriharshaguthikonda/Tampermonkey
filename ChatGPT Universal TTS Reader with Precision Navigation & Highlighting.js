@@ -50,6 +50,7 @@
         autoReadObserver: null,
         autoReadDebounceId: null,
         lastAutoReadMessageElement: null,
+        lastAutoReadTriggeredAt: 0,
         processedParagraph: { element: null, originalHTML: '', wordSpans: [], wordOffsets: [] },
 
         CONFIG: {
@@ -71,6 +72,7 @@
             DEFERRED_REVERT_IDLE_MS: 250,
             SHOW_DIAGNOSTICS_PANEL: true,
             AUTO_READ_NEW_MESSAGES: false,
+            AUTO_READ_COOLDOWN_MS: 1500,
             HOTKEYS: { ACTIVATE: 'U', PAUSE_RESUME: 'P', NAV_NEXT: 'ArrowRight', NAV_PREV: 'ArrowLeft', STOP: 'Escape' },
             EMOJI_REGEX: /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE0F}]/ug
         },
@@ -473,11 +475,14 @@
             const messageElement = this.getLatestAssistantMessageElement();
             if (!this.isAutoReadEligibleMessage(messageElement)) return;
             if (this.lastAutoReadMessageElement === messageElement) return;
+            const now = Date.now();
+            if (this.lastAutoReadTriggeredAt && now - this.lastAutoReadTriggeredAt < this.CONFIG.AUTO_READ_COOLDOWN_MS) return;
 
             const startIndex = this.paragraphsList.findIndex(p => messageElement.contains(p.element));
             if (startIndex === -1) return;
 
             this.lastAutoReadMessageElement = messageElement;
+            this.lastAutoReadTriggeredAt = now;
             this.continuousReadingActive = true;
             this.readFromParagraph(startIndex);
         },
@@ -511,6 +516,11 @@
             this.showNotification(`Auto-read ${this.CONFIG.AUTO_READ_NEW_MESSAGES ? 'on' : 'off'}`);
             if (this.CONFIG.AUTO_READ_NEW_MESSAGES) {
                 this.scheduleAutoRead();
+            } else {
+                clearTimeout(this.autoReadDebounceId);
+                this.autoReadDebounceId = null;
+                this.lastAutoReadMessageElement = null;
+                this.lastAutoReadTriggeredAt = 0;
             }
         },
 
@@ -735,7 +745,6 @@
             this.lastUtteranceEndTime = 0;
             this.lastGapMs = null;
             this.lastWrapMs = null;
-            this.lastAutoReadMessageElement = null;
 
             // Stop the pointer arrow loop and hide the arrow
             if (this.pointerLoopId) {
@@ -966,7 +975,7 @@
             pointer.addEventListener('click', () => {
                 const currentSentence = document.querySelector('.tts-current-sentence');
                 if (currentSentence) {
-                    currentSentence.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    currentSentence.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 }
             });
 
@@ -1020,7 +1029,7 @@
             const padding = this.CONFIG.SCROLL_EDGE_PADDING;
             if (rect.top < padding || rect.bottom > window.innerHeight - padding) {
                 this.lastScrollTime = now;
-                element.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+                element.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
             }
         },
 
