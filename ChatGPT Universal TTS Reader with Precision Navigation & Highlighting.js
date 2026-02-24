@@ -631,7 +631,7 @@
             const padding = this.CONFIG.SCROLL_EDGE_PADDING;
             if (rect.top < padding || rect.bottom > window.innerHeight - padding) {
                 this.lastScrollTime = now;
-                element.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+                element.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
             }
         },
 
