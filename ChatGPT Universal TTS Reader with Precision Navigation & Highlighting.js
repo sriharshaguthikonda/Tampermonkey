@@ -53,7 +53,6 @@
             CANDIDATE_SELECTORS: 'p, li, h1, h2, h3, h4, h5, h6, td, th, .markdown, div[class*="content"], article',
             // Add #content-root and all its descendants to ignore list
             IGNORE_SELECTORS: '.settings-header, nav, script, style, noscript, header, footer, button, a, form, [aria-hidden="true"], [data-message-author-role="user"], pre, code, [class*="code"], [class*="language-"], [class*="highlight"], .token, #thread-bottom-container, #content-root, #content-root *',
-            MIN_TEXT_LENGTH: 10,
             SPEECH_RATE: 1.7,
             QUEUE_LOOKAHEAD: 3,
             NAV_READ_DELAY_MS: 0,
@@ -140,8 +139,7 @@
                 return false;
             }
             if (element.closest(this.CONFIG.IGNORE_SELECTORS)) return false;
-            const text = this.getTextFromElement(element);
-            return text.length >= this.CONFIG.MIN_TEXT_LENGTH;
+            return true;
         },
 
         findAllParagraphs() {
