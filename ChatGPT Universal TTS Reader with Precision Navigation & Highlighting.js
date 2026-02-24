@@ -39,6 +39,7 @@
         pendingNavIndex: -1,
         navKeyHeld: false,
         prewrappedParagraphs: new Map(),
+        wordHighlightActiveForCurrent: false,
         processedParagraph: { element: null, originalHTML: '', wordSpans: [], wordOffsets: [] },
 
         CONFIG: {
@@ -167,7 +168,7 @@
             this.revertParagraph();
             if (!paraElement || !paraElement.parentNode) return null;
 
-            if (!this.CONFIG.WORD_HIGHLIGHT_ENABLED) {
+            if (!this.wordHighlightActiveForCurrent) {
                 return this.getTextFromElement(paraElement);
             }
 
@@ -262,12 +263,12 @@
         },
 
         prewrapNextParagraph(currentIndex) {
-            if (!this.CONFIG.WORD_HIGHLIGHT_ENABLED) return;
             if (!this.continuousReadingActive) return;
             const nextIndex = currentIndex + 1;
             if (nextIndex < 0 || nextIndex >= this.paragraphsList.length) return;
             const nextElement = this.paragraphsList[nextIndex].element;
             if (!nextElement) return;
+            if (!this.shouldHighlightWordsForElement(nextElement)) return;
 
             const schedule = () => this.prewrapParagraph(nextElement);
             if ('requestIdleCallback' in window) {
@@ -341,7 +342,7 @@
         },
 
         highlightCurrentWord(event) {
-            if (!this.CONFIG.WORD_HIGHLIGHT_ENABLED) return;
+            if (!this.CONFIG.WORD_HIGHLIGHT_ENABLED || !this.wordHighlightActiveForCurrent) return;
             if (event.name !== 'word') return;
             if (this.currentWordSpan) {
                 this.currentWordSpan.classList.remove('tts-current-word');
@@ -435,6 +436,7 @@
             const para = this.paragraphsList[index];
             if (!para || !para.element) return;
 
+            this.wordHighlightActiveForCurrent = this.shouldHighlightWordsForElement(para.element);
             this.lastSpokenElement = para.element;
 
             const textToRead = this.prepareParagraphForReading(para.element);
@@ -501,6 +503,7 @@
             this.clearPrewrappedParagraphs();
             this.revertParagraph();
             this.currentParagraphIndex = -1;
+            this.wordHighlightActiveForCurrent = false;
 
             // Stop the pointer arrow loop and hide the arrow
             if (this.pointerLoopId) {
@@ -511,6 +514,14 @@
 
             if (notify) this.showNotification('All TTS stopped');
             return true;
+        },
+
+        shouldHighlightWordsForElement(element) {
+            if (!this.CONFIG.WORD_HIGHLIGHT_ENABLED) return false;
+            if (!element) return false;
+            const rect = element.getBoundingClientRect();
+            const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+            return rect.bottom > 0 && rect.top < viewportHeight;
         },
 
         // ... (pauseResumeTTS, navigate, startReadingOnClick, setupEventListeners are unchanged) ...
