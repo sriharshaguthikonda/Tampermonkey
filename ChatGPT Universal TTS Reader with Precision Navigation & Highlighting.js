@@ -38,14 +38,15 @@
         processedParagraph: { element: null, originalHTML: '', wordSpans: [], wordOffsets: [] },
 
         CONFIG: {
-            CANDIDATE_SELECTORS: 'p, li, h1, h2, h3, h4, h5, h6, td, th, .markdown, div[class*="content"], article',
+            ROOT_SELECTOR: '#thread',
+            CANDIDATE_SELECTORS: 'div[data-message-author-role="assistant"] .markdown',
             // Add #content-root and all its descendants to ignore list
             IGNORE_SELECTORS: '.settings-header, nav, script, style, noscript, header, footer, button, a, form, [aria-hidden="true"], [data-message-author-role="user"], pre, code, [class*="code"], [class*="language-"], [class*="highlight"], .token, #thread-bottom-container, #content-root, #content-root *',
             MIN_TEXT_LENGTH: 10,
-            SPEECH_RATE: 1.3,
+            SPEECH_RATE: 1.7,
             QUEUE_LOOKAHEAD: 1,
             NAV_READ_DELAY_MS: 0,
-            NAV_THROTTLE_MS: 20,
+            NAV_THROTTLE_MS: 80,
             HOTKEYS: { ACTIVATE: 'U', PAUSE_RESUME: 'P', NAV_NEXT: 'ArrowRight', NAV_PREV: 'ArrowLeft', STOP: 'Escape' },
             EMOJI_REGEX: /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE0F}]/ug
         },
@@ -114,7 +115,8 @@
         },
 
         findAllParagraphs() {
-            let candidates = Array.from(document.querySelectorAll(this.CONFIG.CANDIDATE_SELECTORS));
+            const root = document.querySelector(this.CONFIG.ROOT_SELECTOR) || document;
+            let candidates = Array.from(root.querySelectorAll(this.CONFIG.CANDIDATE_SELECTORS));
             let readableCandidates = candidates.filter(el => this.isVisiblyReadable(el));
             const candidateSet = new Set(readableCandidates);
 
