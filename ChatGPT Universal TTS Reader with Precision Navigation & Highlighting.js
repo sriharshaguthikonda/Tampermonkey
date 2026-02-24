@@ -30,6 +30,9 @@
         navigationTimeoutId: null,
         pointerLoopId: null,
         paragraphsList: [],
+        paragraphObserver: null,
+        paragraphsDirty: true,
+        currentParagraphIndex: -1,
         processedParagraph: { element: null, originalHTML: '', wordSpans: [] },
 
         CONFIG: {
@@ -49,6 +52,7 @@
             this.createUI();
             this.setupEventListeners();
             this.loadVoices();
+            this.initParagraphObserver();
         },
 
         // ... (All functions from waitForPageLoad to triggerTTS are unchanged) ...
@@ -68,13 +72,32 @@
             });
         },
 
+        initParagraphObserver() {
+            if (this.paragraphObserver) return;
+            this.paragraphObserver = new MutationObserver((mutations) => {
+                for (const mutation of mutations) {
+                    if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+                        this.paragraphsDirty = true;
+                        break;
+                    }
+                }
+            });
+            this.paragraphObserver.observe(document.body, { childList: true, subtree: true });
+        },
+
+        refreshParagraphsIfNeeded(force = false) {
+            if (!force && !this.paragraphsDirty && this.paragraphsList.length > 0) return;
+            this.paragraphsList = this.findAllParagraphs();
+            this.paragraphsDirty = false;
+        },
+
         cleanTextForTTS(text) {
             return text.replace(this.CONFIG.EMOJI_REGEX, '').replace(/\s+/g, ' ');
         },
 
         getTextFromElement(element) {
             if (!element) return '';
-            const rawText = element.innerText || '';
+            const rawText = element.textContent || '';
             return this.cleanTextForTTS(rawText);
         },
 
@@ -249,6 +272,7 @@
                 this.speechSynthesis.cancel();
             }
             this.revertParagraph();
+            this.currentParagraphIndex = -1;
 
             // Stop the pointer arrow loop and hide the arrow
             if (this.pointerLoopId) {
@@ -282,7 +306,7 @@
 
             this.stopTTS(false);
 
-            this.paragraphsList = this.findAllParagraphs();
+            this.refreshParagraphsIfNeeded(false);
             if (this.paragraphsList.length === 0) return this.showNotification("No readable text found.");
 
             const currentFocus = document.querySelector('.tts-navigation-focus');
@@ -292,9 +316,11 @@
                 setTimeout(() => currentFocus.classList.remove('tts-focus-fade-out'), 500);
             }
 
-            let currentIndex = -1;
-            if (this.lastSpokenElement) {
-                currentIndex = this.paragraphsList.findIndex(p => p.element === this.lastSpokenElement);
+            let currentIndex = this.currentParagraphIndex;
+            if (currentIndex < 0 || currentIndex >= this.paragraphsList.length || (this.lastSpokenElement && this.paragraphsList[currentIndex].element !== this.lastSpokenElement)) {
+                currentIndex = this.lastSpokenElement
+                    ? this.paragraphsList.findIndex(p => p.element === this.lastSpokenElement)
+                    : -1;
             }
 
             if (currentIndex === -1) {
@@ -325,7 +351,7 @@
             if (event.target.closest('#thread-bottom-container')) return;
 
             this.stopTTS(false);
-            this.paragraphsList = this.findAllParagraphs();
+            this.refreshParagraphsIfNeeded(true);
             let startParaIndex = -1;
 
             const containingParagraph = this.paragraphsList.find(p => p.element.contains(event.target));
