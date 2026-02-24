@@ -47,13 +47,15 @@
         lastUtteranceEndTime: 0,
         lastGapMs: null,
         lastWrapMs: null,
+        autoReadObserver: null,
+        autoReadDebounceId: null,
+        lastAutoReadMessageElement: null,
         processedParagraph: { element: null, originalHTML: '', wordSpans: [], wordOffsets: [] },
 
         CONFIG: {
             CANDIDATE_SELECTORS: 'p, li, h1, h2, h3, h4, h5, h6, td, th, .markdown, div[class*="content"], article',
             // Add #content-root and all its descendants to ignore list
             IGNORE_SELECTORS: '.settings-header, nav, script, style, noscript, header, footer, button, a, form, [aria-hidden="true"], [data-message-author-role="user"], pre, code, [class*="code"], [class*="language-"], [class*="highlight"], .token, #thread-bottom-container, #content-root, #content-root *',
-            MIN_TEXT_LENGTH: 10,
             SPEECH_RATE: 1.7,
             QUEUE_LOOKAHEAD: 3,
             NAV_READ_DELAY_MS: 0,
@@ -68,6 +70,7 @@
             PREWRAP_IDLE_TIMEOUT_MS: 250,
             DEFERRED_REVERT_IDLE_MS: 250,
             SHOW_DIAGNOSTICS_PANEL: true,
+            AUTO_READ_NEW_MESSAGES: false,
             HOTKEYS: { ACTIVATE: 'U', PAUSE_RESUME: 'P', NAV_NEXT: 'ArrowRight', NAV_PREV: 'ArrowLeft', STOP: 'Escape' },
             EMOJI_REGEX: /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE0F}]/ug
         },
@@ -78,6 +81,7 @@
             this.setupEventListeners();
             this.loadVoices();
             this.initParagraphObserver();
+            this.initAutoReadObserver();
         },
 
         // ... (All functions from waitForPageLoad to triggerTTS are unchanged) ...
@@ -151,8 +155,7 @@
                 return false;
             }
             if (element.closest(this.CONFIG.IGNORE_SELECTORS)) return false;
-            const text = this.getTextFromElement(element);
-            return text.length >= this.CONFIG.MIN_TEXT_LENGTH;
+            return true;
         },
 
         findAllParagraphs() {
@@ -395,6 +398,90 @@
             this.diagnosticsPanel.textContent = `gap: ${gap} ms | wrap: ${wrap} ms`;
         },
 
+        initAutoReadObserver() {
+            if (this.autoReadObserver) return;
+            this.autoReadObserver = new MutationObserver((mutations) => {
+                if (!this.CONFIG.AUTO_READ_NEW_MESSAGES) return;
+                if (this.continuousReadingActive || this.ttsActive || this.isNavigating || this.navKeyHeld) return;
+
+                let shouldTrigger = false;
+                for (const mutation of mutations) {
+                    if (mutation.type !== 'childList' || mutation.addedNodes.length === 0) continue;
+                    for (const node of mutation.addedNodes) {
+                        if (node.nodeType === Node.TEXT_NODE) {
+                            const parentElement = node.parentElement;
+                            const messageElement = parentElement ? parentElement.closest('[data-message-author-role="assistant"]') : null;
+                            if (this.isAutoReadEligibleMessage(messageElement)) {
+                                shouldTrigger = true;
+                                break;
+                            }
+                        } else if (node.nodeType === Node.ELEMENT_NODE) {
+                            const element = node;
+                            const messageElement = element.matches && element.matches('[data-message-author-role="assistant"]')
+                                ? element
+                                : element.querySelector && element.querySelector('[data-message-author-role="assistant"]');
+                            if (this.isAutoReadEligibleMessage(messageElement)) {
+                                shouldTrigger = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (shouldTrigger) break;
+                }
+
+                if (shouldTrigger) {
+                    this.scheduleAutoRead();
+                }
+            });
+
+            this.autoReadObserver.observe(document.body, { childList: true, subtree: true });
+        },
+
+        scheduleAutoRead() {
+            if (!this.CONFIG.AUTO_READ_NEW_MESSAGES) return;
+            clearTimeout(this.autoReadDebounceId);
+            this.autoReadDebounceId = setTimeout(() => {
+                this.autoReadDebounceId = null;
+                this.startAutoReadFromLatestAssistant();
+            }, 120);
+        },
+
+        getLatestAssistantMessageElement() {
+            const messages = Array.from(document.querySelectorAll('[data-message-author-role="assistant"]'));
+            if (messages.length === 0) return null;
+            return messages[messages.length - 1];
+        },
+
+        isAutoReadEligibleMessage(messageElement) {
+            if (!messageElement) return false;
+            if (messageElement.getAttribute('data-message-author-role') !== 'assistant') return false;
+            const messageType = (messageElement.getAttribute('data-message-type') || '').toLowerCase();
+            if (messageType && /thinking|analysis|tool|status/.test(messageType)) return false;
+            const label = (messageElement.getAttribute('aria-label') || '').toLowerCase();
+            if (label.includes('thinking')) return false;
+            const text = (messageElement.textContent || '').trim();
+            if (!text) return false;
+            if (/^(thinking|analyzing|searching)\b/i.test(text)) return false;
+            return true;
+        },
+
+        startAutoReadFromLatestAssistant() {
+            if (!this.CONFIG.AUTO_READ_NEW_MESSAGES) return;
+            if (this.continuousReadingActive || this.ttsActive || this.isNavigating || this.navKeyHeld) return;
+
+            this.refreshParagraphsIfNeeded(true);
+            const messageElement = this.getLatestAssistantMessageElement();
+            if (!this.isAutoReadEligibleMessage(messageElement)) return;
+            if (this.lastAutoReadMessageElement === messageElement) return;
+
+            const startIndex = this.paragraphsList.findIndex(p => messageElement.contains(p.element));
+            if (startIndex === -1) return;
+
+            this.lastAutoReadMessageElement = messageElement;
+            this.continuousReadingActive = true;
+            this.readFromParagraph(startIndex);
+        },
+
         setWordHighlightEnabled(enabled) {
             const nextValue = Boolean(enabled);
             if (this.CONFIG.WORD_HIGHLIGHT_ENABLED === nextValue) return;
@@ -415,6 +502,16 @@
                 this.refreshParagraphsIfNeeded(true);
             }
             this.showNotification(`Gap trim ${this.CONFIG.GAP_TRIM_ENABLED ? 'on' : 'off'}`);
+        },
+
+        setAutoReadEnabled(enabled) {
+            const nextValue = Boolean(enabled);
+            if (this.CONFIG.AUTO_READ_NEW_MESSAGES === nextValue) return;
+            this.CONFIG.AUTO_READ_NEW_MESSAGES = nextValue;
+            this.showNotification(`Auto-read ${this.CONFIG.AUTO_READ_NEW_MESSAGES ? 'on' : 'off'}`);
+            if (this.CONFIG.AUTO_READ_NEW_MESSAGES) {
+                this.scheduleAutoRead();
+            }
         },
 
         toggleWordHighlight() {
@@ -638,6 +735,7 @@
             this.lastUtteranceEndTime = 0;
             this.lastGapMs = null;
             this.lastWrapMs = null;
+            this.lastAutoReadMessageElement = null;
 
             // Stop the pointer arrow loop and hide the arrow
             if (this.pointerLoopId) {
@@ -876,7 +974,7 @@
             const uiPanel = document.createElement('div');
             uiPanel.id = 'tts-control-panel';
             uiPanel.style.cssText = `position: fixed; top: 80px; left: 10%; width: 180px; padding: 8px; background: rgba(0,0,0,0.7); color: #fff; font-family: Arial, sans-serif; font-size: 13px; border-radius: 6px; cursor: move; z-index: 2147483647;`;
-            uiPanel.innerHTML = `<div style="font-weight:bold; text-align:center; margin-bottom: 5px;">TTS Reader</div><label for="tts-speed" style="display:block; margin-bottom:4px;">Speed: <span id="speed-value">${this.CONFIG.SPEECH_RATE.toFixed(1)}</span>x</label><input type="range" id="tts-speed" min="0.5" max="2.5" step="0.1" value="${this.CONFIG.SPEECH_RATE}" style="width:100%;"><label for="tts-highlight-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-highlight-toggle" ${this.CONFIG.WORD_HIGHLIGHT_ENABLED ? 'checked' : ''} style="margin:0;">Word highlight</label><label for="tts-gap-trim-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-gap-trim-toggle" ${this.CONFIG.GAP_TRIM_ENABLED ? 'checked' : ''} style="margin:0;">Gap trim</label>`;
+            uiPanel.innerHTML = `<div style="font-weight:bold; text-align:center; margin-bottom: 5px;">TTS Reader</div><label for="tts-speed" style="display:block; margin-bottom:4px;">Speed: <span id="speed-value">${this.CONFIG.SPEECH_RATE.toFixed(1)}</span>x</label><input type="range" id="tts-speed" min="0.5" max="2.5" step="0.1" value="${this.CONFIG.SPEECH_RATE}" style="width:100%;"><label for="tts-highlight-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-highlight-toggle" ${this.CONFIG.WORD_HIGHLIGHT_ENABLED ? 'checked' : ''} style="margin:0;">Word highlight</label><label for="tts-gap-trim-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-gap-trim-toggle" ${this.CONFIG.GAP_TRIM_ENABLED ? 'checked' : ''} style="margin:0;">Gap trim</label><label for="tts-auto-read-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-auto-read-toggle" ${this.CONFIG.AUTO_READ_NEW_MESSAGES ? 'checked' : ''} style="margin:0;">Auto-read new</label>`;
             document.body.appendChild(uiPanel);
 
             const speedInput = document.getElementById('tts-speed');
@@ -895,6 +993,11 @@
                 this.setGapTrimEnabled(e.target.checked);
             });
             gapTrimToggle.addEventListener('mousedown', e => e.stopPropagation());
+            const autoReadToggle = document.getElementById('tts-auto-read-toggle');
+            autoReadToggle.addEventListener('change', e => {
+                this.setAutoReadEnabled(e.target.checked);
+            });
+            autoReadToggle.addEventListener('mousedown', e => e.stopPropagation());
             this.makeDraggable(uiPanel);
 
             if (this.CONFIG.SHOW_DIAGNOSTICS_PANEL) {
