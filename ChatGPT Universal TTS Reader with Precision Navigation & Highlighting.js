@@ -38,6 +38,7 @@
         currentParagraphIndex: -1,
         pendingNavIndex: -1,
         navKeyHeld: false,
+        prewrappedParagraphs: new Map(),
         processedParagraph: { element: null, originalHTML: '', wordSpans: [], wordOffsets: [] },
 
         CONFIG: {
@@ -54,6 +55,7 @@
             NAV_FOCUS_FADE_MS: 800,
             SCROLL_THROTTLE_MS: 250,
             SCROLL_EDGE_PADDING: 80,
+            PREWRAP_IDLE_TIMEOUT_MS: 250,
             HOTKEYS: { ACTIVATE: 'U', PAUSE_RESUME: 'P', NAV_NEXT: 'ArrowRight', NAV_PREV: 'ArrowLeft', STOP: 'Escape' },
             EMOJI_REGEX: /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE0F}]/ug
         },
@@ -100,6 +102,7 @@
             if (!force && !this.paragraphsDirty && this.paragraphsList.length > 0) return;
             this.paragraphsList = this.findAllParagraphs();
             this.paragraphsDirty = false;
+            this.prunePrewrappedParagraphs();
         },
 
         cleanTextForTTS(text) {
@@ -163,6 +166,16 @@
             this.revertParagraph();
             if (!paraElement || !paraElement.parentNode) return null;
 
+            const cached = this.prewrappedParagraphs.get(paraElement);
+            if (cached) {
+                this.processedParagraph.element = paraElement;
+                this.processedParagraph.originalHTML = cached.originalHTML;
+                this.processedParagraph.wordSpans = cached.wordSpans;
+                this.processedParagraph.wordOffsets = cached.wordOffsets;
+                this.prewrappedParagraphs.delete(paraElement);
+                return this.processedParagraph.wordSpans.map(s => s.textContent).join(' ');
+            }
+
             this.processedParagraph.element = paraElement;
             this.processedParagraph.originalHTML = paraElement.innerHTML;
             const wordSpans = [];
@@ -199,6 +212,87 @@
             }
             this.processedParagraph.wordOffsets = wordOffsets;
             return this.processedParagraph.wordSpans.map(s => s.textContent).join(' ');
+        },
+
+        prewrapParagraph(paraElement) {
+            if (!paraElement || !paraElement.parentNode) return null;
+            if (this.prewrappedParagraphs.has(paraElement)) return this.prewrappedParagraphs.get(paraElement);
+
+            const originalHTML = paraElement.innerHTML;
+            const wordSpans = [];
+            const walker = document.createTreeWalker(paraElement, NodeFilter.SHOW_TEXT, null, false);
+            const nodesToProcess = [];
+            while(walker.nextNode()) {
+                if (walker.currentNode.textContent.trim().length > 0) nodesToProcess.push(walker.currentNode);
+            }
+
+            nodesToProcess.forEach(node => {
+                const fragment = document.createDocumentFragment();
+                const cleanedText = this.cleanTextForTTS(node.textContent);
+                const parts = cleanedText.split(/(\s+)/);
+
+                parts.forEach(part => {
+                    if (/\S/.test(part)) {
+                        const span = document.createElement('span');
+                        span.textContent = part;
+                        fragment.appendChild(span);
+                        wordSpans.push(span);
+                    } else {
+                        fragment.appendChild(document.createTextNode(part));
+                    }
+                });
+                if (node.parentNode) node.parentNode.replaceChild(fragment, node);
+            });
+
+            const wordOffsets = new Array(wordSpans.length);
+            let offset = 0;
+            for (let i = 0; i < wordSpans.length; i++) {
+                wordOffsets[i] = offset;
+                offset += wordSpans[i].textContent.length + 1;
+            }
+
+            const data = { element: paraElement, originalHTML, wordSpans, wordOffsets };
+            this.prewrappedParagraphs.set(paraElement, data);
+            return data;
+        },
+
+        prewrapNextParagraph(currentIndex) {
+            if (!this.continuousReadingActive) return;
+            const nextIndex = currentIndex + 1;
+            if (nextIndex < 0 || nextIndex >= this.paragraphsList.length) return;
+            const nextElement = this.paragraphsList[nextIndex].element;
+            if (!nextElement) return;
+
+            const schedule = () => this.prewrapParagraph(nextElement);
+            if ('requestIdleCallback' in window) {
+                requestIdleCallback(() => schedule(), { timeout: this.CONFIG.PREWRAP_IDLE_TIMEOUT_MS });
+            } else {
+                setTimeout(schedule, 0);
+            }
+        },
+
+        prunePrewrappedParagraphs() {
+            if (this.prewrappedParagraphs.size === 0) return;
+            const validElements = new Set(this.paragraphsList.map(p => p.element));
+            for (const [element, data] of this.prewrappedParagraphs.entries()) {
+                const isValid = element && element.isConnected && validElements.has(element);
+                if (!isValid) {
+                    if (element && element.isConnected && data.originalHTML) {
+                        element.innerHTML = data.originalHTML;
+                    }
+                    this.prewrappedParagraphs.delete(element);
+                }
+            }
+        },
+
+        clearPrewrappedParagraphs() {
+            if (this.prewrappedParagraphs.size === 0) return;
+            for (const [element, data] of this.prewrappedParagraphs.entries()) {
+                if (element && element.isConnected && data.originalHTML) {
+                    element.innerHTML = data.originalHTML;
+                }
+            }
+            this.prewrappedParagraphs.clear();
         },
 
         findWordIndexByChar(charIndex) {
@@ -325,6 +419,7 @@
 
             if (this.pointerLoopId) cancelAnimationFrame(this.pointerLoopId);
             this.updatePointerArrow();
+            this.prewrapNextParagraph(index);
         },
 
         onUtteranceEnd(index) {
@@ -377,6 +472,7 @@
                 this.speechSynthesis.cancel();
             }
             this.queuedParagraphs.clear();
+            this.clearPrewrappedParagraphs();
             this.revertParagraph();
             this.currentParagraphIndex = -1;
 
@@ -601,7 +697,7 @@
             pointer.addEventListener('click', () => {
                 const currentSentence = document.querySelector('.tts-current-sentence');
                 if (currentSentence) {
-                    currentSentence.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    currentSentence.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
                 }
             });
 
