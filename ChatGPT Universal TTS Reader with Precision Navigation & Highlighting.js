@@ -57,7 +57,7 @@
             SCROLL_EDGE_PADDING: 80,
             WORD_HIGHLIGHT_ENABLED: true,
             PREWRAP_IDLE_TIMEOUT_MS: 250,
-            HOTKEYS: { ACTIVATE: 'U', PAUSE_RESUME: 'P', NAV_NEXT: 'ArrowRight', NAV_PREV: 'ArrowLeft', STOP: 'Escape', TOGGLE_HIGHLIGHT: 'H' },
+            HOTKEYS: { ACTIVATE: 'U', PAUSE_RESUME: 'P', NAV_NEXT: 'ArrowRight', NAV_PREV: 'ArrowLeft', STOP: 'Escape' },
             EMOJI_REGEX: /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE0F}]/ug
         },
 
@@ -301,13 +301,19 @@
             this.prewrappedParagraphs.clear();
         },
 
-        toggleWordHighlight() {
-            this.CONFIG.WORD_HIGHLIGHT_ENABLED = !this.CONFIG.WORD_HIGHLIGHT_ENABLED;
+        setWordHighlightEnabled(enabled) {
+            const nextValue = Boolean(enabled);
+            if (this.CONFIG.WORD_HIGHLIGHT_ENABLED === nextValue) return;
+            this.CONFIG.WORD_HIGHLIGHT_ENABLED = nextValue;
             if (!this.CONFIG.WORD_HIGHLIGHT_ENABLED) {
                 this.clearHighlights(true);
                 this.clearPrewrappedParagraphs();
             }
             this.showNotification(`Word highlight ${this.CONFIG.WORD_HIGHLIGHT_ENABLED ? 'on' : 'off'}`);
+        },
+
+        toggleWordHighlight() {
+            this.setWordHighlightEnabled(!this.CONFIG.WORD_HIGHLIGHT_ENABLED);
         },
 
         findWordIndexByChar(charIndex) {
@@ -653,9 +659,6 @@
                 } else if (combo && key.toUpperCase() === KEY.PAUSE_RESUME) {
                     e.preventDefault();
                     this.pauseResumeTTS();
-                } else if (combo && key.toUpperCase() === KEY.TOGGLE_HIGHLIGHT) {
-                    e.preventDefault();
-                    this.toggleWordHighlight();
                 }
             });
             document.addEventListener('keyup', (e) => {
@@ -728,7 +731,7 @@
             const uiPanel = document.createElement('div');
             uiPanel.id = 'tts-control-panel';
             uiPanel.style.cssText = `position: fixed; top: 80px; left: 10%; width: 180px; padding: 8px; background: rgba(0,0,0,0.7); color: #fff; font-family: Arial, sans-serif; font-size: 13px; border-radius: 6px; cursor: move; z-index: 2147483647;`;
-            uiPanel.innerHTML = `<div style="font-weight:bold; text-align:center; margin-bottom: 5px;">TTS Reader</div><label for="tts-speed" style="display:block; margin-bottom:4px;">Speed: <span id="speed-value">${this.CONFIG.SPEECH_RATE.toFixed(1)}</span>x</label><input type="range" id="tts-speed" min="0.5" max="2.5" step="0.1" value="${this.CONFIG.SPEECH_RATE}" style="width:100%;">`;
+            uiPanel.innerHTML = `<div style="font-weight:bold; text-align:center; margin-bottom: 5px;">TTS Reader</div><label for="tts-speed" style="display:block; margin-bottom:4px;">Speed: <span id="speed-value">${this.CONFIG.SPEECH_RATE.toFixed(1)}</span>x</label><input type="range" id="tts-speed" min="0.5" max="2.5" step="0.1" value="${this.CONFIG.SPEECH_RATE}" style="width:100%;"><label for="tts-highlight-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-highlight-toggle" ${this.CONFIG.WORD_HIGHLIGHT_ENABLED ? 'checked' : ''} style="margin:0;">Word highlight</label>`;
             document.body.appendChild(uiPanel);
 
             const speedInput = document.getElementById('tts-speed');
@@ -737,6 +740,11 @@
                 document.getElementById('speed-value').textContent = this.CONFIG.SPEECH_RATE.toFixed(1);
             });
             speedInput.addEventListener('mousedown', e => e.stopPropagation());
+            const highlightToggle = document.getElementById('tts-highlight-toggle');
+            highlightToggle.addEventListener('change', e => {
+                this.setWordHighlightEnabled(e.target.checked);
+            });
+            highlightToggle.addEventListener('mousedown', e => e.stopPropagation());
             this.makeDraggable(uiPanel);
         },
 
