@@ -52,6 +52,10 @@
         lastAutoReadMessageElement: null,
         lastAutoReadTriggeredAt: 0,
         autoReadMessageActivity: new WeakMap(),
+        waitingForMoreContent: false,
+        waitForMoreTimeoutId: null,
+        waitForMoreSince: 0,
+        waitForMoreNextIndex: -1,
         processedParagraph: { element: null, originalHTML: '', wordSpans: [], wordOffsets: [] },
 
         CONFIG: {
@@ -76,6 +80,8 @@
             AUTO_READ_COOLDOWN_MS: 1500,
             AUTO_READ_STABLE_MS: 800,
             AUTO_READ_MIN_PARAGRAPHS: 3,
+            WAIT_FOR_MORE_MS: 8000,
+            WAIT_RETRY_MS: 250,
             HOTKEYS: { ACTIVATE: 'U', PAUSE_RESUME: 'P', NAV_NEXT: 'ArrowRight', NAV_PREV: 'ArrowLeft', STOP: 'Escape' },
             EMOJI_REGEX: /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE0F}]/ug
         },
@@ -112,6 +118,9 @@
                 for (const mutation of mutations) {
                     if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
                         this.paragraphsDirty = true;
+                        if (this.waitingForMoreContent) {
+                            this.scheduleWaitForMore();
+                        }
                         break;
                     }
                 }
@@ -520,6 +529,48 @@
             this.readFromParagraph(startIndex);
         },
 
+        waitForMoreParagraphs(nextIndex) {
+            if (!this.continuousReadingActive) return;
+            this.waitingForMoreContent = true;
+            this.waitForMoreSince = Date.now();
+            this.waitForMoreNextIndex = nextIndex;
+            this.scheduleWaitForMore();
+        },
+
+        scheduleWaitForMore() {
+            clearTimeout(this.waitForMoreTimeoutId);
+            this.waitForMoreTimeoutId = setTimeout(() => {
+                this.waitForMoreTimeoutId = null;
+                this.checkForMoreParagraphs();
+            }, this.CONFIG.WAIT_RETRY_MS);
+        },
+
+        checkForMoreParagraphs() {
+            if (!this.waitingForMoreContent || !this.continuousReadingActive) return;
+            const now = Date.now();
+            if (now - this.waitForMoreSince > this.CONFIG.WAIT_FOR_MORE_MS) {
+                this.waitingForMoreContent = false;
+                this.waitForMoreNextIndex = -1;
+                this.stopTTS(false);
+                this.showNotification('End of page.');
+                return;
+            }
+
+            if (this.paragraphsDirty) {
+                this.refreshParagraphsIfNeeded(true);
+            }
+
+            if (this.waitForMoreNextIndex >= 0 && this.waitForMoreNextIndex < this.paragraphsList.length) {
+                const nextIndex = this.waitForMoreNextIndex;
+                this.waitingForMoreContent = false;
+                this.waitForMoreNextIndex = -1;
+                this.readFromParagraph(nextIndex);
+                return;
+            }
+
+            this.scheduleWaitForMore();
+        },
+
         setWordHighlightEnabled(enabled) {
             const nextValue = Boolean(enabled);
             if (this.CONFIG.WORD_HIGHLIGHT_ENABLED === nextValue) return;
@@ -719,8 +770,8 @@
             const refreshedIndex = this.refreshParagraphIndex(index);
             const lastIndex = this.paragraphsList.length - 1;
             if (refreshedIndex >= lastIndex) {
-                this.stopTTS(false);
-                this.showNotification('End of page.');
+                const nextIndex = refreshedIndex + 1;
+                this.waitForMoreParagraphs(nextIndex);
                 return;
             }
         },
@@ -770,6 +821,10 @@
                 this.speechSynthesis.cancel();
             }
             this.queuedParagraphs.clear();
+            this.waitingForMoreContent = false;
+            this.waitForMoreNextIndex = -1;
+            clearTimeout(this.waitForMoreTimeoutId);
+            this.waitForMoreTimeoutId = null;
             this.clearPrewrappedParagraphs();
             this.flushPendingReverts();
             this.revertParagraph();
