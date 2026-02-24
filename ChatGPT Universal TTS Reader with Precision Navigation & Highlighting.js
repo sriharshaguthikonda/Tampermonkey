@@ -48,7 +48,10 @@
             SPEECH_RATE: 1.7,
             QUEUE_LOOKAHEAD: 1,
             NAV_READ_DELAY_MS: 0,
-            NAV_THROTTLE_MS: 80,
+            NAV_THROTTLE_MS: 20,
+            BR_REPLACEMENT: ' - ',
+            NORMALIZE_ELLIPSIS: true,
+            ELLIPSIS_REPLACEMENT: ', ',
             HOTKEYS: { ACTIVATE: 'U', PAUSE_RESUME: 'P', NAV_NEXT: 'ArrowRight', NAV_PREV: 'ArrowLeft', STOP: 'Escape' },
             EMOJI_REGEX: /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE0F}]/ug
         },
@@ -98,13 +101,24 @@
         },
 
         cleanTextForTTS(text) {
-            return text.replace(this.CONFIG.EMOJI_REGEX, '').replace(/\s+/g, ' ');
+            let cleaned = text.replace(this.CONFIG.EMOJI_REGEX, '');
+            if (this.CONFIG.NORMALIZE_ELLIPSIS) {
+                cleaned = cleaned.replace(/(\.\.\.|…)/g, this.CONFIG.ELLIPSIS_REPLACEMENT);
+            }
+            return cleaned.replace(/\s+/g, ' ');
+        },
+
+        extractReadableText(element) {
+            if (!element) return '';
+            const clone = element.cloneNode(true);
+            clone.querySelectorAll(this.CONFIG.IGNORE_SELECTORS).forEach(el => el.remove());
+            clone.querySelectorAll('br').forEach(br => br.replaceWith(this.CONFIG.BR_REPLACEMENT));
+            const rawText = clone.textContent || '';
+            return this.cleanTextForTTS(rawText);
         },
 
         getTextFromElement(element) {
-            if (!element) return '';
-            const rawText = element.textContent || '';
-            return this.cleanTextForTTS(rawText);
+            return this.extractReadableText(element);
         },
 
         isVisiblyReadable(element) {
@@ -165,7 +179,23 @@
             this.processedParagraph.element = paraElement;
             this.processedParagraph.originalHTML = paraElement.innerHTML;
             const wordSpans = [];
-            const walker = document.createTreeWalker(paraElement, NodeFilter.SHOW_TEXT, null, false);
+            paraElement.querySelectorAll('br').forEach(br => {
+                if (br.closest(this.CONFIG.IGNORE_SELECTORS)) return;
+                br.replaceWith(document.createTextNode(this.CONFIG.BR_REPLACEMENT));
+            });
+            const walker = document.createTreeWalker(
+                paraElement,
+                NodeFilter.SHOW_TEXT,
+                {
+                    acceptNode: (node) => {
+                        if (!node.textContent || node.textContent.trim().length === 0) return NodeFilter.FILTER_REJECT;
+                        const parent = node.parentElement;
+                        if (parent && parent.closest(this.CONFIG.IGNORE_SELECTORS)) return NodeFilter.FILTER_REJECT;
+                        return NodeFilter.FILTER_ACCEPT;
+                    }
+                },
+                false
+            );
             const nodesToProcess = [];
             while(walker.nextNode()) {
                 if (walker.currentNode.textContent.trim().length > 0) nodesToProcess.push(walker.currentNode);
