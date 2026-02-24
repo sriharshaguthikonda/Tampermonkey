@@ -31,6 +31,7 @@
         navigationTimeoutId: null,
         pointerLoopId: null,
         paragraphsList: [],
+        queuedParagraphs: new Set(),
         paragraphObserver: null,
         paragraphsDirty: true,
         currentParagraphIndex: -1,
@@ -42,6 +43,7 @@
             IGNORE_SELECTORS: '.settings-header, nav, script, style, noscript, header, footer, button, a, form, [aria-hidden="true"], [data-message-author-role="user"], pre, code, [class*="code"], [class*="language-"], [class*="highlight"], .token, #thread-bottom-container, #content-root, #content-root *',
             MIN_TEXT_LENGTH: 10,
             SPEECH_RATE: 1.3,
+            QUEUE_LOOKAHEAD: 1,
             NAV_READ_DELAY_MS: 0,
             NAV_THROTTLE_MS: 20,
             HOTKEYS: { ACTIVATE: 'U', PAUSE_RESUME: 'P', NAV_NEXT: 'ArrowRight', NAV_PREV: 'ArrowLeft', STOP: 'Escape' },
@@ -265,6 +267,87 @@
             this.speechSynthesis.speak(utterance);
         },
 
+        enqueueParagraph(index) {
+            if (!this.continuousReadingActive) return;
+            if (index < 0 || index >= this.paragraphsList.length) return;
+            if (this.queuedParagraphs.has(index)) return;
+
+            const para = this.paragraphsList[index];
+            if (!para || !para.element || !para.text) return;
+
+            const utterance = new SpeechSynthesisUtterance(para.text);
+            utterance.rate = this.CONFIG.SPEECH_RATE;
+            utterance.volume = 0.9;
+            const voices = this.speechSynthesis.getVoices();
+            const preferredVoice = voices.find(v => v.name.includes('Ava') && !v.name.includes('Multilingual')) || voices.find(v => v.lang.startsWith('en'));
+            if (preferredVoice) utterance.voice = preferredVoice;
+
+            utterance.onstart = () => this.onUtteranceStart(index);
+            utterance.onboundary = (event) => this.highlightCurrentWord(event);
+            utterance.onend = () => this.onUtteranceEnd(index);
+            utterance.onerror = (e) => this.onUtteranceError(index, e);
+
+            this.queuedParagraphs.add(index);
+            this.speechSynthesis.speak(utterance);
+        },
+
+        queueFromIndex(startIndex) {
+            this.queuedParagraphs.clear();
+            const maxIndex = Math.min(this.paragraphsList.length - 1, startIndex + this.CONFIG.QUEUE_LOOKAHEAD);
+            for (let i = startIndex; i <= maxIndex; i++) {
+                this.enqueueParagraph(i);
+            }
+        },
+
+        onUtteranceStart(index) {
+            this.ttsActive = true;
+            this.isPaused = false;
+
+            this.currentParagraphIndex = index;
+            const para = this.paragraphsList[index];
+            if (!para || !para.element) return;
+
+            this.lastSpokenElement = para.element;
+
+            const textToRead = this.prepareParagraphForReading(para.element);
+            if (!textToRead) return;
+
+            this.clearHighlights(true);
+            para.element.classList.add('tts-current-sentence');
+
+            if (this.pointerLoopId) cancelAnimationFrame(this.pointerLoopId);
+            this.updatePointerArrow();
+        },
+
+        onUtteranceEnd(index) {
+            this.ttsActive = false;
+            this.queuedParagraphs.delete(index);
+            this.revertParagraph();
+
+            if (!this.continuousReadingActive) return;
+
+            const lastIndex = this.paragraphsList.length - 1;
+            if (index >= lastIndex) {
+                this.stopTTS(false);
+                this.showNotification('End of page.');
+                return;
+            }
+
+            const nextIndex = index + this.CONFIG.QUEUE_LOOKAHEAD + 1;
+            this.enqueueParagraph(nextIndex);
+        },
+
+        onUtteranceError(index, error) {
+            console.error('Speech Synthesis Error:', error);
+            this.ttsActive = false;
+            this.queuedParagraphs.delete(index);
+            this.revertParagraph();
+            if (!this.continuousReadingActive) return;
+
+            const nextIndex = index + 1;
+            this.enqueueParagraph(nextIndex);
+        },
+
         readFromParagraph(index) {
             if (!this.continuousReadingActive) {
                 this.revertParagraph();
@@ -276,25 +359,7 @@
                 return;
             }
 
-            this.currentParagraphIndex = index;
-            const para = this.paragraphsList[index];
-            this.lastSpokenElement = para.element;
-
-            const textToRead = this.prepareParagraphForReading(para.element);
-            if (!textToRead) {
-                this.navigate(1);
-                return;
-            }
-
-            this.clearHighlights(true);
-            para.element.classList.add('tts-current-sentence');
-
-            // Start the pointer arrow update loop
-            if (this.pointerLoopId) cancelAnimationFrame(this.pointerLoopId);
-            this.updatePointerArrow();
-
-
-            this.triggerTTS(textToRead, () => this.navigate(1));
+            this.queueFromIndex(index);
         },
 
         stopTTS(notify = true) {
@@ -303,6 +368,7 @@
             if (this.speechSynthesis.speaking || this.speechSynthesis.pending) {
                 this.speechSynthesis.cancel();
             }
+            this.queuedParagraphs.clear();
             this.revertParagraph();
             this.currentParagraphIndex = -1;
 
