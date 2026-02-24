@@ -615,7 +615,6 @@
             this.lastUtteranceEndTime = 0;
             this.lastGapMs = null;
             this.lastWrapMs = null;
-            this.updateDiagnosticsPanel();
 
             // Stop the pointer arrow loop and hide the arrow
             if (this.pointerLoopId) {
