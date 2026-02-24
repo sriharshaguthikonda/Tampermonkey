@@ -50,13 +50,14 @@
             QUEUE_LOOKAHEAD: 1,
             NAV_READ_DELAY_MS: 0,
             NAV_THROTTLE_MS: 20,
-            NAV_FOCUS_HOLD_MS: 400,
+            NAV_FOCUS_HOLD_MS: 800,
             NAV_KEYUP_READ_DELAY_MS: 150,
             NAV_FOCUS_FADE_MS: 800,
             SCROLL_THROTTLE_MS: 250,
             SCROLL_EDGE_PADDING: 80,
+            WORD_HIGHLIGHT_ENABLED: true,
             PREWRAP_IDLE_TIMEOUT_MS: 250,
-            HOTKEYS: { ACTIVATE: 'U', PAUSE_RESUME: 'P', NAV_NEXT: 'ArrowRight', NAV_PREV: 'ArrowLeft', STOP: 'Escape' },
+            HOTKEYS: { ACTIVATE: 'U', PAUSE_RESUME: 'P', NAV_NEXT: 'ArrowRight', NAV_PREV: 'ArrowLeft', STOP: 'Escape', TOGGLE_HIGHLIGHT: 'H' },
             EMOJI_REGEX: /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE0F}]/ug
         },
 
@@ -166,6 +167,10 @@
             this.revertParagraph();
             if (!paraElement || !paraElement.parentNode) return null;
 
+            if (!this.CONFIG.WORD_HIGHLIGHT_ENABLED) {
+                return this.getTextFromElement(paraElement);
+            }
+
             const cached = this.prewrappedParagraphs.get(paraElement);
             if (cached) {
                 this.processedParagraph.element = paraElement;
@@ -257,6 +262,7 @@
         },
 
         prewrapNextParagraph(currentIndex) {
+            if (!this.CONFIG.WORD_HIGHLIGHT_ENABLED) return;
             if (!this.continuousReadingActive) return;
             const nextIndex = currentIndex + 1;
             if (nextIndex < 0 || nextIndex >= this.paragraphsList.length) return;
@@ -295,6 +301,15 @@
             this.prewrappedParagraphs.clear();
         },
 
+        toggleWordHighlight() {
+            this.CONFIG.WORD_HIGHLIGHT_ENABLED = !this.CONFIG.WORD_HIGHLIGHT_ENABLED;
+            if (!this.CONFIG.WORD_HIGHLIGHT_ENABLED) {
+                this.clearHighlights(true);
+                this.clearPrewrappedParagraphs();
+            }
+            this.showNotification(`Word highlight ${this.CONFIG.WORD_HIGHLIGHT_ENABLED ? 'on' : 'off'}`);
+        },
+
         findWordIndexByChar(charIndex) {
             const spans = this.processedParagraph.wordSpans;
             const offsets = this.processedParagraph.wordOffsets;
@@ -320,6 +335,7 @@
         },
 
         highlightCurrentWord(event) {
+            if (!this.CONFIG.WORD_HIGHLIGHT_ENABLED) return;
             if (event.name !== 'word') return;
             if (this.currentWordSpan) {
                 this.currentWordSpan.classList.remove('tts-current-word');
@@ -349,7 +365,9 @@
             const preferredVoice = voices.find(v => v.name.includes('Ava') && !v.name.includes('Multilingual')) || voices.find(v => v.lang.startsWith('en'));
             if(preferredVoice) utterance.voice = preferredVoice;
 
-            utterance.onboundary = (event) => this.highlightCurrentWord(event);
+            if (this.CONFIG.WORD_HIGHLIGHT_ENABLED) {
+                utterance.onboundary = (event) => this.highlightCurrentWord(event);
+            }
 
             utterance.onend = () => {
                 this.ttsActive = false;
@@ -385,7 +403,9 @@
             if (preferredVoice) utterance.voice = preferredVoice;
 
             utterance.onstart = () => this.onUtteranceStart(index);
-            utterance.onboundary = (event) => this.highlightCurrentWord(event);
+            if (this.CONFIG.WORD_HIGHLIGHT_ENABLED) {
+                utterance.onboundary = (event) => this.highlightCurrentWord(event);
+            }
             utterance.onend = () => this.onUtteranceEnd(index);
             utterance.onerror = (e) => this.onUtteranceError(index, e);
 
@@ -633,6 +653,9 @@
                 } else if (combo && key.toUpperCase() === KEY.PAUSE_RESUME) {
                     e.preventDefault();
                     this.pauseResumeTTS();
+                } else if (combo && key.toUpperCase() === KEY.TOGGLE_HIGHLIGHT) {
+                    e.preventDefault();
+                    this.toggleWordHighlight();
                 }
             });
             document.addEventListener('keyup', (e) => {
