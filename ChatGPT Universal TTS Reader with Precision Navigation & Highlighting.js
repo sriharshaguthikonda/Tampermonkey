@@ -39,9 +39,11 @@
 
         CONFIG: {
             ROOT_SELECTOR: '#thread',
-            CANDIDATE_SELECTORS: 'div[data-message-author-role="assistant"] .markdown',
+            ASSISTANT_SELECTOR: 'div[data-message-author-role="assistant"] .markdown',
+            USER_SELECTOR: 'div[data-message-author-role="user"] .whitespace-pre-wrap',
+            READ_USER_MESSAGES: true,
             // Add #content-root and all its descendants to ignore list
-            IGNORE_SELECTORS: '.settings-header, nav, script, style, noscript, header, footer, button, a, form, [aria-hidden="true"], [data-message-author-role="user"], pre, code, [class*="code"], [class*="language-"], [class*="highlight"], .token, #thread-bottom-container, #content-root, #content-root *',
+            IGNORE_SELECTORS: '.settings-header, nav, script, style, noscript, header, footer, button, a, form, .sr-only, [aria-hidden="true"], pre, code, [class*="code"], [class*="language-"], [class*="highlight"], .token, #thread-bottom-container, #content-root, #content-root *',
             MIN_TEXT_LENGTH: 10,
             SPEECH_RATE: 1.7,
             QUEUE_LOOKAHEAD: 1,
@@ -116,7 +118,10 @@
 
         findAllParagraphs() {
             const root = document.querySelector(this.CONFIG.ROOT_SELECTOR) || document;
-            let candidates = Array.from(root.querySelectorAll(this.CONFIG.CANDIDATE_SELECTORS));
+            const selectors = this.CONFIG.READ_USER_MESSAGES
+                ? `${this.CONFIG.ASSISTANT_SELECTOR}, ${this.CONFIG.USER_SELECTOR}`
+                : this.CONFIG.ASSISTANT_SELECTOR;
+            let candidates = Array.from(root.querySelectorAll(selectors));
             let readableCandidates = candidates.filter(el => this.isVisiblyReadable(el));
             const candidateSet = new Set(readableCandidates);
 
