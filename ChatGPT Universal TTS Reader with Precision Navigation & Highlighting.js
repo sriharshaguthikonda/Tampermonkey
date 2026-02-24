@@ -36,6 +36,7 @@
         paragraphObserver: null,
         paragraphsDirty: true,
         currentParagraphIndex: -1,
+        pendingNavIndex: -1,
         processedParagraph: { element: null, originalHTML: '', wordSpans: [], wordOffsets: [] },
 
         CONFIG: {
@@ -47,6 +48,7 @@
             QUEUE_LOOKAHEAD: 1,
             NAV_READ_DELAY_MS: 0,
             NAV_THROTTLE_MS: 20,
+            NAV_FOCUS_HOLD_MS: 400,
             SCROLL_THROTTLE_MS: 250,
             SCROLL_EDGE_PADDING: 80,
             HOTKEYS: { ACTIVATE: 'U', PAUSE_RESUME: 'P', NAV_NEXT: 'ArrowRight', NAV_PREV: 'ArrowLeft', STOP: 'Escape' },
@@ -439,10 +441,13 @@
                 this.gentleScrollToElement(targetElement); // Still useful for navigation highlight
                 this.lastSpokenElement = targetElement;
 
+                this.pendingNavIndex = newIndex;
+                clearTimeout(this.navigationTimeoutId);
                 this.navigationTimeoutId = setTimeout(() => {
+                    if (this.pendingNavIndex === -1) return;
                     this.continuousReadingActive = true;
-                    this.readFromParagraph(newIndex);
-                }, this.CONFIG.NAV_READ_DELAY_MS);
+                    this.readFromParagraph(this.pendingNavIndex);
+                }, this.CONFIG.NAV_FOCUS_HOLD_MS);
             } else {
                  this.showNotification(direction > 0 ? "End of page." : "Start of page.");
             }
