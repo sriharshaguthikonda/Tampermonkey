@@ -27,13 +27,14 @@
         continuousReadingActive: false,
         pageFullyLoaded: false,
         lastSpokenElement: null,
+        currentWordSpan: null,
         navigationTimeoutId: null,
         pointerLoopId: null,
         paragraphsList: [],
         paragraphObserver: null,
         paragraphsDirty: true,
         currentParagraphIndex: -1,
-        processedParagraph: { element: null, originalHTML: '', wordSpans: [] },
+        processedParagraph: { element: null, originalHTML: '', wordSpans: [], wordOffsets: [] },
 
         CONFIG: {
             CANDIDATE_SELECTORS: 'p, li, h1, h2, h3, h4, h5, h6, td, th, .markdown, div[class*="content"], article',
@@ -136,6 +137,7 @@
             document.querySelectorAll(selectors.join(', ')).forEach(el => {
                 el.classList.remove(...selectors.map(s => s.substring(1)));
             });
+            this.currentWordSpan = null;
         },
 
         revertParagraph() {
@@ -143,7 +145,7 @@
             if (element && originalHTML) {
                 element.innerHTML = originalHTML;
             }
-            this.processedParagraph = { element: null, originalHTML: '', wordSpans: [] };
+            this.processedParagraph = { element: null, originalHTML: '', wordSpans: [], wordOffsets: [] };
             this.clearHighlights();
         },
 
@@ -179,23 +181,53 @@
             });
 
             this.processedParagraph.wordSpans = wordSpans;
+            const wordOffsets = new Array(wordSpans.length);
+            let offset = 0;
+            for (let i = 0; i < wordSpans.length; i++) {
+                wordOffsets[i] = offset;
+                offset += wordSpans[i].textContent.length + 1;
+            }
+            this.processedParagraph.wordOffsets = wordOffsets;
             return this.processedParagraph.wordSpans.map(s => s.textContent).join(' ');
+        },
+
+        findWordIndexByChar(charIndex) {
+            const spans = this.processedParagraph.wordSpans;
+            const offsets = this.processedParagraph.wordOffsets;
+            if (!spans || !offsets || offsets.length === 0) return -1;
+
+            let low = 0;
+            let high = offsets.length - 1;
+            while (low <= high) {
+                const mid = (low + high) >> 1;
+                if (offsets[mid] <= charIndex) {
+                    low = mid + 1;
+                } else {
+                    high = mid - 1;
+                }
+            }
+
+            const idx = high;
+            if (idx < 0) return -1;
+            const start = offsets[idx];
+            const end = start + spans[idx].textContent.length;
+            if (charIndex < start || charIndex > end) return -1;
+            return idx;
         },
 
         highlightCurrentWord(event) {
             if (event.name !== 'word') return;
-            const prevWord = document.querySelector('.tts-current-word');
-            if (prevWord) prevWord.classList.remove('tts-current-word');
-
-            let accumulatedLength = 0;
-            for (const span of this.processedParagraph.wordSpans) {
-                const wordLength = span.textContent.length;
-                if (event.charIndex >= accumulatedLength && event.charIndex < accumulatedLength + wordLength) {
-                    span.classList.add('tts-current-word');
-                    return;
-                }
-                accumulatedLength += wordLength + 1;
+            if (this.currentWordSpan) {
+                this.currentWordSpan.classList.remove('tts-current-word');
+                this.currentWordSpan = null;
             }
+
+            const idx = this.findWordIndexByChar(event.charIndex);
+            if (idx === -1) return;
+            const span = this.processedParagraph.wordSpans[idx];
+            if (!span) return;
+            span.classList.add('tts-current-word');
+            this.currentWordSpan = span;
         },
 
         triggerTTS(text, onComplete = null) {
