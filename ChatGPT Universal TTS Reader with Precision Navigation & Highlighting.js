@@ -43,6 +43,10 @@
         pendingReverts: [],
         pendingRevertId: null,
         pendingRevertUsesIdle: false,
+        diagnosticsPanel: null,
+        lastUtteranceEndTime: 0,
+        lastGapMs: null,
+        lastWrapMs: null,
         processedParagraph: { element: null, originalHTML: '', wordSpans: [], wordOffsets: [] },
 
         CONFIG: {
@@ -62,6 +66,7 @@
             WORD_HIGHLIGHT_ENABLED: true,
             PREWRAP_IDLE_TIMEOUT_MS: 250,
             DEFERRED_REVERT_IDLE_MS: 250,
+            SHOW_DIAGNOSTICS_PANEL: true,
             HOTKEYS: { ACTIVATE: 'U', PAUSE_RESUME: 'P', NAV_NEXT: 'ArrowRight', NAV_PREV: 'ArrowLeft', STOP: 'Escape' },
             EMOJI_REGEX: /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE0F}]/ug
         },
@@ -363,6 +368,13 @@
             }
         },
 
+        updateDiagnosticsPanel() {
+            if (!this.diagnosticsPanel) return;
+            const gap = this.lastGapMs === null ? '--' : Math.round(this.lastGapMs);
+            const wrap = this.lastWrapMs === null ? '--' : Math.round(this.lastWrapMs);
+            this.diagnosticsPanel.textContent = `gap: ${gap} ms | wrap: ${wrap} ms`;
+        },
+
         setWordHighlightEnabled(enabled) {
             const nextValue = Boolean(enabled);
             if (this.CONFIG.WORD_HIGHLIGHT_ENABLED === nextValue) return;
@@ -493,6 +505,9 @@
             this.ttsActive = true;
             this.isPaused = false;
 
+            const startTime = performance.now();
+            this.lastGapMs = this.lastUtteranceEndTime ? startTime - this.lastUtteranceEndTime : null;
+
             this.currentParagraphIndex = index;
             const para = this.paragraphsList[index];
             if (!para || !para.element) return;
@@ -500,7 +515,10 @@
             this.wordHighlightActiveForCurrent = this.shouldHighlightWordsForElement(para.element);
             this.lastSpokenElement = para.element;
 
+            const wrapStart = performance.now();
             const textToRead = this.prepareParagraphForReading(para.element);
+            this.lastWrapMs = performance.now() - wrapStart;
+            this.updateDiagnosticsPanel();
             if (!textToRead) return;
 
             this.clearHighlights(true);
@@ -515,6 +533,7 @@
         onUtteranceEnd(index) {
             this.ttsActive = false;
             this.queuedParagraphs.delete(index);
+            this.lastUtteranceEndTime = performance.now();
             this.clearHighlights(true);
             this.deferProcessedParagraphRevert();
 
@@ -573,6 +592,10 @@
             this.revertParagraph();
             this.currentParagraphIndex = -1;
             this.wordHighlightActiveForCurrent = false;
+            this.lastUtteranceEndTime = 0;
+            this.lastGapMs = null;
+            this.lastWrapMs = null;
+            this.updateDiagnosticsPanel();
 
             // Stop the pointer arrow loop and hide the arrow
             if (this.pointerLoopId) {
@@ -826,6 +849,15 @@
             });
             highlightToggle.addEventListener('mousedown', e => e.stopPropagation());
             this.makeDraggable(uiPanel);
+
+            if (this.CONFIG.SHOW_DIAGNOSTICS_PANEL) {
+                const diagnostics = document.createElement('div');
+                diagnostics.id = 'tts-diagnostics-panel';
+                diagnostics.style.cssText = 'position: fixed; right: 12px; bottom: 12px; background: rgba(0,0,0,0.75); color: #fff; padding: 6px 8px; border-radius: 6px; font-family: Arial, sans-serif; font-size: 11px; z-index: 2147483647; pointer-events: none;';
+                diagnostics.textContent = 'gap: -- ms | wrap: -- ms';
+                document.body.appendChild(diagnostics);
+                this.diagnosticsPanel = diagnostics;
+            }
         },
 
         // MODIFIED: This function is now mostly disabled for TTS reading.
