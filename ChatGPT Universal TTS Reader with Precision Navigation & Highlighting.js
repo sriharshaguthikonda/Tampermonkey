@@ -51,6 +51,7 @@
             NAV_THROTTLE_MS: 20,
             NAV_FOCUS_HOLD_MS: 400,
             NAV_KEYUP_READ_DELAY_MS: 150,
+            NAV_FOCUS_FADE_MS: 800,
             SCROLL_THROTTLE_MS: 250,
             SCROLL_EDGE_PADDING: 80,
             HOTKEYS: { ACTIVATE: 'U', PAUSE_RESUME: 'P', NAV_NEXT: 'ArrowRight', NAV_PREV: 'ArrowLeft', STOP: 'Escape' },
@@ -419,7 +420,7 @@
             if(currentFocus) {
                 currentFocus.classList.remove('tts-navigation-focus');
                 currentFocus.classList.add('tts-focus-fade-out');
-                setTimeout(() => currentFocus.classList.remove('tts-focus-fade-out'), 500);
+                setTimeout(() => currentFocus.classList.remove('tts-focus-fade-out'), this.CONFIG.NAV_FOCUS_FADE_MS);
             }
 
             let currentIndex = this.currentParagraphIndex;
@@ -556,13 +557,14 @@
         // --- UI AND POINTER LOGIC ---
 
         createUI() {
+            document.documentElement.style.setProperty('--tts-focus-fade-ms', `${this.CONFIG.NAV_FOCUS_FADE_MS}ms`);
             const style = document.createElement('style');
             style.textContent = `
                 /* ... (highlighting styles are the same) ... */
                 .tts-current-sentence { background-color: rgba(46, 204, 113, 0.08) !important; border-left: 4px solid #2ecc71 !important; padding-left: 10px !important; transition: background-color 0.3s, border-color 0.3s; }
                 .tts-current-word { background-color: rgba(250, 210, 50, 0.9) !important; font-weight: bold !important; color: black !important; border-radius: 3px; transform: scale(1.02); box-shadow: 0 2px 8px rgba(0,0,0,0.2); transition: background-color 0.1s, transform 0.1s; }
                 .tts-navigation-focus { background-color: rgba(52, 152, 219, 0.3) !important; border-left: 4px solid #3498db !important; padding-left: 10px !important; transition: background-color 0.3s, border-color 0.3s; }
-                .tts-focus-fade-out { border-left-color: transparent !important; background-color: transparent !important; }
+                .tts-focus-fade-out { border-left-color: transparent !important; background-color: transparent !important; transition: background-color var(--tts-focus-fade-ms, 500ms) ease, border-color var(--tts-focus-fade-ms, 500ms) ease; }
 
                 /* NEW: In-game waypoint style pointer */
                 #tts-pointer {
