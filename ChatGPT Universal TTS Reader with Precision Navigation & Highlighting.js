@@ -64,6 +64,7 @@
             SCROLL_THROTTLE_MS: 250,
             SCROLL_EDGE_PADDING: 80,
             WORD_HIGHLIGHT_ENABLED: true,
+            GAP_TRIM_ENABLED: false,
             PREWRAP_IDLE_TIMEOUT_MS: 250,
             DEFERRED_REVERT_IDLE_MS: 250,
             SHOW_DIAGNOSTICS_PANEL: true,
@@ -120,10 +121,18 @@
             return text.replace(this.CONFIG.EMOJI_REGEX, '').replace(/\s+/g, ' ');
         },
 
+        trimGapForParagraphEnd(text) {
+            if (!this.CONFIG.GAP_TRIM_ENABLED) return text;
+            let trimmed = text.replace(/\s+$/g, '');
+            trimmed = trimmed.replace(/[.!?]+$/g, '');
+            return trimmed.replace(/\s+$/g, '');
+        },
+
         getTextFromElement(element) {
             if (!element) return '';
             const rawText = element.textContent || '';
-            return this.cleanTextForTTS(rawText);
+            const cleaned = this.cleanTextForTTS(rawText);
+            return this.trimGapForParagraphEnd(cleaned);
         },
 
         isVisiblyReadable(element) {
@@ -384,6 +393,17 @@
                 this.clearPrewrappedParagraphs();
             }
             this.showNotification(`Word highlight ${this.CONFIG.WORD_HIGHLIGHT_ENABLED ? 'on' : 'off'}`);
+        },
+
+        setGapTrimEnabled(enabled) {
+            const nextValue = Boolean(enabled);
+            if (this.CONFIG.GAP_TRIM_ENABLED === nextValue) return;
+            this.CONFIG.GAP_TRIM_ENABLED = nextValue;
+            this.paragraphsDirty = true;
+            if (!this.continuousReadingActive) {
+                this.refreshParagraphsIfNeeded(true);
+            }
+            this.showNotification(`Gap trim ${this.CONFIG.GAP_TRIM_ENABLED ? 'on' : 'off'}`);
         },
 
         toggleWordHighlight() {
@@ -833,7 +853,7 @@
             const uiPanel = document.createElement('div');
             uiPanel.id = 'tts-control-panel';
             uiPanel.style.cssText = `position: fixed; top: 80px; left: 10%; width: 180px; padding: 8px; background: rgba(0,0,0,0.7); color: #fff; font-family: Arial, sans-serif; font-size: 13px; border-radius: 6px; cursor: move; z-index: 2147483647;`;
-            uiPanel.innerHTML = `<div style="font-weight:bold; text-align:center; margin-bottom: 5px;">TTS Reader</div><label for="tts-speed" style="display:block; margin-bottom:4px;">Speed: <span id="speed-value">${this.CONFIG.SPEECH_RATE.toFixed(1)}</span>x</label><input type="range" id="tts-speed" min="0.5" max="2.5" step="0.1" value="${this.CONFIG.SPEECH_RATE}" style="width:100%;"><label for="tts-highlight-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-highlight-toggle" ${this.CONFIG.WORD_HIGHLIGHT_ENABLED ? 'checked' : ''} style="margin:0;">Word highlight</label>`;
+            uiPanel.innerHTML = `<div style="font-weight:bold; text-align:center; margin-bottom: 5px;">TTS Reader</div><label for="tts-speed" style="display:block; margin-bottom:4px;">Speed: <span id="speed-value">${this.CONFIG.SPEECH_RATE.toFixed(1)}</span>x</label><input type="range" id="tts-speed" min="0.5" max="2.5" step="0.1" value="${this.CONFIG.SPEECH_RATE}" style="width:100%;"><label for="tts-highlight-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-highlight-toggle" ${this.CONFIG.WORD_HIGHLIGHT_ENABLED ? 'checked' : ''} style="margin:0;">Word highlight</label><label for="tts-gap-trim-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-gap-trim-toggle" ${this.CONFIG.GAP_TRIM_ENABLED ? 'checked' : ''} style="margin:0;">Gap trim</label>`;
             document.body.appendChild(uiPanel);
 
             const speedInput = document.getElementById('tts-speed');
@@ -847,6 +867,11 @@
                 this.setWordHighlightEnabled(e.target.checked);
             });
             highlightToggle.addEventListener('mousedown', e => e.stopPropagation());
+            const gapTrimToggle = document.getElementById('tts-gap-trim-toggle');
+            gapTrimToggle.addEventListener('change', e => {
+                this.setGapTrimEnabled(e.target.checked);
+            });
+            gapTrimToggle.addEventListener('mousedown', e => e.stopPropagation());
             this.makeDraggable(uiPanel);
 
             if (this.CONFIG.SHOW_DIAGNOSTICS_PANEL) {
