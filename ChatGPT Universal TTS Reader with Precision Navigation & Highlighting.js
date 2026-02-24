@@ -845,7 +845,7 @@
             pointer.addEventListener('click', () => {
                 const currentSentence = document.querySelector('.tts-current-sentence');
                 if (currentSentence) {
-                    currentSentence.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    currentSentence.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 }
             });
 
@@ -894,7 +894,7 @@
             const padding = this.CONFIG.SCROLL_EDGE_PADDING;
             if (rect.top < padding || rect.bottom > window.innerHeight - padding) {
                 this.lastScrollTime = now;
-                element.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+                element.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
             }
         },
 
