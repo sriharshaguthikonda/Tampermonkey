@@ -509,6 +509,7 @@
             if (this.pointerLoopId) cancelAnimationFrame(this.pointerLoopId);
             this.updatePointerArrow();
             this.prewrapNextParagraph(index);
+            this.prewarmNextUtterance(index);
         },
 
         onUtteranceEnd(index) {
@@ -525,9 +526,6 @@
                 this.showNotification('End of page.');
                 return;
             }
-
-            const nextIndex = index + this.CONFIG.QUEUE_LOOKAHEAD + 1;
-            this.enqueueParagraph(nextIndex);
         },
 
         onUtteranceError(index, error) {
@@ -539,6 +537,13 @@
             if (!this.continuousReadingActive) return;
 
             const nextIndex = index + 1;
+            this.enqueueParagraph(nextIndex);
+        },
+
+        prewarmNextUtterance(index) {
+            if (!this.continuousReadingActive) return;
+            const nextIndex = index + this.CONFIG.QUEUE_LOOKAHEAD + 1;
+            if (nextIndex < 0 || nextIndex >= this.paragraphsList.length) return;
             this.enqueueParagraph(nextIndex);
         },
 
