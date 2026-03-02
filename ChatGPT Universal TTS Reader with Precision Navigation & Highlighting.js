@@ -56,6 +56,7 @@
         waitForMoreTimeoutId: null,
         waitForMoreSince: 0,
         waitForMoreNextIndex: -1,
+        isChatGPTPage: false,
         processedParagraph: { element: null, originalHTML: '', wordSpans: [], wordOffsets: [] },
 
         CONFIG: {
@@ -89,12 +90,31 @@
         },
 
         init() {
+            this.detectContext();
             this.waitForPageLoad();
             this.createUI();
             this.setupEventListeners();
             this.loadVoices();
             this.initParagraphObserver();
-            this.initAutoReadObserver();
+            if (this.isChatGPTPage) {
+                this.initAutoReadObserver();
+            }
+        },
+
+        detectContext() {
+            const host = (window.location && window.location.hostname) ? window.location.hostname : '';
+            const isChatGPTHost = host === 'chat.openai.com' || host === 'chatgpt.com';
+            this.isChatGPTPage = isChatGPTHost;
+            if (!this.isChatGPTPage) {
+                this.CONFIG.CANDIDATE_SELECTORS = 'p, li, h1, h2, h3, h4, h5, h6, td, th, blockquote, pre, code, article, section, main, div, span';
+                this.CONFIG.IGNORE_SELECTORS = 'script, style, noscript, [aria-hidden="true"], [data-tts-ui]';
+                this.CONFIG.AUTO_READ_NEW_MESSAGES = false;
+                this.CONFIG.AUTO_READ_MIN_PARAGRAPHS = 0;
+                this.CONFIG.AUTO_READ_STABLE_MS = 0;
+                this.CONFIG.SHOW_DIAGNOSTICS_PANEL = false;
+                this.CONFIG.WAIT_FOR_MORE_MS = 0;
+                this.CONFIG.LOOP_WAIT_MS = 0;
+            }
         },
 
         // ... (All functions from waitForPageLoad to triggerTTS are unchanged) ...
@@ -802,6 +822,15 @@
             const refreshedIndex = this.refreshParagraphIndex(index);
             const lastIndex = this.paragraphsList.length - 1;
             if (refreshedIndex >= lastIndex) {
+                if (!this.isChatGPTPage) {
+                    if (this.CONFIG.LOOP_ON_END) {
+                        this.loopToTop();
+                    } else {
+                        this.stopTTS(false);
+                        this.showNotification('End of page.');
+                    }
+                    return;
+                }
                 const nextIndex = refreshedIndex + 1;
                 this.waitForMoreParagraphs(nextIndex);
                 return;
