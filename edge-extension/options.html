@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ChatGPT TTS Reader Settings</title>
+    <link rel="stylesheet" href="options.css" />
+</head>
+<body>
+    <main class="page">
+        <header class="page-header">
+            <h1>ChatGPT TTS Reader</h1>
+            <p>Extension settings</p>
+        </header>
+
+        <section class="card">
+            <h2>Playback</h2>
+            <div class="field">
+                <label for="speechRate">Speech rate</label>
+                <div class="range-row">
+                    <input id="speechRate" type="range" min="0.5" max="5" step="0.1" />
+                    <span id="speechRateValue" class="value-pill">3.5x</span>
+                </div>
+            </div>
+            <div class="field toggle">
+                <label for="wordHighlight">Word highlight</label>
+                <input id="wordHighlight" type="checkbox" />
+            </div>
+            <div class="field toggle">
+                <label for="gapTrim">Gap trim</label>
+                <input id="gapTrim" type="checkbox" />
+            </div>
+        </section>
+
+        <section class="card">
+            <h2>Behavior</h2>
+            <div class="field toggle">
+                <label for="autoRead">Auto-read new messages</label>
+                <input id="autoRead" type="checkbox" />
+            </div>
+            <div class="field toggle">
+                <label for="loopOnEnd">Loop to top</label>
+                <input id="loopOnEnd" type="checkbox" />
+            </div>
+            <div class="field toggle">
+                <label for="showDiagnostics">Diagnostics panel</label>
+                <input id="showDiagnostics" type="checkbox" />
+            </div>
+        </section>
+
+        <section class="card">
+            <h2>Advanced</h2>
+            <div class="grid">
+                <div class="field">
+                    <label for="queueLookahead">Queue lookahead</label>
+                    <input id="queueLookahead" type="number" min="0" max="10" step="1" />
+                </div>
+                <div class="field">
+                    <label for="navFocusHoldMs">Nav focus hold (ms)</label>
+                    <input id="navFocusHoldMs" type="number" min="0" step="50" />
+                </div>
+                <div class="field">
+                    <label for="navKeyupReadDelayMs">Nav keyup delay (ms)</label>
+                    <input id="navKeyupReadDelayMs" type="number" min="0" step="25" />
+                </div>
+                <div class="field">
+                    <label for="navThrottleMs">Nav throttle (ms)</label>
+                    <input id="navThrottleMs" type="number" min="0" step="5" />
+                </div>
+                <div class="field">
+                    <label for="scrollThrottleMs">Scroll throttle (ms)</label>
+                    <input id="scrollThrottleMs" type="number" min="0" step="10" />
+                </div>
+                <div class="field">
+                    <label for="scrollEdgePadding">Scroll edge padding</label>
+                    <input id="scrollEdgePadding" type="number" min="0" step="5" />
+                </div>
+                <div class="field">
+                    <label for="waitForMoreMs">Wait for more (ms)</label>
+                    <input id="waitForMoreMs" type="number" min="0" step="100" />
+                </div>
+                <div class="field">
+                    <label for="loopWaitMs">Loop wait (ms)</label>
+                    <input id="loopWaitMs" type="number" min="0" step="50" />
+                </div>
+                <div class="field">
+                    <label for="autoReadCooldownMs">Auto-read cooldown (ms)</label>
+                    <input id="autoReadCooldownMs" type="number" min="0" step="50" />
+                </div>
+                <div class="field">
+                    <label for="autoReadStableMs">Auto-read stable (ms)</label>
+                    <input id="autoReadStableMs" type="number" min="0" step="50" />
+                </div>
+                <div class="field">
+                    <label for="autoReadMinParagraphs">Auto-read min paragraphs</label>
+                    <input id="autoReadMinParagraphs" type="number" min="0" step="1" />
+                </div>
+            </div>
+            <p class="note">Advanced changes apply immediately; for UI layout changes, reload the ChatGPT tab.</p>
+        </section>
+
+        <section class="actions">
+            <button id="resetBtn" class="button secondary">Reset to defaults</button>
+            <button id="saveBtn" class="button primary">Save changes</button>
+        </section>
+    </main>
+
+    <script src="options.js"></script>
+</body>
+</html>

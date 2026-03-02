@@ -2,8 +2,23 @@
 
 // Default settings
 const DEFAULT_SETTINGS = {
-    speechRate: 1.3,
-    voiceName: '',
+    speechRate: 3.5,
+    wordHighlight: true,
+    gapTrim: false,
+    autoRead: false,
+    loopOnEnd: true,
+    showDiagnostics: true,
+    queueLookahead: 3,
+    navFocusHoldMs: 800,
+    navKeyupReadDelayMs: 150,
+    navThrottleMs: 20,
+    scrollThrottleMs: 250,
+    scrollEdgePadding: 80,
+    loopWaitMs: 1200,
+    waitForMoreMs: 8000,
+    autoReadCooldownMs: 1500,
+    autoReadStableMs: 800,
+    autoReadMinParagraphs: 3,
     hotkeys: {
         activate: 'U',
         pauseResume: 'P',

@@ -1,5 +1,13 @@
-document.addEventListener('DOMContentLoaded', function() {
-    // UI Elements
+document.addEventListener('DOMContentLoaded', () => {
+    const DEFAULT_SETTINGS = {
+        speechRate: 3.5,
+        wordHighlight: true,
+        gapTrim: false,
+        autoRead: false,
+        loopOnEnd: true,
+        showDiagnostics: true
+    };
+
     const startBtn = document.getElementById('startBtn');
     const stopBtn = document.getElementById('stopBtn');
     const pauseBtn = document.getElementById('pauseBtn');
@@ -8,27 +16,33 @@ document.addEventListener('DOMContentLoaded', function() {
     const rateSlider = document.getElementById('rateSlider');
     const rateValue = document.getElementById('rateValue');
     const statusDiv = document.getElementById('status');
+    const optionsBtn = document.getElementById('optionsBtn');
 
-    // Load saved settings
-    chrome.storage.sync.get(['speechRate'], function(result) {
-        if (result.speechRate) {
-            rateSlider.value = result.speechRate;
-            rateValue.textContent = `${result.speechRate}x`;
-        }
-    });
+    const highlightToggle = document.getElementById('highlightToggle');
+    const gapTrimToggle = document.getElementById('gapTrimToggle');
+    const autoReadToggle = document.getElementById('autoReadToggle');
+    const loopToggle = document.getElementById('loopToggle');
+    const diagnosticsToggle = document.getElementById('diagnosticsToggle');
 
-    // Send message to content script
     function sendMessage(action, data = {}) {
-        chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
+        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
             if (tabs[0] && tabs[0].id) {
-                chrome.tabs.sendMessage(tabs[0].id, {action, ...data});
+                chrome.tabs.sendMessage(tabs[0].id, { action, ...data });
             }
         });
     }
 
-    // Update UI based on state
+    function showStatus(message) {
+        statusDiv.textContent = message;
+        statusDiv.classList.add('active');
+    }
+
+    function hideStatus() {
+        statusDiv.classList.remove('active');
+    }
+
     function updateUI(state) {
-        switch(state) {
+        switch (state) {
             case 'playing':
                 startBtn.disabled = true;
                 stopBtn.disabled = false;
@@ -37,31 +51,41 @@ document.addEventListener('DOMContentLoaded', function() {
                 showStatus('Reading...');
                 break;
             case 'paused':
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+                pauseBtn.disabled = false;
                 pauseBtn.innerHTML = '<span class="material-icons">play_arrow</span> Resume';
                 showStatus('Paused');
                 break;
-            case 'stopped':
+            default:
                 startBtn.disabled = false;
                 stopBtn.disabled = true;
                 pauseBtn.disabled = true;
                 pauseBtn.innerHTML = '<span class="material-icons">pause</span> Pause';
                 hideStatus();
-                break;
         }
     }
 
-    // Show status message
-    function showStatus(message) {
-        statusDiv.textContent = message;
-        statusDiv.classList.add('active');
+    function applySettingsToUI(settings) {
+        const rate = Number(settings.speechRate ?? DEFAULT_SETTINGS.speechRate);
+        rateSlider.value = rate;
+        rateValue.textContent = `${rate.toFixed(1)}x`;
+        highlightToggle.checked = Boolean(settings.wordHighlight);
+        gapTrimToggle.checked = Boolean(settings.gapTrim);
+        autoReadToggle.checked = Boolean(settings.autoRead);
+        loopToggle.checked = Boolean(settings.loopOnEnd);
+        diagnosticsToggle.checked = Boolean(settings.showDiagnostics);
     }
 
-    // Hide status message
-    function hideStatus() {
-        statusDiv.classList.remove('active');
+    function persistSetting(key, value) {
+        chrome.storage.sync.set({ [key]: value });
+        sendMessage('applySettings', { settings: { [key]: value }, silent: true });
     }
 
-    // Event Listeners
+    chrome.storage.sync.get(DEFAULT_SETTINGS, (settings) => {
+        applySettingsToUI(settings);
+    });
+
     startBtn.addEventListener('click', () => {
         sendMessage('startReading');
         updateUI('playing');
@@ -90,33 +114,45 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     rateSlider.addEventListener('input', (e) => {
-        const rate = parseFloat(e.target.value).toFixed(1);
-        rateValue.textContent = `${rate}x`;
+        const rate = Number(e.target.value);
+        rateValue.textContent = `${rate.toFixed(1)}x`;
         chrome.storage.sync.set({ speechRate: rate });
         sendMessage('setRate', { rate });
     });
 
-    // Listen for state updates from content script
-    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-        if (message.type === 'stateUpdate') {
-            updateUI(message.state);
-        }
-        return true;
+    highlightToggle.addEventListener('change', (e) => {
+        persistSetting('wordHighlight', e.target.checked);
+    });
+    gapTrimToggle.addEventListener('change', (e) => {
+        persistSetting('gapTrim', e.target.checked);
+    });
+    autoReadToggle.addEventListener('change', (e) => {
+        persistSetting('autoRead', e.target.checked);
+    });
+    loopToggle.addEventListener('change', (e) => {
+        persistSetting('loopOnEnd', e.target.checked);
+    });
+    diagnosticsToggle.addEventListener('change', (e) => {
+        persistSetting('showDiagnostics', e.target.checked);
     });
 
-    // Check current state when popup opens
-    chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
+    optionsBtn.addEventListener('click', () => {
+        chrome.runtime.openOptionsPage();
+    });
+
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
         if (tabs[0] && tabs[0].id) {
-            chrome.tabs.sendMessage(tabs[0].id, {action: 'getState'}, function(response) {
+            chrome.tabs.sendMessage(tabs[0].id, { action: 'getState' }, (response) => {
                 if (chrome.runtime.lastError) {
-                    // Content script not ready or not on a supported page
-                    statusDiv.textContent = 'Navigate to a supported page to use this extension';
-                    statusDiv.classList.add('active');
+                    showStatus('Open ChatGPT to use this extension.');
                     startBtn.disabled = true;
                     return;
                 }
-                if (response) {
+                if (response && response.state) {
                     updateUI(response.state);
+                    if (response.settings) {
+                        applySettingsToUI({ ...DEFAULT_SETTINGS, ...response.settings });
+                    }
                 }
             });
         }
