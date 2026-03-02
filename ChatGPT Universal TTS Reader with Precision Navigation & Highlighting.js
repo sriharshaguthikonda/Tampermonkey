@@ -108,7 +108,7 @@
             const isChatGPTHost = host === 'chat.openai.com' || host === 'chatgpt.com';
             this.isChatGPTPage = isChatGPTHost;
             if (!this.isChatGPTPage) {
-                this.CONFIG.CANDIDATE_SELECTORS = 'p, li, h1, h2, h3, h4, h5, h6, td, th, blockquote, pre, code, article, section, main, div, span';
+                this.CONFIG.CANDIDATE_SELECTORS = 'p, li, h1, h2, h3, h4, h5, h6, td, th, blockquote, pre, code, article, section, main';
                 this.CONFIG.IGNORE_SELECTORS = 'script, style, noscript, [aria-hidden="true"], [data-tts-ui]';
                 this.CONFIG.AUTO_READ_NEW_MESSAGES = false;
                 this.CONFIG.AUTO_READ_MIN_PARAGRAPHS = 0;
@@ -116,6 +116,7 @@
                 this.CONFIG.SHOW_DIAGNOSTICS_PANEL = false;
                 this.CONFIG.WAIT_FOR_MORE_MS = 0;
                 this.CONFIG.LOOP_WAIT_MS = 0;
+                this.CONFIG.WORD_HIGHLIGHT_ENABLED = false;
             }
         },
 
@@ -193,6 +194,8 @@
                 return false;
             }
             if (element.closest(this.CONFIG.IGNORE_SELECTORS)) return false;
+            const text = this.getTextFromElement(element);
+            if (!text || text.trim().length === 0) return false;
             return true;
         },
 
