@@ -61,7 +61,7 @@
         CONFIG: {
             CANDIDATE_SELECTORS: 'p, li, h1, h2, h3, h4, h5, h6, td, th, .markdown, div[class*="content"], article',
             // Add #content-root and all its descendants to ignore list
-            IGNORE_SELECTORS: '.settings-header, nav, script, style, noscript, header, footer, button, a, form, [aria-hidden="true"], [data-message-author-role="user"], pre, code, [class*="code"], [class*="language-"], [class*="highlight"], .token, #thread-bottom-container, #content-root, #content-root *',
+            IGNORE_SELECTORS: '.settings-header, nav, script, style, noscript, header, footer, button, a, form, [aria-hidden="true"], [data-tts-ui], [data-message-author-role="user"], pre, code, [class*="code"], [class*="language-"], [class*="highlight"], .token, #thread-bottom-container, #content-root, #content-root *',
             SPEECH_RATE: 3.5,
             QUEUE_LOOKAHEAD: 3,
             NAV_READ_DELAY_MS: 0,
@@ -1091,6 +1091,8 @@
             // Create the single waypoint pointer
             const pointer = document.createElement('div');
             pointer.id = 'tts-pointer';
+            pointer.setAttribute('data-tts-ui', 'true');
+            pointer.setAttribute('aria-hidden', 'true');
             document.body.appendChild(pointer);
 
             pointer.addEventListener('click', () => {
@@ -1103,7 +1105,9 @@
             // ... (rest of the UI panel code remains the same) ...
             const uiPanel = document.createElement('div');
             uiPanel.id = 'tts-control-panel';
-            uiPanel.style.cssText = `position: fixed; top: 80px; left: 10%; width: 180px; padding: 8px; background: rgba(0,0,0,0.7); color: #fff; font-family: Arial, sans-serif; font-size: 13px; border-radius: 6px; cursor: move; z-index: 2147483647;`;
+            uiPanel.setAttribute('data-tts-ui', 'true');
+            uiPanel.setAttribute('aria-hidden', 'true');
+            uiPanel.style.cssText = `position: fixed; top: 80px; left: 10%; width: 180px; padding: 8px; background: rgba(0,0,0,0.7); color: #fff; font-family: Arial, sans-serif; font-size: 13px; border-radius: 6px; cursor: move; z-index: 2147483647; user-select: none; -webkit-user-select: none;`;
             uiPanel.innerHTML = `<div style="font-weight:bold; text-align:center; margin-bottom: 5px;">TTS Reader</div><label for="tts-speed" style="display:block; margin-bottom:4px;">Speed: <span id="speed-value">${this.CONFIG.SPEECH_RATE.toFixed(1)}</span>x</label><input type="range" id="tts-speed" min="0.5" max="5" step="0.1" value="${this.CONFIG.SPEECH_RATE}" style="width:100%;"><label for="tts-highlight-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-highlight-toggle" ${this.CONFIG.WORD_HIGHLIGHT_ENABLED ? 'checked' : ''} style="margin:0;">Word highlight</label><label for="tts-gap-trim-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-gap-trim-toggle" ${this.CONFIG.GAP_TRIM_ENABLED ? 'checked' : ''} style="margin:0;">Gap trim</label><label for="tts-auto-read-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-auto-read-toggle" ${this.CONFIG.AUTO_READ_NEW_MESSAGES ? 'checked' : ''} style="margin:0;">Auto-read new</label><label for="tts-loop-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-loop-toggle" ${this.CONFIG.LOOP_ON_END ? 'checked' : ''} style="margin:0;">Loop to top</label>`;
             document.body.appendChild(uiPanel);
 
@@ -1138,7 +1142,9 @@
             if (this.CONFIG.SHOW_DIAGNOSTICS_PANEL) {
                 const diagnostics = document.createElement('div');
                 diagnostics.id = 'tts-diagnostics-panel';
-                diagnostics.style.cssText = 'position: fixed; right: 12px; bottom: 12px; background: rgba(0,0,0,0.75); color: #fff; padding: 6px 8px; border-radius: 6px; font-family: Arial, sans-serif; font-size: 11px; z-index: 2147483647; pointer-events: none;';
+                diagnostics.setAttribute('data-tts-ui', 'true');
+                diagnostics.setAttribute('aria-hidden', 'true');
+                diagnostics.style.cssText = 'position: fixed; right: 12px; bottom: 12px; background: rgba(0,0,0,0.75); color: #fff; padding: 6px 8px; border-radius: 6px; font-family: Arial, sans-serif; font-size: 11px; z-index: 2147483647; pointer-events: none; user-select: none; -webkit-user-select: none;';
                 diagnostics.textContent = 'gap: -- ms | wrap: -- ms';
                 document.body.appendChild(diagnostics);
                 this.diagnosticsPanel = diagnostics;
@@ -1225,7 +1231,9 @@
 
             const notification = document.createElement('div');
             notification.id = 'tts-notification-popup';
-            notification.style.cssText = `position: fixed; top: 20px; right: 20px; background: #333; color: white; padding: 10px 20px; border-radius: 5px; font-family: Arial, sans-serif; font-size: 14px; z-index: 2147483647; opacity: 0; transition: opacity 0.3s;`;
+            notification.setAttribute('data-tts-ui', 'true');
+            notification.setAttribute('aria-hidden', 'true');
+            notification.style.cssText = `position: fixed; top: 20px; right: 20px; background: #333; color: white; padding: 10px 20px; border-radius: 5px; font-family: Arial, sans-serif; font-size: 14px; z-index: 2147483647; opacity: 0; transition: opacity 0.3s; user-select: none; -webkit-user-select: none;`;
             notification.textContent = message;
             document.body.appendChild(notification);
             setTimeout(() => { notification.style.opacity = '1'; }, 10);
