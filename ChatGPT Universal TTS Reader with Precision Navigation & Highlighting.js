@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         *** ChatGPT Universal TTS Reader with Precision Navigation & Highlighting (Ignore Content Root)
 // @namespace    http://tampermonkey.net/
-// @version      2.5
+// @version      2.6
 // @description  TTS reader skips designated UI elements under #content-root
 // @author       Your Name (updated by AI)
 // @match        https://chat.openai.com/c/*
@@ -11,8 +11,10 @@
 // @match        https://chatgpt.com/c/*
 // @match        https://chatgpt.com/g/*
 // @match        https://chatgpt.com/?*
-// @match        https://chatgpt.com/*
+// @match        https://chatgpt.com/* 
 // @match        file:///*
+// @updateURL    https://raw.githubusercontent.com/sriharshaguthikonda/Tampermonkey/codex/auto-read-streaming/ChatGPT%20Universal%20TTS%20Reader%20with%20Precision%20Navigation%20%26%20Highlighting.js
+// @downloadURL  https://raw.githubusercontent.com/sriharshaguthikonda/Tampermonkey/codex/auto-read-streaming/ChatGPT%20Universal%20TTS%20Reader%20with%20Precision%20Navigation%20%26%20Highlighting.js
 // @grant        none
 // ==/UserScript==
 
