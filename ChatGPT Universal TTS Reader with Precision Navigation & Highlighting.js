@@ -82,6 +82,7 @@
             AUTO_READ_MIN_PARAGRAPHS: 3,
             WAIT_FOR_MORE_MS: 8000,
             WAIT_RETRY_MS: 250,
+            LOOP_WAIT_MS: 1200,
             LOOP_ON_END: true,
             HOTKEYS: { ACTIVATE: 'U', PAUSE_RESUME: 'P', NAV_NEXT: 'ArrowRight', NAV_PREV: 'ArrowLeft', STOP: 'Escape' },
             EMOJI_REGEX: /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE0F}]/ug
@@ -549,7 +550,8 @@
         checkForMoreParagraphs() {
             if (!this.waitingForMoreContent || !this.continuousReadingActive) return;
             const now = Date.now();
-            if (now - this.waitForMoreSince > this.CONFIG.WAIT_FOR_MORE_MS) {
+            const waitLimit = this.CONFIG.LOOP_ON_END ? this.CONFIG.LOOP_WAIT_MS : this.CONFIG.WAIT_FOR_MORE_MS;
+            if (now - this.waitForMoreSince > waitLimit) {
                 this.waitingForMoreContent = false;
                 this.waitForMoreNextIndex = -1;
                 if (this.CONFIG.LOOP_ON_END) {
