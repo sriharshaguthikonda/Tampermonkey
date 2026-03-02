@@ -966,7 +966,8 @@
                 if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable)) return;
 
                 const key = e.key;
-                const combo = e.ctrlKey && e.shiftKey;
+                const shiftOnly = e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey;
+                const ctrlShift = e.ctrlKey && e.shiftKey;
                 const KEY = this.CONFIG.HOTKEYS;
 
                 switch (key) {
@@ -983,7 +984,7 @@
                     case KEY.STOP: e.preventDefault(); this.stopTTS(); break;
                 }
 
-                if (combo && key.toUpperCase() === KEY.ACTIVATE) {
+                if (shiftOnly && key.toUpperCase() === KEY.ACTIVATE) {
                     e.preventDefault();
                     if (this.ttsActive) { this.stopTTS(); return; }
                     document.body.style.cursor = 'crosshair';
@@ -996,7 +997,7 @@
                         this.startReadingOnClick(ev);
                     };
                     document.addEventListener('click', clickHandler, { once: true, capture: true });
-                } else if (combo && key.toUpperCase() === KEY.PAUSE_RESUME) {
+                } else if (ctrlShift && key.toUpperCase() === KEY.PAUSE_RESUME) {
                     e.preventDefault();
                     this.pauseResumeTTS();
                 }
