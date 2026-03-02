@@ -20,7 +20,7 @@ Add or keep these lines in the metadata block:
 ```
 
 Notes:
-- The URL must be HTTPS and stable.
+- Prefer HTTPS to avoid blocked updates (some engines require secure update URLs by default).
 - If the filename has spaces or special characters (like `&`), URL-encode them (`%20`, `%26`).
 - Best practice is a `.user.js` filename, but a raw `.js` can still work if installed via Tampermonkey.
 
