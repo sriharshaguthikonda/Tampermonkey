@@ -31,6 +31,7 @@
         lastSpokenElement: null,
         currentWordSpan: null,
         lastScrollTime: 0,
+        autoScrollIntervalId: null,
         navigationTimeoutId: null,
         pointerLoopId: null,
         paragraphsList: [],
@@ -74,6 +75,8 @@
             NAV_FOCUS_FADE_MS: 800,
             SCROLL_THROTTLE_MS: 250,
             SCROLL_EDGE_PADDING: 80,
+            AUTO_SCROLL_ENABLED: true,
+            AUTO_SCROLL_INTERVAL_MS: 1200,
             WORD_HIGHLIGHT_ENABLED: true,
             GAP_TRIM_ENABLED: true,
             PREWRAP_IDLE_TIMEOUT_MS: 250,
@@ -798,6 +801,7 @@
 
             this.wordHighlightActiveForCurrent = this.shouldHighlightWordsForElement(para.element);
             this.lastSpokenElement = para.element;
+            this.startAutoScroll();
 
             const wrapStart = performance.now();
             const textToRead = this.prepareParagraphForReading(para.element);
@@ -905,6 +909,7 @@
                 this.pointerLoopId = null;
             }
             this.hidePointerArrow();
+            this.stopAutoScroll();
 
             if (notify) this.showNotification('All TTS stopped');
             return true;
@@ -1196,6 +1201,28 @@
                 this.lastScrollTime = now;
                 element.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
             }
+        },
+
+        scrollElementToCenter(element) {
+            if (!element) return;
+            element.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+        },
+
+        startAutoScroll() {
+            if (!this.CONFIG.AUTO_SCROLL_ENABLED) return;
+            if (this.autoScrollIntervalId) return;
+            this.autoScrollIntervalId = setInterval(() => {
+                if (!this.continuousReadingActive || this.isPaused) return;
+                if (this.lastSpokenElement) {
+                    this.scrollElementToCenter(this.lastSpokenElement);
+                }
+            }, this.CONFIG.AUTO_SCROLL_INTERVAL_MS);
+        },
+
+        stopAutoScroll() {
+            if (!this.autoScrollIntervalId) return;
+            clearInterval(this.autoScrollIntervalId);
+            this.autoScrollIntervalId = null;
         },
 
         // REWRITTEN: New intelligent waypoint arrow logic
