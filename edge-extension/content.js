@@ -32,6 +32,9 @@
         currentWordSpan: null,
         lastScrollTime: 0,
         autoScrollIntervalId: null,
+        autoScrollInProgress: false,
+        autoScrollInProgressId: null,
+        userInteractingUntil: 0,
         navigationTimeoutId: null,
         pointerLoopId: null,
         paragraphsList: [],
@@ -76,7 +79,9 @@
             SCROLL_THROTTLE_MS: 250,
             SCROLL_EDGE_PADDING: 80,
             AUTO_SCROLL_ENABLED: true,
-            AUTO_SCROLL_INTERVAL_MS: 1200,
+            AUTO_SCROLL_INTERVAL_MS: 2000,
+            AUTO_SCROLL_USER_PAUSE_MS: 2000,
+            AUTO_SCROLL_SUPPRESS_SCROLL_MS: 400,
             WORD_HIGHLIGHT_ENABLED: true,
             GAP_TRIM_ENABLED: true,
             PREWRAP_IDLE_TIMEOUT_MS: 250,
@@ -1077,6 +1082,7 @@
                 const activeEl = document.activeElement;
                 if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable)) return;
 
+                this.markUserInteraction();
                 const key = e.key;
                 const shiftOnly = e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey;
                 const ctrlShift = e.ctrlKey && e.shiftKey;
@@ -1126,6 +1132,13 @@
                     this.startReadingFromPendingNav();
                 }
             });
+            const interactionHandler = () => this.markUserInteraction();
+            window.addEventListener('wheel', interactionHandler, { passive: true });
+            window.addEventListener('touchstart', interactionHandler, { passive: true });
+            window.addEventListener('pointerdown', interactionHandler, { passive: true });
+            window.addEventListener('scroll', () => {
+                if (!this.autoScrollInProgress) this.markUserInteraction();
+            }, { passive: true });
             window.addEventListener('beforeunload', () => this.stopTTS(false));
         },
 
@@ -1247,14 +1260,28 @@
 
         scrollElementToCenter(element) {
             if (!element) return;
+            this.autoScrollInProgress = true;
+            if (this.autoScrollInProgressId) {
+                clearTimeout(this.autoScrollInProgressId);
+            }
+            this.autoScrollInProgressId = setTimeout(() => {
+                this.autoScrollInProgress = false;
+                this.autoScrollInProgressId = null;
+            }, this.CONFIG.AUTO_SCROLL_SUPPRESS_SCROLL_MS);
             element.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+        },
+
+        markUserInteraction() {
+            if (this.autoScrollInProgress) return;
+            this.userInteractingUntil = Date.now() + this.CONFIG.AUTO_SCROLL_USER_PAUSE_MS;
         },
 
         startAutoScroll() {
             if (!this.CONFIG.AUTO_SCROLL_ENABLED) return;
             if (this.autoScrollIntervalId) return;
             this.autoScrollIntervalId = setInterval(() => {
-                if (!this.continuousReadingActive || this.isPaused) return;
+                if (!this.continuousReadingActive || this.isPaused || this.isNavigating || this.navKeyHeld) return;
+                if (Date.now() < this.userInteractingUntil) return;
                 if (this.lastSpokenElement) {
                     this.scrollElementToCenter(this.lastSpokenElement);
                 }
