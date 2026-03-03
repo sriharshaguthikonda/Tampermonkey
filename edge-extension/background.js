@@ -2,7 +2,7 @@
 
 // Default settings
 const DEFAULT_SETTINGS = {
-    speechRate: 3.5,
+    speechRate: 5,
     wordHighlight: true,
     gapTrim: true,
     autoRead: false,

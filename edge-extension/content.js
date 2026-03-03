@@ -66,7 +66,7 @@
             CANDIDATE_SELECTORS: 'p, li, h1, h2, h3, h4, h5, h6, td, th, .markdown, div[class*="content"], article',
             // Add #content-root and all its descendants to ignore list
             IGNORE_SELECTORS: '.settings-header, nav, script, style, noscript, header, footer, button, a, form, [aria-hidden="true"], [data-tts-ui], [data-message-author-role="user"], pre, code, [class*="code"], [class*="language-"], [class*="highlight"], .token, #thread-bottom-container, #content-root, #content-root *',
-            SPEECH_RATE: 3.5,
+            SPEECH_RATE: 5,
             QUEUE_LOOKAHEAD: 3,
             NAV_READ_DELAY_MS: 0,
             NAV_THROTTLE_MS: 20,
