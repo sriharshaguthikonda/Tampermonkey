@@ -35,6 +35,7 @@
         autoScrollInProgress: false,
         autoScrollInProgressId: null,
         userInteractingUntil: 0,
+        autoScrollResumeId: null,
         navigationTimeoutId: null,
         pointerLoopId: null,
         paragraphsList: [],
@@ -50,6 +51,7 @@
         pendingRevertId: null,
         pendingRevertUsesIdle: false,
         diagnosticsPanel: null,
+        progressPanel: null,
         lastUtteranceEndTime: 0,
         lastGapMs: null,
         lastWrapMs: null,
@@ -79,6 +81,7 @@
             SCROLL_THROTTLE_MS: 250,
             SCROLL_EDGE_PADDING: 80,
             AUTO_SCROLL_ENABLED: true,
+            AUTO_SCROLL_MODE: 'paragraph',
             AUTO_SCROLL_INTERVAL_MS: 2000,
             AUTO_SCROLL_USER_PAUSE_MS: 2000,
             AUTO_SCROLL_SUPPRESS_SCROLL_MS: 400,
@@ -444,6 +447,18 @@
             const gap = this.lastGapMs === null ? '--' : Math.round(this.lastGapMs);
             const wrap = this.lastWrapMs === null ? '--' : Math.round(this.lastWrapMs);
             this.diagnosticsPanel.textContent = `gap: ${gap} ms | wrap: ${wrap} ms`;
+        },
+
+        updateProgressPanel(forceHide = false) {
+            if (!this.progressPanel) return;
+            if (forceHide || (!this.ttsActive && !this.continuousReadingActive) || this.currentParagraphIndex < 0) {
+                this.progressPanel.style.opacity = '0';
+                return;
+            }
+            const total = this.paragraphsList.length;
+            const current = this.currentParagraphIndex >= 0 ? this.currentParagraphIndex + 1 : 0;
+            this.progressPanel.textContent = `Reading ${current}/${total}`;
+            this.progressPanel.style.opacity = '1';
         },
 
         initAutoReadObserver() {
@@ -826,11 +841,13 @@
             this.wordHighlightActiveForCurrent = this.shouldHighlightWordsForElement(para.element);
             this.lastSpokenElement = para.element;
             this.startAutoScroll();
+            this.maybeAutoScrollOnStart();
 
             const wrapStart = performance.now();
             const textToRead = this.prepareParagraphForReading(para.element);
             this.lastWrapMs = performance.now() - wrapStart;
             this.updateDiagnosticsPanel();
+            this.updateProgressPanel();
             if (!textToRead) return;
 
             this.clearHighlights(true);
@@ -934,6 +951,7 @@
             }
             this.hidePointerArrow();
             this.stopAutoScroll();
+            this.updateProgressPanel(true);
 
             if (notify) this.showNotification('All TTS stopped');
             return true;
@@ -1052,6 +1070,30 @@
             } else {
                 this.showNotification('No readable text found at or below your click.');
             }
+        },
+
+        startReadingFromTop() {
+            this.stopTTS(false);
+            this.refreshParagraphsIfNeeded(true);
+            if (this.paragraphsList.length === 0) {
+                this.showNotification('No readable text found.');
+                return;
+            }
+            this.continuousReadingActive = true;
+            this.readFromParagraph(0);
+        },
+
+        startReadingFromSelection() {
+            const selection = window.getSelection();
+            const selectedText = selection ? selection.toString() : '';
+            const cleaned = this.cleanTextForTTS(selectedText).trim();
+            if (!cleaned) {
+                this.showNotification('No text selected.');
+                return;
+            }
+            this.stopTTS(false);
+            this.continuousReadingActive = false;
+            this.triggerTTS(cleaned);
         },
 
         startReadingFromViewport() {
@@ -1242,6 +1284,15 @@
                 document.body.appendChild(diagnostics);
                 this.diagnosticsPanel = diagnostics;
             }
+
+            const progress = document.createElement('div');
+            progress.id = 'tts-progress-panel';
+            progress.setAttribute('data-tts-ui', 'true');
+            progress.setAttribute('aria-hidden', 'true');
+            progress.style.cssText = 'position: fixed; right: 12px; bottom: 44px; background: rgba(0,0,0,0.75); color: #fff; padding: 6px 8px; border-radius: 6px; font-family: Arial, sans-serif; font-size: 11px; z-index: 2147483647; pointer-events: none; user-select: none; -webkit-user-select: none; opacity: 0; transition: opacity 0.2s ease;';
+            progress.textContent = 'Reading 0/0';
+            document.body.appendChild(progress);
+            this.progressPanel = progress;
         },
 
         // MODIFIED: This function is now mostly disabled for TTS reading.
@@ -1256,6 +1307,13 @@
                 this.lastScrollTime = now;
                 element.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
             }
+        },
+
+        canAutoScrollNow() {
+            if (!this.continuousReadingActive || this.isPaused) return false;
+            if (this.isNavigating || this.navKeyHeld) return false;
+            if (Date.now() < this.userInteractingUntil) return false;
+            return true;
         },
 
         scrollElementToCenter(element) {
@@ -1274,14 +1332,39 @@
         markUserInteraction() {
             if (this.autoScrollInProgress) return;
             this.userInteractingUntil = Date.now() + this.CONFIG.AUTO_SCROLL_USER_PAUSE_MS;
+            this.scheduleAutoScrollResume();
+        },
+
+        scheduleAutoScrollResume() {
+            if (!this.CONFIG.AUTO_SCROLL_ENABLED) return;
+            if (this.autoScrollResumeId) {
+                clearTimeout(this.autoScrollResumeId);
+            }
+            const delay = Math.max(0, this.userInteractingUntil - Date.now());
+            this.autoScrollResumeId = setTimeout(() => {
+                this.autoScrollResumeId = null;
+                if (this.canAutoScrollNow() && this.lastSpokenElement) {
+                    this.scrollElementToCenter(this.lastSpokenElement);
+                }
+            }, delay);
+        },
+
+        maybeAutoScrollOnStart() {
+            if (!this.CONFIG.AUTO_SCROLL_ENABLED) return;
+            if (this.CONFIG.AUTO_SCROLL_MODE !== 'paragraph') return;
+            if (this.canAutoScrollNow() && this.lastSpokenElement) {
+                this.scrollElementToCenter(this.lastSpokenElement);
+            } else {
+                this.scheduleAutoScrollResume();
+            }
         },
 
         startAutoScroll() {
             if (!this.CONFIG.AUTO_SCROLL_ENABLED) return;
+            if (this.CONFIG.AUTO_SCROLL_MODE !== 'interval') return;
             if (this.autoScrollIntervalId) return;
             this.autoScrollIntervalId = setInterval(() => {
-                if (!this.continuousReadingActive || this.isPaused || this.isNavigating || this.navKeyHeld) return;
-                if (Date.now() < this.userInteractingUntil) return;
+                if (!this.canAutoScrollNow()) return;
                 if (this.lastSpokenElement) {
                     this.scrollElementToCenter(this.lastSpokenElement);
                 }
@@ -1289,9 +1372,14 @@
         },
 
         stopAutoScroll() {
-            if (!this.autoScrollIntervalId) return;
-            clearInterval(this.autoScrollIntervalId);
-            this.autoScrollIntervalId = null;
+            if (this.autoScrollIntervalId) {
+                clearInterval(this.autoScrollIntervalId);
+                this.autoScrollIntervalId = null;
+            }
+            if (this.autoScrollResumeId) {
+                clearTimeout(this.autoScrollResumeId);
+                this.autoScrollResumeId = null;
+            }
         },
 
         // REWRITTEN: New intelligent waypoint arrow logic
@@ -1503,6 +1591,12 @@
                 case 'startReading':
                     TTSReader.startReadingFromViewport();
                     break;
+                case 'readFromTop':
+                    TTSReader.startReadingFromTop();
+                    break;
+                case 'readSelection':
+                    TTSReader.startReadingFromSelection();
+                    break;
                 case 'pauseResume':
                     TTSReader.pauseResumeTTS();
                     break;
@@ -1523,8 +1617,13 @@
                     applySettings(message.settings || {}, { silent: message.silent === true });
                     break;
                 case 'getState':
+                    TTSReader.refreshParagraphsIfNeeded(false);
                     sendResponse({
                         state: getPlaybackState(),
+                        progress: {
+                            current: TTSReader.currentParagraphIndex >= 0 ? TTSReader.currentParagraphIndex + 1 : 0,
+                            total: TTSReader.paragraphsList.length
+                        },
                         settings: {
                             speechRate: TTSReader.CONFIG.SPEECH_RATE,
                             wordHighlight: TTSReader.CONFIG.WORD_HIGHLIGHT_ENABLED,

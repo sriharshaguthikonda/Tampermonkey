@@ -13,9 +13,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const pauseBtn = document.getElementById('pauseBtn');
     const prevBtn = document.getElementById('prevBtn');
     const nextBtn = document.getElementById('nextBtn');
+    const readSelectionBtn = document.getElementById('readSelectionBtn');
+    const readTopBtn = document.getElementById('readTopBtn');
     const rateSlider = document.getElementById('rateSlider');
     const rateValue = document.getElementById('rateValue');
     const statusDiv = document.getElementById('status');
+    const progressDiv = document.getElementById('progress');
     const optionsBtn = document.getElementById('optionsBtn');
 
     const highlightToggle = document.getElementById('highlightToggle');
@@ -66,6 +69,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    function updateProgress(progress) {
+        if (!progress || !progressDiv) return;
+        if (!progress.total || !progress.current) {
+            progressDiv.textContent = '';
+            return;
+        }
+        progressDiv.textContent = `Progress: ${progress.current}/${progress.total}`;
+    }
+
     function applySettingsToUI(settings) {
         const rate = Number(settings.speechRate ?? DEFAULT_SETTINGS.speechRate);
         rateSlider.value = rate;
@@ -88,6 +100,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     startBtn.addEventListener('click', () => {
         sendMessage('startReading');
+        updateUI('playing');
+    });
+
+    readSelectionBtn.addEventListener('click', () => {
+        sendMessage('readSelection');
+        updateUI('playing');
+    });
+
+    readTopBtn.addEventListener('click', () => {
+        sendMessage('readFromTop');
         updateUI('playing');
     });
 
@@ -142,19 +164,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
         if (tabs[0] && tabs[0].id) {
-            chrome.tabs.sendMessage(tabs[0].id, { action: 'getState' }, (response) => {
-                if (chrome.runtime.lastError) {
-                    showStatus('Open ChatGPT to use this extension.');
-                    startBtn.disabled = true;
-                    return;
-                }
-                if (response && response.state) {
-                    updateUI(response.state);
-                    if (response.settings) {
-                        applySettingsToUI({ ...DEFAULT_SETTINGS, ...response.settings });
+            const requestState = () => {
+                chrome.tabs.sendMessage(tabs[0].id, { action: 'getState' }, (response) => {
+                    if (chrome.runtime.lastError) {
+                        showStatus('Open ChatGPT to use this extension.');
+                        startBtn.disabled = true;
+                        return;
                     }
-                }
-            });
+                    if (response && response.state) {
+                        updateUI(response.state);
+                        updateProgress(response.progress);
+                        if (response.settings) {
+                            applySettingsToUI({ ...DEFAULT_SETTINGS, ...response.settings });
+                        }
+                    }
+                });
+            };
+
+            requestState();
+            setInterval(requestState, 1000);
         }
     });
 });
