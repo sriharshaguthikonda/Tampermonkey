@@ -75,7 +75,7 @@
             SCROLL_THROTTLE_MS: 250,
             SCROLL_EDGE_PADDING: 80,
             WORD_HIGHLIGHT_ENABLED: true,
-            GAP_TRIM_ENABLED: false,
+            GAP_TRIM_ENABLED: true,
             PREWRAP_IDLE_TIMEOUT_MS: 250,
             DEFERRED_REVERT_IDLE_MS: 250,
             SHOW_DIAGNOSTICS_PANEL: true,
@@ -116,7 +116,6 @@
                 this.CONFIG.SHOW_DIAGNOSTICS_PANEL = false;
                 this.CONFIG.WAIT_FOR_MORE_MS = 0;
                 this.CONFIG.LOOP_WAIT_MS = 0;
-                this.CONFIG.WORD_HIGHLIGHT_ENABLED = false;
             }
         },
 

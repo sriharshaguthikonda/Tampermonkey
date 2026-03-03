@@ -2,7 +2,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const DEFAULT_SETTINGS = {
         speechRate: 3.5,
         wordHighlight: true,
-        gapTrim: false,
+        gapTrim: true,
         autoRead: false,
         loopOnEnd: true,
         showDiagnostics: true,
