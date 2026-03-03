@@ -108,7 +108,7 @@
             const isChatGPTHost = host === 'chat.openai.com' || host === 'chatgpt.com';
             this.isChatGPTPage = isChatGPTHost;
             if (!this.isChatGPTPage) {
-                this.CONFIG.CANDIDATE_SELECTORS = 'p, li, h1, h2, h3, h4, h5, h6, td, th, blockquote, pre, code, article, section, main';
+                this.CONFIG.CANDIDATE_SELECTORS = 'p, li, h1, h2, h3, h4, h5, h6, td, th, blockquote, pre, code, article, section, main, div';
                 this.CONFIG.IGNORE_SELECTORS = 'script, style, noscript, [aria-hidden="true"], [data-tts-ui]';
                 this.CONFIG.AUTO_READ_NEW_MESSAGES = false;
                 this.CONFIG.AUTO_READ_MIN_PARAGRAPHS = 0;
