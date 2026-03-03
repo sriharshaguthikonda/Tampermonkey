@@ -10,8 +10,7 @@
     "tts"
   ],
   "host_permissions": [
-    "https://chat.openai.com/*",
-    "https://chatgpt.com/*"
+    "<all_urls>"
   ],
   "action": {
     "default_popup": "popup.html",
@@ -28,8 +27,7 @@
   "content_scripts": [
     {
       "matches": [
-        "https://chat.openai.com/*",
-        "https://chatgpt.com/*"
+        "<all_urls>"
       ],
       "js": ["content.js"],
       "css": ["content.css"],
