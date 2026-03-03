@@ -1094,10 +1094,10 @@
             const style = document.createElement('style');
             style.textContent = `
                 /* ... (highlighting styles are the same) ... */
-                .tts-current-sentence { background-color: rgba(46, 204, 113, 0.08) !important; border-left: 4px solid #2ecc71 !important; padding-left: 10px !important; transition: background-color 0.3s, border-color 0.3s; }
+                .tts-current-sentence { background-color: rgba(46, 204, 113, 0.08) !important; box-shadow: inset 4px 0 0 #2ecc71 !important; transition: background-color 0.3s, box-shadow 0.3s; }
                 .tts-current-word { background-color: rgba(250, 210, 50, 0.9) !important; font-weight: bold !important; color: black !important; border-radius: 3px; transform: scale(1.02); box-shadow: 0 2px 8px rgba(0,0,0,0.2); transition: background-color 0.1s, transform 0.1s; }
-                .tts-navigation-focus { background-color: rgba(52, 152, 219, 0.3) !important; border-left: 4px solid #3498db !important; padding-left: 10px !important; transition: background-color 0.3s, border-color 0.3s; }
-                .tts-focus-fade-out { border-left-color: transparent !important; background-color: transparent !important; transition: background-color var(--tts-focus-fade-ms, 500ms) ease, border-color var(--tts-focus-fade-ms, 500ms) ease; }
+                .tts-navigation-focus { background-color: rgba(52, 152, 219, 0.3) !important; box-shadow: inset 4px 0 0 #3498db !important; transition: background-color 0.3s, box-shadow 0.3s; }
+                .tts-focus-fade-out { box-shadow: none !important; background-color: transparent !important; transition: background-color var(--tts-focus-fade-ms, 500ms) ease, box-shadow var(--tts-focus-fade-ms, 500ms) ease; }
 
                 /* NEW: In-game waypoint style pointer */
                 #tts-pointer {
