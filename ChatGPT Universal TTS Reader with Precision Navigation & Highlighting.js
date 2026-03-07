@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         *** ChatGPT Universal TTS Reader with Precision Navigation & Highlighting (Ignore Content Root)
 // @namespace    http://tampermonkey.net/
-// @version      2.9
+// @version      3.0
 // @description  TTS reader skips designated UI elements under #content-root
 // @author       Your Name (updated by AI)
 // @match        https://chat.openai.com/c/*
@@ -70,7 +70,7 @@
         CONFIG: {
             CANDIDATE_SELECTORS: 'p, li, h1, h2, h3, h4, h5, h6, td, th, .markdown, div[class*="content"], article',
             // Add #content-root and all its descendants to ignore list
-            IGNORE_SELECTORS: '.settings-header, nav, script, style, noscript, header, footer, button, a, form, [aria-hidden="true"], [data-tts-ui], [data-message-author-role="user"], pre, code, [class*="code"], [class*="language-"], [class*="highlight"], .token, #thread-bottom-container, #content-root, #content-root *',
+            IGNORE_SELECTORS: '.settings-header, nav, script, style, noscript, header, footer, button, a, form, [aria-hidden="true"], [data-tts-ui], pre, code, [class*="code"], [class*="language-"], [class*="highlight"], .token, #thread-bottom-container, #content-root, #content-root *',
             SPEECH_RATE: 5,
             QUEUE_LOOKAHEAD: 3,
             NAV_READ_DELAY_MS: 0,
@@ -87,6 +87,7 @@
             AUTO_SCROLL_SUPPRESS_SCROLL_MS: 400,
             WORD_HIGHLIGHT_ENABLED: true,
             GAP_TRIM_ENABLED: true,
+            READ_USER_MESSAGES: false,
             PREWRAP_IDLE_TIMEOUT_MS: 250,
             DEFERRED_REVERT_IDLE_MS: 250,
             SHOW_DIAGNOSTICS_PANEL: true,
@@ -204,6 +205,7 @@
                 return false;
             }
             if (element.closest(this.CONFIG.IGNORE_SELECTORS)) return false;
+            if (this.isChatGPTPage && !this.CONFIG.READ_USER_MESSAGES && element.closest('[data-message-author-role="user"]')) return false;
             const text = this.getTextFromElement(element);
             if (!text || text.trim().length === 0) return false;
             return true;
@@ -678,6 +680,17 @@
                 this.lastAutoReadMessageElement = null;
                 this.lastAutoReadTriggeredAt = 0;
             }
+        },
+
+        setReadUserMessagesEnabled(enabled) {
+            const nextValue = Boolean(enabled);
+            if (this.CONFIG.READ_USER_MESSAGES === nextValue) return;
+            this.CONFIG.READ_USER_MESSAGES = nextValue;
+            this.paragraphsDirty = true;
+            if (!this.continuousReadingActive) {
+                this.refreshParagraphsIfNeeded(true);
+            }
+            this.showNotification(`User messages ${this.CONFIG.READ_USER_MESSAGES ? 'on' : 'off'}`);
         },
 
         setLoopEnabled(enabled) {
@@ -1201,7 +1214,7 @@
             uiPanel.setAttribute('data-tts-ui', 'true');
             uiPanel.setAttribute('aria-hidden', 'true');
             uiPanel.style.cssText = `position: fixed; top: 80px; left: 10%; width: 180px; padding: 8px; background: rgba(0,0,0,0.7); color: #fff; font-family: Arial, sans-serif; font-size: 13px; border-radius: 6px; cursor: move; z-index: 2147483647; user-select: none; -webkit-user-select: none;`;
-            uiPanel.innerHTML = `<div style="font-weight:bold; text-align:center; margin-bottom: 5px;">TTS Reader</div><label for="tts-speed" style="display:block; margin-bottom:4px;">Speed: <span id="speed-value">${this.CONFIG.SPEECH_RATE.toFixed(1)}</span>x</label><input type="range" id="tts-speed" min="0.5" max="5" step="0.1" value="${this.CONFIG.SPEECH_RATE}" style="width:100%;"><label for="tts-highlight-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-highlight-toggle" ${this.CONFIG.WORD_HIGHLIGHT_ENABLED ? 'checked' : ''} style="margin:0;">Word highlight</label><label for="tts-gap-trim-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-gap-trim-toggle" ${this.CONFIG.GAP_TRIM_ENABLED ? 'checked' : ''} style="margin:0;">Gap trim</label><label for="tts-auto-read-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-auto-read-toggle" ${this.CONFIG.AUTO_READ_NEW_MESSAGES ? 'checked' : ''} style="margin:0;">Auto-read new</label><label for="tts-loop-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-loop-toggle" ${this.CONFIG.LOOP_ON_END ? 'checked' : ''} style="margin:0;">Loop to top</label>`;
+            uiPanel.innerHTML = `<div style="font-weight:bold; text-align:center; margin-bottom: 5px;">TTS Reader</div><label for="tts-speed" style="display:block; margin-bottom:4px;">Speed: <span id="speed-value">${this.CONFIG.SPEECH_RATE.toFixed(1)}</span>x</label><input type="range" id="tts-speed" min="0.5" max="5" step="0.1" value="${this.CONFIG.SPEECH_RATE}" style="width:100%;"><label for="tts-highlight-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-highlight-toggle" ${this.CONFIG.WORD_HIGHLIGHT_ENABLED ? 'checked' : ''} style="margin:0;">Word highlight</label><label for="tts-gap-trim-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-gap-trim-toggle" ${this.CONFIG.GAP_TRIM_ENABLED ? 'checked' : ''} style="margin:0;">Gap trim</label><label for="tts-read-user-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-read-user-toggle" ${this.CONFIG.READ_USER_MESSAGES ? 'checked' : ''} style="margin:0;">Read user msgs</label><label for="tts-auto-read-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-auto-read-toggle" ${this.CONFIG.AUTO_READ_NEW_MESSAGES ? 'checked' : ''} style="margin:0;">Auto-read new</label><label for="tts-loop-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-loop-toggle" ${this.CONFIG.LOOP_ON_END ? 'checked' : ''} style="margin:0;">Loop to top</label>`;
             document.body.appendChild(uiPanel);
 
             const speedInput = document.getElementById('tts-speed');
@@ -1220,6 +1233,11 @@
                 this.setGapTrimEnabled(e.target.checked);
             });
             gapTrimToggle.addEventListener('mousedown', e => e.stopPropagation());
+            const readUserToggle = document.getElementById('tts-read-user-toggle');
+            readUserToggle.addEventListener('change', e => {
+                this.setReadUserMessagesEnabled(e.target.checked);
+            });
+            readUserToggle.addEventListener('mousedown', e => e.stopPropagation());
             const autoReadToggle = document.getElementById('tts-auto-read-toggle');
             autoReadToggle.addEventListener('change', e => {
                 this.setAutoReadEnabled(e.target.checked);

@@ -3,6 +3,7 @@ document.addEventListener('DOMContentLoaded', () => {
         speechRate: 5,
         wordHighlight: true,
         gapTrim: true,
+        readUserMessages: false,
         autoRead: false,
         loopOnEnd: true,
         showDiagnostics: true,
@@ -24,6 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
         speechRateValue: document.getElementById('speechRateValue'),
         wordHighlight: document.getElementById('wordHighlight'),
         gapTrim: document.getElementById('gapTrim'),
+        readUserMessages: document.getElementById('readUserMessages'),
         autoRead: document.getElementById('autoRead'),
         loopOnEnd: document.getElementById('loopOnEnd'),
         showDiagnostics: document.getElementById('showDiagnostics'),
@@ -60,6 +62,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const toggleFields = [
         'wordHighlight',
         'gapTrim',
+        'readUserMessages',
         'autoRead',
         'loopOnEnd',
         'showDiagnostics'

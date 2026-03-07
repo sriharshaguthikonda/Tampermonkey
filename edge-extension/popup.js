@@ -3,6 +3,7 @@ document.addEventListener('DOMContentLoaded', () => {
         speechRate: 5,
         wordHighlight: true,
         gapTrim: true,
+        readUserMessages: false,
         autoRead: false,
         loopOnEnd: true,
         showDiagnostics: true
@@ -23,6 +24,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const highlightToggle = document.getElementById('highlightToggle');
     const gapTrimToggle = document.getElementById('gapTrimToggle');
+    const readUserMessagesToggle = document.getElementById('readUserMessagesToggle');
     const autoReadToggle = document.getElementById('autoReadToggle');
     const loopToggle = document.getElementById('loopToggle');
     const diagnosticsToggle = document.getElementById('diagnosticsToggle');
@@ -84,6 +86,7 @@ document.addEventListener('DOMContentLoaded', () => {
         rateValue.textContent = `${rate.toFixed(1)}x`;
         highlightToggle.checked = Boolean(settings.wordHighlight);
         gapTrimToggle.checked = Boolean(settings.gapTrim);
+        readUserMessagesToggle.checked = Boolean(settings.readUserMessages);
         autoReadToggle.checked = Boolean(settings.autoRead);
         loopToggle.checked = Boolean(settings.loopOnEnd);
         diagnosticsToggle.checked = Boolean(settings.showDiagnostics);
@@ -147,6 +150,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     gapTrimToggle.addEventListener('change', (e) => {
         persistSetting('gapTrim', e.target.checked);
+    });
+    readUserMessagesToggle.addEventListener('change', (e) => {
+        persistSetting('readUserMessages', e.target.checked);
     });
     autoReadToggle.addEventListener('change', (e) => {
         persistSetting('autoRead', e.target.checked);

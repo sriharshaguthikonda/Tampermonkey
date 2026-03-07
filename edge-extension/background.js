@@ -5,6 +5,7 @@ const DEFAULT_SETTINGS = {
     speechRate: 5,
     wordHighlight: true,
     gapTrim: true,
+    readUserMessages: false,
     autoRead: false,
     loopOnEnd: true,
     showDiagnostics: true,
