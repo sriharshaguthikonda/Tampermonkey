@@ -6,7 +6,19 @@ document.addEventListener('DOMContentLoaded', () => {
         readUserMessages: false,
         autoRead: false,
         loopOnEnd: true,
-        showDiagnostics: true
+        showDiagnostics: true,
+        volumeBoostEnabled: true,
+        volumeBoostLevel: 1.3,
+        enterToSendEnabled: true,
+        globalPasteEnabled: true,
+        regularPasteEnabled: true,
+        regularAutoSend: false,
+        niceAutoPasteEnabled: true,
+        niceAutoSend: false,
+        copyButtonEnabled: true,
+        doubleClickEditEnabled: true,
+        autoCloseLimitWarning: true,
+        limitWarningDelay: 1500
     };
 
     const startBtn = document.getElementById('startBtn');
@@ -18,6 +30,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const readTopBtn = document.getElementById('readTopBtn');
     const rateSlider = document.getElementById('rateSlider');
     const rateValue = document.getElementById('rateValue');
+    const volumeSlider = document.getElementById('volumeSlider');
+    const volumeValue = document.getElementById('volumeValue');
     const statusDiv = document.getElementById('status');
     const progressDiv = document.getElementById('progress');
     const optionsBtn = document.getElementById('optionsBtn');
@@ -28,6 +42,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const autoReadToggle = document.getElementById('autoReadToggle');
     const loopToggle = document.getElementById('loopToggle');
     const diagnosticsToggle = document.getElementById('diagnosticsToggle');
+    const volumeBoostToggle = document.getElementById('volumeBoostToggle');
+    const enterToSendToggle = document.getElementById('enterToSendToggle');
+    const globalPasteToggle = document.getElementById('globalPasteToggle');
+    const regularPasteToggle = document.getElementById('regularPasteToggle');
+    const regularAutoSendToggle = document.getElementById('regularAutoSendToggle');
+    const nicePasteToggle = document.getElementById('nicePasteToggle');
+    const niceSendToggle = document.getElementById('niceSendToggle');
+    const copyButtonsToggle = document.getElementById('copyButtonsToggle');
+    const doubleClickEditToggle = document.getElementById('doubleClickEditToggle');
+    const autoCloseWarningsToggle = document.getElementById('autoCloseWarningsToggle');
 
     function sendMessage(action, data = {}) {
         chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -84,12 +108,25 @@ document.addEventListener('DOMContentLoaded', () => {
         const rate = Number(settings.speechRate ?? DEFAULT_SETTINGS.speechRate);
         rateSlider.value = rate;
         rateValue.textContent = `${rate.toFixed(1)}x`;
+        const volume = Number(settings.volumeBoostLevel ?? DEFAULT_SETTINGS.volumeBoostLevel);
+        volumeSlider.value = volume;
+        volumeValue.textContent = `${volume.toFixed(1)}x`;
         highlightToggle.checked = Boolean(settings.wordHighlight);
         gapTrimToggle.checked = Boolean(settings.gapTrim);
         readUserMessagesToggle.checked = Boolean(settings.readUserMessages);
         autoReadToggle.checked = Boolean(settings.autoRead);
         loopToggle.checked = Boolean(settings.loopOnEnd);
         diagnosticsToggle.checked = Boolean(settings.showDiagnostics);
+        volumeBoostToggle.checked = Boolean(settings.volumeBoostEnabled);
+        enterToSendToggle.checked = Boolean(settings.enterToSendEnabled);
+        globalPasteToggle.checked = Boolean(settings.globalPasteEnabled);
+        regularPasteToggle.checked = Boolean(settings.regularPasteEnabled);
+        regularAutoSendToggle.checked = Boolean(settings.regularAutoSend);
+        nicePasteToggle.checked = Boolean(settings.niceAutoPasteEnabled);
+        niceSendToggle.checked = Boolean(settings.niceAutoSend);
+        copyButtonsToggle.checked = Boolean(settings.copyButtonEnabled);
+        doubleClickEditToggle.checked = Boolean(settings.doubleClickEditEnabled);
+        autoCloseWarningsToggle.checked = Boolean(settings.autoCloseLimitWarning);
     }
 
     function persistSetting(key, value) {
@@ -145,6 +182,12 @@ document.addEventListener('DOMContentLoaded', () => {
         sendMessage('setRate', { rate });
     });
 
+    volumeSlider.addEventListener('input', (e) => {
+        const level = Number(e.target.value);
+        volumeValue.textContent = `${level.toFixed(1)}x`;
+        persistSetting('volumeBoostLevel', level);
+    });
+
     highlightToggle.addEventListener('change', (e) => {
         persistSetting('wordHighlight', e.target.checked);
     });
@@ -162,6 +205,36 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     diagnosticsToggle.addEventListener('change', (e) => {
         persistSetting('showDiagnostics', e.target.checked);
+    });
+    volumeBoostToggle.addEventListener('change', (e) => {
+        persistSetting('volumeBoostEnabled', e.target.checked);
+    });
+    enterToSendToggle.addEventListener('change', (e) => {
+        persistSetting('enterToSendEnabled', e.target.checked);
+    });
+    globalPasteToggle.addEventListener('change', (e) => {
+        persistSetting('globalPasteEnabled', e.target.checked);
+    });
+    regularPasteToggle.addEventListener('change', (e) => {
+        persistSetting('regularPasteEnabled', e.target.checked);
+    });
+    regularAutoSendToggle.addEventListener('change', (e) => {
+        persistSetting('regularAutoSend', e.target.checked);
+    });
+    nicePasteToggle.addEventListener('change', (e) => {
+        persistSetting('niceAutoPasteEnabled', e.target.checked);
+    });
+    niceSendToggle.addEventListener('change', (e) => {
+        persistSetting('niceAutoSend', e.target.checked);
+    });
+    copyButtonsToggle.addEventListener('change', (e) => {
+        persistSetting('copyButtonEnabled', e.target.checked);
+    });
+    doubleClickEditToggle.addEventListener('change', (e) => {
+        persistSetting('doubleClickEditEnabled', e.target.checked);
+    });
+    autoCloseWarningsToggle.addEventListener('change', (e) => {
+        persistSetting('autoCloseLimitWarning', e.target.checked);
     });
 
     optionsBtn.addEventListener('click', () => {

@@ -7,6 +7,18 @@ document.addEventListener('DOMContentLoaded', () => {
         autoRead: false,
         loopOnEnd: true,
         showDiagnostics: true,
+        volumeBoostEnabled: true,
+        volumeBoostLevel: 1.3,
+        enterToSendEnabled: true,
+        globalPasteEnabled: true,
+        regularPasteEnabled: true,
+        regularAutoSend: false,
+        niceAutoPasteEnabled: true,
+        niceAutoSend: false,
+        copyButtonEnabled: true,
+        doubleClickEditEnabled: true,
+        autoCloseLimitWarning: true,
+        limitWarningDelay: 1500,
         queueLookahead: 3,
         navFocusHoldMs: 800,
         navKeyupReadDelayMs: 150,
@@ -25,10 +37,23 @@ document.addEventListener('DOMContentLoaded', () => {
         speechRateValue: document.getElementById('speechRateValue'),
         wordHighlight: document.getElementById('wordHighlight'),
         gapTrim: document.getElementById('gapTrim'),
+        volumeBoostEnabled: document.getElementById('volumeBoostEnabled'),
+        volumeBoostLevel: document.getElementById('volumeBoostLevel'),
+        volumeBoostLevelValue: document.getElementById('volumeBoostLevelValue'),
         readUserMessages: document.getElementById('readUserMessages'),
         autoRead: document.getElementById('autoRead'),
         loopOnEnd: document.getElementById('loopOnEnd'),
         showDiagnostics: document.getElementById('showDiagnostics'),
+        enterToSendEnabled: document.getElementById('enterToSendEnabled'),
+        globalPasteEnabled: document.getElementById('globalPasteEnabled'),
+        regularPasteEnabled: document.getElementById('regularPasteEnabled'),
+        regularAutoSend: document.getElementById('regularAutoSend'),
+        niceAutoPasteEnabled: document.getElementById('niceAutoPasteEnabled'),
+        niceAutoSend: document.getElementById('niceAutoSend'),
+        copyButtonEnabled: document.getElementById('copyButtonEnabled'),
+        doubleClickEditEnabled: document.getElementById('doubleClickEditEnabled'),
+        autoCloseLimitWarning: document.getElementById('autoCloseLimitWarning'),
+        limitWarningDelay: document.getElementById('limitWarningDelay'),
         queueLookahead: document.getElementById('queueLookahead'),
         navFocusHoldMs: document.getElementById('navFocusHoldMs'),
         navKeyupReadDelayMs: document.getElementById('navKeyupReadDelayMs'),
@@ -46,6 +71,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const numberFields = [
         'speechRate',
+        'volumeBoostLevel',
+        'limitWarningDelay',
         'queueLookahead',
         'navFocusHoldMs',
         'navKeyupReadDelayMs',
@@ -62,10 +89,20 @@ document.addEventListener('DOMContentLoaded', () => {
     const toggleFields = [
         'wordHighlight',
         'gapTrim',
+        'volumeBoostEnabled',
         'readUserMessages',
         'autoRead',
         'loopOnEnd',
-        'showDiagnostics'
+        'showDiagnostics',
+        'enterToSendEnabled',
+        'globalPasteEnabled',
+        'regularPasteEnabled',
+        'regularAutoSend',
+        'niceAutoPasteEnabled',
+        'niceAutoSend',
+        'copyButtonEnabled',
+        'doubleClickEditEnabled',
+        'autoCloseLimitWarning'
     ];
 
     let saveTimer = null;
@@ -74,6 +111,11 @@ document.addEventListener('DOMContentLoaded', () => {
     function updateSpeechRateValue(rate) {
         const display = Number.isFinite(rate) ? rate.toFixed(1) : DEFAULT_SETTINGS.speechRate.toFixed(1);
         elements.speechRateValue.textContent = `${display}x`;
+    }
+
+    function updateVolumeBoostValue(level) {
+        const display = Number.isFinite(level) ? level.toFixed(1) : DEFAULT_SETTINGS.volumeBoostLevel.toFixed(1);
+        elements.volumeBoostLevelValue.textContent = `${display}x`;
     }
 
     function coerceNumber(el, fallback) {
@@ -92,6 +134,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         elements.speechRate.value = merged.speechRate;
         updateSpeechRateValue(Number(merged.speechRate));
+        elements.volumeBoostLevel.value = merged.volumeBoostLevel;
+        updateVolumeBoostValue(Number(merged.volumeBoostLevel));
 
         toggleFields.forEach((key) => {
             if (elements[key]) elements[key].checked = Boolean(merged[key]);
@@ -149,6 +193,12 @@ document.addEventListener('DOMContentLoaded', () => {
         scheduleSave();
     });
 
+    elements.volumeBoostLevel.addEventListener('input', () => {
+        const level = coerceNumber(elements.volumeBoostLevel, DEFAULT_SETTINGS.volumeBoostLevel);
+        updateVolumeBoostValue(level);
+        scheduleSave();
+    });
+
     toggleFields.forEach((key) => {
         elements[key].addEventListener('change', () => {
             scheduleSave();
@@ -156,7 +206,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     numberFields.forEach((key) => {
-        if (key === 'speechRate') return;
+        if (key === 'speechRate' || key === 'volumeBoostLevel') return;
         elements[key].addEventListener('input', () => {
             scheduleSave();
         });

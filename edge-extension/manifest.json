@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ChatGPT TTS Reader",
-  "version": "1.1",
+  "version": "1.4",
   "description": "An intelligent, content-aware TTS reader with highlighting and navigation for ChatGPT",
   "permissions": [
     "activeTab",
@@ -10,7 +10,13 @@
     "tts"
   ],
   "host_permissions": [
-    "<all_urls>"
+    "https://chatgpt.com/*",
+    "https://chat.openai.com/*",
+    "http://localhost/*",
+    "https://localhost/*",
+    "http://127.0.0.1/*",
+    "https://127.0.0.1/*",
+    "file:///*"
   ],
   "action": {
     "default_popup": "popup.html",
@@ -27,7 +33,13 @@
   "content_scripts": [
     {
       "matches": [
-        "<all_urls>"
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*",
+        "http://localhost/*",
+        "https://localhost/*",
+        "http://127.0.0.1/*",
+        "https://127.0.0.1/*",
+        "file:///*"
       ],
       "js": ["content.js"],
       "css": ["content.css"],
@@ -46,7 +58,15 @@
   "web_accessible_resources": [
     {
       "resources": ["content.css"],
-      "matches": ["<all_urls>"]
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*",
+        "http://localhost/*",
+        "https://localhost/*",
+        "http://127.0.0.1/*",
+        "https://127.0.0.1/*",
+        "file:///*"
+      ]
     }
   ]
 }

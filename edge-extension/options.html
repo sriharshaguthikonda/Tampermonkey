@@ -30,6 +30,17 @@
                 <label for="gapTrim">Gap trim</label>
                 <input id="gapTrim" type="checkbox" />
             </div>
+            <div class="field toggle">
+                <label for="volumeBoostEnabled">Volume boost</label>
+                <input id="volumeBoostEnabled" type="checkbox" />
+            </div>
+            <div class="field">
+                <label for="volumeBoostLevel">Volume boost level</label>
+                <div class="range-row">
+                    <input id="volumeBoostLevel" type="range" min="1" max="2" step="0.1" />
+                    <span id="volumeBoostLevelValue" class="value-pill">1.3x</span>
+                </div>
+            </div>
         </section>
 
         <section class="card">
@@ -49,6 +60,50 @@
             <div class="field toggle">
                 <label for="showDiagnostics">Diagnostics panel</label>
                 <input id="showDiagnostics" type="checkbox" />
+            </div>
+            <div class="field toggle">
+                <label for="enterToSendEnabled">Enter-to-send (double press)</label>
+                <input id="enterToSendEnabled" type="checkbox" />
+            </div>
+        </section>
+
+        <section class="card">
+            <h2>ChatGPT Productivity</h2>
+            <div class="field toggle">
+                <label for="globalPasteEnabled">Global paste to prompt</label>
+                <input id="globalPasteEnabled" type="checkbox" />
+            </div>
+            <div class="field toggle">
+                <label for="regularPasteEnabled">Regular paste mode</label>
+                <input id="regularPasteEnabled" type="checkbox" />
+            </div>
+            <div class="field toggle">
+                <label for="regularAutoSend">Auto-send regular paste</label>
+                <input id="regularAutoSend" type="checkbox" />
+            </div>
+            <div class="field toggle">
+                <label for="niceAutoPasteEnabled">NICE auto-paste mode</label>
+                <input id="niceAutoPasteEnabled" type="checkbox" />
+            </div>
+            <div class="field toggle">
+                <label for="niceAutoSend">Auto-send NICE queries</label>
+                <input id="niceAutoSend" type="checkbox" />
+            </div>
+            <div class="field toggle">
+                <label for="copyButtonEnabled">Copy buttons on messages</label>
+                <input id="copyButtonEnabled" type="checkbox" />
+            </div>
+            <div class="field toggle">
+                <label for="doubleClickEditEnabled">Double-click edit messages</label>
+                <input id="doubleClickEditEnabled" type="checkbox" />
+            </div>
+            <div class="field toggle">
+                <label for="autoCloseLimitWarning">Auto-close limit warning</label>
+                <input id="autoCloseLimitWarning" type="checkbox" />
+            </div>
+            <div class="field">
+                <label for="limitWarningDelay">Limit warning delay (ms)</label>
+                <input id="limitWarningDelay" type="number" min="100" step="50" />
             </div>
         </section>
 

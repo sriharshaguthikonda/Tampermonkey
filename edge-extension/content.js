@@ -9,6 +9,18 @@
         autoRead: false,
         loopOnEnd: true,
         showDiagnostics: true,
+        volumeBoostEnabled: true,
+        volumeBoostLevel: 1.3,
+        enterToSendEnabled: true,
+        globalPasteEnabled: true,
+        regularPasteEnabled: true,
+        regularAutoSend: false,
+        niceAutoPasteEnabled: true,
+        niceAutoSend: false,
+        copyButtonEnabled: true,
+        doubleClickEditEnabled: true,
+        autoCloseLimitWarning: true,
+        limitWarningDelay: 1500,
         queueLookahead: 3,
         navFocusHoldMs: 800,
         navKeyupReadDelayMs: 150,
@@ -65,6 +77,13 @@
         waitForMoreTimeoutId: null,
         waitForMoreSince: 0,
         waitForMoreNextIndex: -1,
+        audioContexts: new Map(),
+        mediaObserver: null,
+        lastEnterPressTime: 0,
+        pasteHandler: null,
+        copyObserver: null,
+        editObserver: null,
+        limitWarningObserver: null,
         isChatGPTPage: false,
         processedParagraph: { element: null, originalHTML: '', wordSpans: [], wordOffsets: [] },
 
@@ -100,6 +119,19 @@
             WAIT_RETRY_MS: 250,
             LOOP_WAIT_MS: 1200,
             LOOP_ON_END: true,
+            VOLUME_BOOST_ENABLED: true,
+            VOLUME_BOOST_LEVEL: 1.3,
+            ENTER_TO_SEND_ENABLED: true,
+            ENTER_TO_SEND_DOUBLE_PRESS_MS: 300,
+            GLOBAL_PASTE_ENABLED: true,
+            REGULAR_PASTE_ENABLED: true,
+            REGULAR_AUTO_SEND: false,
+            NICE_AUTO_PASTE_ENABLED: true,
+            NICE_AUTO_SEND: false,
+            COPY_BUTTON_ENABLED: true,
+            DOUBLE_CLICK_EDIT_ENABLED: true,
+            AUTO_CLOSE_LIMIT_WARNING: true,
+            LIMIT_WARNING_DELAY_MS: 1500,
             HOTKEYS: { ACTIVATE: 'U', PAUSE_RESUME: 'P', NAV_NEXT: 'ArrowRight', NAV_PREV: 'ArrowLeft', STOP: 'Escape' },
             EMOJI_REGEX: /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE0F}]/ug
         },
@@ -111,7 +143,9 @@
             this.setupEventListeners();
             this.loadVoices();
             this.initParagraphObserver();
+            this.initMediaEnhancements();
             if (this.isChatGPTPage) {
+                this.initChatGPTEnhancements();
                 this.initAutoReadObserver();
             }
         },
@@ -129,6 +163,476 @@
                 this.CONFIG.SHOW_DIAGNOSTICS_PANEL = false;
                 this.CONFIG.WAIT_FOR_MORE_MS = 0;
                 this.CONFIG.LOOP_WAIT_MS = 0;
+            }
+        },
+
+        initMediaEnhancements() {
+            if (this.mediaObserver) return;
+            const run = () => this.handleMediaElements();
+            this.mediaObserver = new MutationObserver(run);
+            this.mediaObserver.observe(document.body, { childList: true, subtree: true });
+            run();
+        },
+
+        initChatGPTEnhancements() {
+            if (!this.isChatGPTPage) return;
+            if (!this.pasteHandler) {
+                this.pasteHandler = (event) => this.handleGlobalPaste(event);
+                document.addEventListener('paste', this.pasteHandler, true);
+            }
+
+            if (!this.copyObserver) {
+                this.copyObserver = new MutationObserver(() => this.updateCopyButtons());
+                this.copyObserver.observe(document.body, { childList: true, subtree: true });
+            }
+            this.updateCopyButtons();
+
+            if (!this.editObserver) {
+                this.editObserver = new MutationObserver(() => this.attachDoubleClickListeners());
+                this.editObserver.observe(document.body, { childList: true, subtree: true });
+            }
+            this.attachDoubleClickListeners();
+
+            if (!this.limitWarningObserver) {
+                this.limitWarningObserver = new MutationObserver(() => this.checkAndCloseLimitWarnings());
+                this.limitWarningObserver.observe(document.body, { childList: true, subtree: true });
+            }
+            this.checkAndCloseLimitWarnings();
+        },
+
+        findPromptArea() {
+            const selectors = [
+                '#prompt-textarea[contenteditable="true"]',
+                'div[contenteditable="true"][id="prompt-textarea"]',
+                'div[data-testid="prompt-textarea"][contenteditable="true"]',
+                'textarea#prompt-textarea',
+                'textarea[data-testid="prompt-textarea"]'
+            ];
+
+            for (const selector of selectors) {
+                const element = document.querySelector(selector);
+                if (element) return element;
+            }
+            return null;
+        },
+
+        findSendButton() {
+            const selectors = [
+                'button[aria-label="Send prompt"]',
+                'button[data-testid="send-button"]',
+                'button.btn.relative.btn-primary:not([aria-label="Dictate button"])'
+            ];
+            for (const selector of selectors) {
+                const button = document.querySelector(selector);
+                if (button && !button.disabled) return button;
+            }
+            return null;
+        },
+
+        isEditableElement(element) {
+            if (!element || !element.tagName) return false;
+            if (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA') return true;
+            return element.isContentEditable === true || element.getAttribute('contenteditable') === 'true';
+        },
+
+        isPromptFocused(promptArea) {
+            if (!promptArea) return false;
+            const activeElement = document.activeElement;
+            if (!activeElement) return false;
+            return activeElement === promptArea || promptArea.contains(activeElement);
+        },
+
+        setPromptText(text) {
+            const promptArea = this.findPromptArea();
+            if (!promptArea) return false;
+
+            promptArea.focus();
+            if (promptArea.tagName === 'TEXTAREA' || promptArea.tagName === 'INPUT') {
+                promptArea.value = text;
+                promptArea.dispatchEvent(new Event('input', { bubbles: true }));
+                promptArea.selectionStart = promptArea.value.length;
+                promptArea.selectionEnd = promptArea.value.length;
+                return true;
+            }
+
+            promptArea.textContent = text;
+            promptArea.dispatchEvent(new Event('input', { bubbles: true }));
+            const selection = window.getSelection();
+            if (selection) {
+                const range = document.createRange();
+                range.selectNodeContents(promptArea);
+                range.collapse(false);
+                selection.removeAllRanges();
+                selection.addRange(range);
+            }
+            return true;
+        },
+
+        setQueryAndSend(query, autoSend = false) {
+            const applied = this.setPromptText(query);
+            if (!applied) return false;
+            if (autoSend) {
+                this.scheduleSendButtonClick();
+            }
+            return true;
+        },
+
+        scheduleSendButtonClick() {
+            const clickIfReady = () => {
+                const sendButton = this.findSendButton();
+                if (sendButton) {
+                    sendButton.click();
+                    return true;
+                }
+                return false;
+            };
+
+            if (clickIfReady()) return;
+
+            const observer = new MutationObserver(() => {
+                if (clickIfReady()) observer.disconnect();
+            });
+            observer.observe(document.body, {
+                childList: true,
+                subtree: true,
+                attributes: true,
+                attributeFilter: ['disabled', 'aria-disabled']
+            });
+            setTimeout(() => observer.disconnect(), 5000);
+        },
+
+        hasBlockingOpenElements(promptArea) {
+            const activeElement = document.activeElement;
+            if (this.isEditableElement(activeElement) && !this.isPromptFocused(promptArea)) return true;
+
+            const visible = (el) => {
+                const style = window.getComputedStyle(el);
+                return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+            };
+
+            const modal = Array.from(document.querySelectorAll('[role="dialog"]')).find(visible);
+            if (modal) return true;
+
+            const menu = Array.from(document.querySelectorAll('[role="menu"], [role="listbox"], [data-state="open"]')).find(visible);
+            if (menu) return true;
+
+            const editBox = document.querySelector('.bg-token-main-surface-tertiary textarea');
+            if (editBox && editBox.offsetParent !== null) return true;
+
+            return false;
+        },
+
+        handleGlobalPaste(event) {
+            if (!this.isChatGPTPage || !this.CONFIG.GLOBAL_PASTE_ENABLED) return;
+            const promptArea = this.findPromptArea();
+            if (!promptArea) return;
+
+            if (this.isPromptFocused(promptArea)) return;
+            if (this.hasBlockingOpenElements(promptArea)) return;
+
+            const activeElement = document.activeElement;
+            if (this.isEditableElement(activeElement) && !this.isPromptFocused(promptArea)) return;
+
+            const pastedText = (event.clipboardData || window.clipboardData).getData('text');
+            if (!pastedText || !pastedText.trim()) return;
+
+            if (!this.CONFIG.NICE_AUTO_PASTE_ENABLED && !this.CONFIG.REGULAR_PASTE_ENABLED) return;
+
+            event.preventDefault();
+            event.stopPropagation();
+
+            if (this.CONFIG.NICE_AUTO_PASTE_ENABLED) {
+                const formattedQuery = `According to NICE guidelines, what is the answer for the following:\n\n${pastedText.trim()}`;
+                const success = this.setQueryAndSend(formattedQuery, this.CONFIG.NICE_AUTO_SEND);
+                if (success) {
+                    this.showNotification(`NICE query pasted${this.CONFIG.NICE_AUTO_SEND ? ' and sent' : ''}.`);
+                }
+                return;
+            }
+
+            if (this.CONFIG.REGULAR_PASTE_ENABLED) {
+                const success = this.setPromptText(pastedText);
+                if (success) {
+                    if (this.CONFIG.REGULAR_AUTO_SEND) {
+                        this.scheduleSendButtonClick();
+                    }
+                    this.showNotification(`Text pasted${this.CONFIG.REGULAR_AUTO_SEND ? ' and sent' : ''}.`);
+                }
+            }
+        },
+
+        handleEnterToSend(event) {
+            if (!this.isChatGPTPage || !this.CONFIG.ENTER_TO_SEND_ENABLED) return;
+            if (event.key !== 'Enter') return;
+            if (event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return;
+
+            const promptArea = this.findPromptArea();
+            if (!promptArea || !this.isPromptFocused(promptArea)) return;
+
+            event.preventDefault();
+            const now = Date.now();
+            if (now - this.lastEnterPressTime <= this.CONFIG.ENTER_TO_SEND_DOUBLE_PRESS_MS) {
+                const sendButton = this.findSendButton();
+                if (sendButton) {
+                    sendButton.click();
+                }
+                this.lastEnterPressTime = 0;
+                return;
+            }
+            this.lastEnterPressTime = now;
+        },
+
+        boostMediaElement(mediaElement) {
+            if (!mediaElement || !this.CONFIG.VOLUME_BOOST_ENABLED) return;
+            if (!this.audioContexts.has(mediaElement)) {
+                try {
+                    const Ctx = window.AudioContext || window.webkitAudioContext;
+                    if (!Ctx) return;
+                    const ctx = new Ctx();
+                    const source = ctx.createMediaElementSource(mediaElement);
+                    const gainNode = ctx.createGain();
+                    source.connect(gainNode);
+                    gainNode.connect(ctx.destination);
+                    this.audioContexts.set(mediaElement, { ctx, gainNode });
+                } catch (error) {
+                    console.warn('Volume boost unavailable for media element:', error);
+                    return;
+                }
+            }
+
+            const audio = this.audioContexts.get(mediaElement);
+            if (!audio) return;
+            audio.gainNode.gain.value = this.CONFIG.VOLUME_BOOST_LEVEL;
+            mediaElement.volume = 1;
+            if (audio.ctx.state === 'suspended') {
+                audio.ctx.resume().catch(() => {});
+            }
+        },
+
+        updateVolumeBoostForTrackedMedia() {
+            for (const [mediaElement, audio] of this.audioContexts.entries()) {
+                if (!mediaElement || !mediaElement.isConnected) {
+                    try {
+                        if (audio && audio.ctx && typeof audio.ctx.close === 'function') {
+                            audio.ctx.close();
+                        }
+                    } catch (_err) {}
+                    this.audioContexts.delete(mediaElement);
+                    continue;
+                }
+                audio.gainNode.gain.value = this.CONFIG.VOLUME_BOOST_ENABLED ? this.CONFIG.VOLUME_BOOST_LEVEL : 1;
+            }
+        },
+
+        handleMediaElements() {
+            const mediaElements = document.querySelectorAll('video, audio');
+            mediaElements.forEach((mediaElement) => {
+                if (mediaElement.dataset.ttsVolumeBound !== '1') {
+                    mediaElement.dataset.ttsVolumeBound = '1';
+                    mediaElement.addEventListener('play', () => this.boostMediaElement(mediaElement));
+                }
+                if (!mediaElement.paused) {
+                    this.boostMediaElement(mediaElement);
+                }
+            });
+            this.updateVolumeBoostForTrackedMedia();
+        },
+
+        setVolumeBoostEnabled(enabled, silent = false) {
+            const nextValue = Boolean(enabled);
+            if (this.CONFIG.VOLUME_BOOST_ENABLED === nextValue) return;
+            this.CONFIG.VOLUME_BOOST_ENABLED = nextValue;
+            if (nextValue) {
+                this.handleMediaElements();
+            }
+            this.updateVolumeBoostForTrackedMedia();
+            if (!silent) {
+                this.showNotification(`Volume boost ${this.CONFIG.VOLUME_BOOST_ENABLED ? 'on' : 'off'}`);
+            }
+        },
+
+        setVolumeBoostLevel(level, silent = false) {
+            const parsed = Number(level);
+            if (!Number.isFinite(parsed)) return;
+            const clamped = Math.max(1, Math.min(2, parsed));
+            this.CONFIG.VOLUME_BOOST_LEVEL = clamped;
+            this.updateVolumeBoostForTrackedMedia();
+            if (!silent) {
+                this.showNotification(`Volume boost ${clamped.toFixed(1)}x`);
+            }
+        },
+
+        setEnterToSendEnabled(enabled, silent = false) {
+            const nextValue = Boolean(enabled);
+            if (this.CONFIG.ENTER_TO_SEND_ENABLED === nextValue) return;
+            this.CONFIG.ENTER_TO_SEND_ENABLED = nextValue;
+            if (!silent) {
+                this.showNotification(`Enter-to-send ${nextValue ? 'on' : 'off'}`);
+            }
+        },
+
+        setGlobalPasteEnabled(enabled, silent = false) {
+            const nextValue = Boolean(enabled);
+            if (this.CONFIG.GLOBAL_PASTE_ENABLED === nextValue) return;
+            this.CONFIG.GLOBAL_PASTE_ENABLED = nextValue;
+            if (!silent) {
+                this.showNotification(`Global paste ${nextValue ? 'on' : 'off'}`);
+            }
+        },
+
+        setRegularPasteEnabled(enabled, silent = false) {
+            const nextValue = Boolean(enabled);
+            if (this.CONFIG.REGULAR_PASTE_ENABLED === nextValue) return;
+            this.CONFIG.REGULAR_PASTE_ENABLED = nextValue;
+            if (!silent) {
+                this.showNotification(`Regular paste ${nextValue ? 'on' : 'off'}`);
+            }
+        },
+
+        setRegularAutoSendEnabled(enabled, silent = false) {
+            const nextValue = Boolean(enabled);
+            if (this.CONFIG.REGULAR_AUTO_SEND === nextValue) return;
+            this.CONFIG.REGULAR_AUTO_SEND = nextValue;
+            if (!silent) {
+                this.showNotification(`Regular auto-send ${nextValue ? 'on' : 'off'}`);
+            }
+        },
+
+        setNiceAutoPasteEnabled(enabled, silent = false) {
+            const nextValue = Boolean(enabled);
+            if (this.CONFIG.NICE_AUTO_PASTE_ENABLED === nextValue) return;
+            this.CONFIG.NICE_AUTO_PASTE_ENABLED = nextValue;
+            if (!silent) {
+                this.showNotification(`NICE auto-paste ${nextValue ? 'on' : 'off'}`);
+            }
+        },
+
+        setNiceAutoSendEnabled(enabled, silent = false) {
+            const nextValue = Boolean(enabled);
+            if (this.CONFIG.NICE_AUTO_SEND === nextValue) return;
+            this.CONFIG.NICE_AUTO_SEND = nextValue;
+            if (!silent) {
+                this.showNotification(`NICE auto-send ${nextValue ? 'on' : 'off'}`);
+            }
+        },
+
+        addCopyButton(target) {
+            if (!target || !target.isConnected) return;
+            const existingButton = target.querySelector('.tmx-copy-button');
+            if (existingButton) return;
+
+            const copyButton = document.createElement('button');
+            copyButton.className = 'tmx-copy-button';
+            copyButton.type = 'button';
+            copyButton.textContent = 'Copy';
+            copyButton.style.cssText = 'position:absolute; top:6px; right:6px; padding:3px 8px; font-size:12px; line-height:1.2; border:none; border-radius:6px; background:#0b5ed7; color:#fff; cursor:pointer; z-index:2;';
+            copyButton.addEventListener('click', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                const clone = target.cloneNode(true);
+                clone.querySelectorAll('.tmx-copy-button').forEach((button) => button.remove());
+                const text = (clone.innerText || clone.textContent || '').trim();
+                if (!text) return;
+                navigator.clipboard.writeText(text)
+                    .then(() => this.showNotification('Copied to clipboard.'))
+                    .catch(() => this.showNotification('Copy failed.'));
+            });
+
+            if (window.getComputedStyle(target).position === 'static') {
+                target.style.position = 'relative';
+            }
+            target.appendChild(copyButton);
+        },
+
+        removeCopyButtons() {
+            document.querySelectorAll('.tmx-copy-button').forEach((button) => button.remove());
+        },
+
+        updateCopyButtons() {
+            if (!this.isChatGPTPage) return;
+            if (!this.CONFIG.COPY_BUTTON_ENABLED) {
+                this.removeCopyButtons();
+                return;
+            }
+            document.querySelectorAll('.whitespace-pre-wrap').forEach((target) => this.addCopyButton(target));
+        },
+
+        setCopyButtonEnabled(enabled, silent = false) {
+            const nextValue = Boolean(enabled);
+            if (this.CONFIG.COPY_BUTTON_ENABLED === nextValue) return;
+            this.CONFIG.COPY_BUTTON_ENABLED = nextValue;
+            this.updateCopyButtons();
+            if (!silent) {
+                this.showNotification(`Copy buttons ${nextValue ? 'on' : 'off'}`);
+            }
+        },
+
+        handleDoubleClickEdit(event) {
+            if (!this.isChatGPTPage || !this.CONFIG.DOUBLE_CLICK_EDIT_ENABLED) return;
+            const messageContainer = event.target.closest('.group\\/conversation-turn, [data-message-author-role="user"]');
+            if (!messageContainer) return;
+            const editButton = messageContainer.querySelector('button[aria-label="Edit message"]');
+            if (!editButton) return;
+            editButton.click();
+            setTimeout(() => {
+                const editor = document.querySelector('textarea, [contenteditable="true"]');
+                if (editor) editor.focus();
+            }, 80);
+        },
+
+        attachDoubleClickListeners() {
+            if (!this.isChatGPTPage) return;
+            const containers = document.querySelectorAll('.group\\/conversation-turn, .group\\/turn-messages, [data-message-author-role]');
+            containers.forEach((container) => {
+                if (container.dataset.tmxEditListener === '1') return;
+                container.dataset.tmxEditListener = '1';
+                container.addEventListener('dblclick', (event) => this.handleDoubleClickEdit(event));
+            });
+        },
+
+        setDoubleClickEditEnabled(enabled, silent = false) {
+            const nextValue = Boolean(enabled);
+            if (this.CONFIG.DOUBLE_CLICK_EDIT_ENABLED === nextValue) return;
+            this.CONFIG.DOUBLE_CLICK_EDIT_ENABLED = nextValue;
+            if (!silent) {
+                this.showNotification(`Double-click edit ${nextValue ? 'on' : 'off'}`);
+            }
+        },
+
+        checkAndCloseLimitWarnings() {
+            if (!this.isChatGPTPage || !this.CONFIG.AUTO_CLOSE_LIMIT_WARNING) return;
+            const closeButtons = Array.from(document.querySelectorAll('button[data-testid="close-button"]'));
+            closeButtons.forEach((button) => {
+                if (button.dataset.tmxLimitCloseScheduled === '1') return;
+                const text = (button.closest('div')?.textContent || '').toLowerCase();
+                if (!/(limit|usage|cap|plan)/.test(text)) return;
+                button.dataset.tmxLimitCloseScheduled = '1';
+                setTimeout(() => {
+                    if (this.CONFIG.AUTO_CLOSE_LIMIT_WARNING && button.isConnected) {
+                        button.click();
+                    }
+                    delete button.dataset.tmxLimitCloseScheduled;
+                }, this.CONFIG.LIMIT_WARNING_DELAY_MS);
+            });
+        },
+
+        setAutoCloseLimitWarningEnabled(enabled, silent = false) {
+            const nextValue = Boolean(enabled);
+            if (this.CONFIG.AUTO_CLOSE_LIMIT_WARNING === nextValue) return;
+            this.CONFIG.AUTO_CLOSE_LIMIT_WARNING = nextValue;
+            if (nextValue) this.checkAndCloseLimitWarnings();
+            if (!silent) {
+                this.showNotification(`Auto-close warning ${nextValue ? 'on' : 'off'}`);
+            }
+        },
+
+        setLimitWarningDelay(delayMs, silent = false) {
+            const parsed = Number(delayMs);
+            if (!Number.isFinite(parsed)) return;
+            const clamped = Math.max(100, Math.round(parsed));
+            this.CONFIG.LIMIT_WARNING_DELAY_MS = clamped;
+            if (!silent) {
+                this.showNotification(`Warning delay ${clamped} ms`);
             }
         },
 
@@ -1137,10 +1641,11 @@
 
         setupEventListeners() {
             document.addEventListener('keydown', (e) => {
+                this.markUserInteraction();
+                this.handleEnterToSend(e);
+
                 const activeEl = document.activeElement;
                 if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable)) return;
-
-                this.markUserInteraction();
                 const key = e.key;
                 const shiftOnly = e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey;
                 const ctrlShift = e.ctrlKey && e.shiftKey;
@@ -1530,6 +2035,44 @@
         if (typeof settings.loopOnEnd === 'boolean') {
             TTSReader.setLoopEnabled(settings.loopOnEnd, silent);
         }
+        if (typeof settings.volumeBoostEnabled === 'boolean') {
+            TTSReader.setVolumeBoostEnabled(settings.volumeBoostEnabled, silent);
+        }
+        if (typeof settings.volumeBoostLevel !== 'undefined') {
+            const level = Number(settings.volumeBoostLevel);
+            if (Number.isFinite(level)) TTSReader.setVolumeBoostLevel(level, silent);
+        }
+        if (typeof settings.enterToSendEnabled === 'boolean') {
+            TTSReader.setEnterToSendEnabled(settings.enterToSendEnabled, silent);
+        }
+        if (typeof settings.globalPasteEnabled === 'boolean') {
+            TTSReader.setGlobalPasteEnabled(settings.globalPasteEnabled, silent);
+        }
+        if (typeof settings.regularPasteEnabled === 'boolean') {
+            TTSReader.setRegularPasteEnabled(settings.regularPasteEnabled, silent);
+        }
+        if (typeof settings.regularAutoSend === 'boolean') {
+            TTSReader.setRegularAutoSendEnabled(settings.regularAutoSend, silent);
+        }
+        if (typeof settings.niceAutoPasteEnabled === 'boolean') {
+            TTSReader.setNiceAutoPasteEnabled(settings.niceAutoPasteEnabled, silent);
+        }
+        if (typeof settings.niceAutoSend === 'boolean') {
+            TTSReader.setNiceAutoSendEnabled(settings.niceAutoSend, silent);
+        }
+        if (typeof settings.copyButtonEnabled === 'boolean') {
+            TTSReader.setCopyButtonEnabled(settings.copyButtonEnabled, silent);
+        }
+        if (typeof settings.doubleClickEditEnabled === 'boolean') {
+            TTSReader.setDoubleClickEditEnabled(settings.doubleClickEditEnabled, silent);
+        }
+        if (typeof settings.autoCloseLimitWarning === 'boolean') {
+            TTSReader.setAutoCloseLimitWarningEnabled(settings.autoCloseLimitWarning, silent);
+        }
+        if (typeof settings.limitWarningDelay !== 'undefined') {
+            const delay = Number(settings.limitWarningDelay);
+            if (Number.isFinite(delay)) TTSReader.setLimitWarningDelay(delay, silent);
+        }
 
         if (typeof settings.showDiagnostics === 'boolean') {
             TTSReader.CONFIG.SHOW_DIAGNOSTICS_PANEL = settings.showDiagnostics;
@@ -1655,7 +2198,19 @@
                             readUserMessages: TTSReader.CONFIG.READ_USER_MESSAGES,
                             autoRead: TTSReader.CONFIG.AUTO_READ_NEW_MESSAGES,
                             loopOnEnd: TTSReader.CONFIG.LOOP_ON_END,
-                            showDiagnostics: TTSReader.CONFIG.SHOW_DIAGNOSTICS_PANEL
+                            showDiagnostics: TTSReader.CONFIG.SHOW_DIAGNOSTICS_PANEL,
+                            volumeBoostEnabled: TTSReader.CONFIG.VOLUME_BOOST_ENABLED,
+                            volumeBoostLevel: TTSReader.CONFIG.VOLUME_BOOST_LEVEL,
+                            enterToSendEnabled: TTSReader.CONFIG.ENTER_TO_SEND_ENABLED,
+                            globalPasteEnabled: TTSReader.CONFIG.GLOBAL_PASTE_ENABLED,
+                            regularPasteEnabled: TTSReader.CONFIG.REGULAR_PASTE_ENABLED,
+                            regularAutoSend: TTSReader.CONFIG.REGULAR_AUTO_SEND,
+                            niceAutoPasteEnabled: TTSReader.CONFIG.NICE_AUTO_PASTE_ENABLED,
+                            niceAutoSend: TTSReader.CONFIG.NICE_AUTO_SEND,
+                            copyButtonEnabled: TTSReader.CONFIG.COPY_BUTTON_ENABLED,
+                            doubleClickEditEnabled: TTSReader.CONFIG.DOUBLE_CLICK_EDIT_ENABLED,
+                            autoCloseLimitWarning: TTSReader.CONFIG.AUTO_CLOSE_LIMIT_WARNING,
+                            limitWarningDelay: TTSReader.CONFIG.LIMIT_WARNING_DELAY_MS
                         }
                     });
                     return true;
