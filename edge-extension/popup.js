@@ -1,5 +1,9 @@
 document.addEventListener('DOMContentLoaded', () => {
-    const DEFAULT_SETTINGS = {
+    const SETTINGS_STORAGE_KEY = 'settingsByProfile';
+    const PROFILE_CHATGPT = 'chatgpt';
+    const PROFILE_LOCAL = 'local';
+
+    const BASE_DEFAULT_SETTINGS = {
         speechRate: 5,
         wordHighlight: true,
         gapTrim: true,
@@ -19,6 +23,19 @@ document.addEventListener('DOMContentLoaded', () => {
         doubleClickEditEnabled: true,
         autoCloseLimitWarning: true,
         limitWarningDelay: 1500
+    };
+
+    const PROFILE_DEFAULT_SETTINGS = {
+        [PROFILE_CHATGPT]: { ...BASE_DEFAULT_SETTINGS },
+        [PROFILE_LOCAL]: {
+            ...BASE_DEFAULT_SETTINGS,
+            autoRead: false,
+            globalPasteEnabled: false,
+            regularPasteEnabled: false,
+            regularAutoSend: false,
+            niceAutoPasteEnabled: false,
+            niceAutoSend: false
+        }
     };
 
     const startBtn = document.getElementById('startBtn');
@@ -53,7 +70,56 @@ document.addEventListener('DOMContentLoaded', () => {
     const doubleClickEditToggle = document.getElementById('doubleClickEditToggle');
     const autoCloseWarningsToggle = document.getElementById('autoCloseWarningsToggle');
 
+    let activeTabId = null;
+    let activeProfile = PROFILE_CHATGPT;
+
+    function getProfileFromUrl(urlLike) {
+        try {
+            const url = new URL(urlLike || '');
+            if (url.protocol === 'file:') return PROFILE_LOCAL;
+            const host = (url.hostname || '').toLowerCase();
+            if (host === 'chatgpt.com' || host === 'chat.openai.com') return PROFILE_CHATGPT;
+            if (host === 'localhost' || host === '127.0.0.1') return PROFILE_LOCAL;
+        } catch (_error) {
+            // fall through
+        }
+        return PROFILE_CHATGPT;
+    }
+
+    function getProfileDefaults(profile) {
+        return PROFILE_DEFAULT_SETTINGS[profile] || PROFILE_DEFAULT_SETTINGS[PROFILE_CHATGPT];
+    }
+
+    function pickLegacySettings(items) {
+        const legacy = {};
+        for (const key of Object.keys(BASE_DEFAULT_SETTINGS)) {
+            if (Object.prototype.hasOwnProperty.call(items, key)) {
+                legacy[key] = items[key];
+            }
+        }
+        return legacy;
+    }
+
+    function getStoredProfileSettings(callback) {
+        chrome.storage.sync.get(null, (items) => {
+            const settingsByProfile = (items[SETTINGS_STORAGE_KEY] && typeof items[SETTINGS_STORAGE_KEY] === 'object')
+                ? items[SETTINGS_STORAGE_KEY]
+                : {};
+            const legacy = pickLegacySettings(items || {});
+            const merged = {
+                ...getProfileDefaults(activeProfile),
+                ...(activeProfile === PROFILE_CHATGPT ? legacy : {}),
+                ...(settingsByProfile[activeProfile] || {})
+            };
+            callback(merged);
+        });
+    }
+
     function sendMessage(action, data = {}) {
+        if (activeTabId) {
+            chrome.tabs.sendMessage(activeTabId, { action, ...data });
+            return;
+        }
         chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
             if (tabs[0] && tabs[0].id) {
                 chrome.tabs.sendMessage(tabs[0].id, { action, ...data });
@@ -105,10 +171,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function applySettingsToUI(settings) {
-        const rate = Number(settings.speechRate ?? DEFAULT_SETTINGS.speechRate);
+        const defaults = getProfileDefaults(activeProfile);
+        const rate = Number(settings.speechRate ?? defaults.speechRate);
         rateSlider.value = rate;
         rateValue.textContent = `${rate.toFixed(1)}x`;
-        const volume = Number(settings.volumeBoostLevel ?? DEFAULT_SETTINGS.volumeBoostLevel);
+        const volume = Number(settings.volumeBoostLevel ?? defaults.volumeBoostLevel);
         volumeSlider.value = volume;
         volumeValue.textContent = `${volume.toFixed(1)}x`;
         highlightToggle.checked = Boolean(settings.wordHighlight);
@@ -130,13 +197,22 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function persistSetting(key, value) {
-        chrome.storage.sync.set({ [key]: value });
+        chrome.storage.sync.get({ [SETTINGS_STORAGE_KEY]: {} }, (items) => {
+            const settingsByProfile = (items[SETTINGS_STORAGE_KEY] && typeof items[SETTINGS_STORAGE_KEY] === 'object')
+                ? { ...items[SETTINGS_STORAGE_KEY] }
+                : {};
+
+            const profileSettings = {
+                ...getProfileDefaults(activeProfile),
+                ...(settingsByProfile[activeProfile] || {})
+            };
+            profileSettings[key] = value;
+            settingsByProfile[activeProfile] = profileSettings;
+            chrome.storage.sync.set({ [SETTINGS_STORAGE_KEY]: settingsByProfile });
+        });
+
         sendMessage('applySettings', { settings: { [key]: value }, silent: true });
     }
-
-    chrome.storage.sync.get(DEFAULT_SETTINGS, (settings) => {
-        applySettingsToUI(settings);
-    });
 
     startBtn.addEventListener('click', () => {
         sendMessage('startReading');
@@ -178,7 +254,7 @@ document.addEventListener('DOMContentLoaded', () => {
     rateSlider.addEventListener('input', (e) => {
         const rate = Number(e.target.value);
         rateValue.textContent = `${rate.toFixed(1)}x`;
-        chrome.storage.sync.set({ speechRate: rate });
+        persistSetting('speechRate', rate);
         sendMessage('setRate', { rate });
     });
 
@@ -242,26 +318,40 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        if (tabs[0] && tabs[0].id) {
-            const requestState = () => {
-                chrome.tabs.sendMessage(tabs[0].id, { action: 'getState' }, (response) => {
-                    if (chrome.runtime.lastError) {
-                        showStatus('Open ChatGPT to use this extension.');
-                        startBtn.disabled = true;
-                        return;
-                    }
-                    if (response && response.state) {
-                        updateUI(response.state);
-                        updateProgress(response.progress);
-                        if (response.settings) {
-                            applySettingsToUI({ ...DEFAULT_SETTINGS, ...response.settings });
-                        }
-                    }
-                });
-            };
-
-            requestState();
-            setInterval(requestState, 1000);
+        const activeTab = tabs[0];
+        if (!activeTab || !activeTab.id) {
+            showStatus('Open a supported page to use this extension.');
+            startBtn.disabled = true;
+            return;
         }
+
+        activeTabId = activeTab.id;
+        activeProfile = getProfileFromUrl(activeTab.url || '');
+        getStoredProfileSettings((settings) => {
+            applySettingsToUI(settings);
+        });
+
+        const requestState = () => {
+            chrome.tabs.sendMessage(activeTabId, { action: 'getState' }, (response) => {
+                if (chrome.runtime.lastError) {
+                    showStatus('Open ChatGPT/local page to use this extension.');
+                    startBtn.disabled = true;
+                    return;
+                }
+                if (response && response.state) {
+                    updateUI(response.state);
+                    updateProgress(response.progress);
+                    if (response.profile) {
+                        activeProfile = response.profile;
+                    }
+                    if (response.settings) {
+                        applySettingsToUI(response.settings);
+                    }
+                }
+            });
+        };
+
+        requestState();
+        setInterval(requestState, 1000);
     });
 });

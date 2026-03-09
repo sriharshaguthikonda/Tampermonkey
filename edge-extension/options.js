@@ -1,5 +1,9 @@
 document.addEventListener('DOMContentLoaded', () => {
-    const DEFAULT_SETTINGS = {
+    const SETTINGS_STORAGE_KEY = 'settingsByProfile';
+    const PROFILE_CHATGPT = 'chatgpt';
+    const PROFILE_LOCAL = 'local';
+
+    const BASE_DEFAULT_SETTINGS = {
         speechRate: 5,
         wordHighlight: true,
         gapTrim: true,
@@ -32,7 +36,21 @@ document.addEventListener('DOMContentLoaded', () => {
         autoReadMinParagraphs: 3
     };
 
+    const PROFILE_DEFAULT_SETTINGS = {
+        [PROFILE_CHATGPT]: { ...BASE_DEFAULT_SETTINGS },
+        [PROFILE_LOCAL]: {
+            ...BASE_DEFAULT_SETTINGS,
+            autoRead: false,
+            globalPasteEnabled: false,
+            regularPasteEnabled: false,
+            regularAutoSend: false,
+            niceAutoPasteEnabled: false,
+            niceAutoSend: false
+        }
+    };
+
     const elements = {
+        settingsProfile: document.getElementById('settingsProfile'),
         speechRate: document.getElementById('speechRate'),
         speechRateValue: document.getElementById('speechRateValue'),
         wordHighlight: document.getElementById('wordHighlight'),
@@ -107,14 +125,29 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let saveTimer = null;
     let saveFeedbackTimer = null;
+    let currentProfile = PROFILE_CHATGPT;
+
+    function getProfileDefaults(profile) {
+        return PROFILE_DEFAULT_SETTINGS[profile] || PROFILE_DEFAULT_SETTINGS[PROFILE_CHATGPT];
+    }
+
+    function pickLegacySettings(items) {
+        const legacy = {};
+        for (const key of Object.keys(BASE_DEFAULT_SETTINGS)) {
+            if (Object.prototype.hasOwnProperty.call(items, key)) {
+                legacy[key] = items[key];
+            }
+        }
+        return legacy;
+    }
 
     function updateSpeechRateValue(rate) {
-        const display = Number.isFinite(rate) ? rate.toFixed(1) : DEFAULT_SETTINGS.speechRate.toFixed(1);
+        const display = Number.isFinite(rate) ? rate.toFixed(1) : getProfileDefaults(currentProfile).speechRate.toFixed(1);
         elements.speechRateValue.textContent = `${display}x`;
     }
 
     function updateVolumeBoostValue(level) {
-        const display = Number.isFinite(level) ? level.toFixed(1) : DEFAULT_SETTINGS.volumeBoostLevel.toFixed(1);
+        const display = Number.isFinite(level) ? level.toFixed(1) : getProfileDefaults(currentProfile).volumeBoostLevel.toFixed(1);
         elements.volumeBoostLevelValue.textContent = `${display}x`;
     }
 
@@ -130,7 +163,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function applySettingsToUI(settings) {
-        const merged = { ...DEFAULT_SETTINGS, ...settings };
+        const merged = { ...getProfileDefaults(currentProfile), ...settings };
 
         elements.speechRate.value = merged.speechRate;
         updateSpeechRateValue(Number(merged.speechRate));
@@ -142,15 +175,16 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         numberFields.forEach((key) => {
-            if (key === 'speechRate') return;
+            if (key === 'speechRate' || key === 'volumeBoostLevel') return;
             if (elements[key]) elements[key].value = merged[key];
         });
     }
 
     function collectSettings() {
+        const defaults = getProfileDefaults(currentProfile);
         const settings = {};
 
-        settings.speechRate = coerceNumber(elements.speechRate, DEFAULT_SETTINGS.speechRate);
+        settings.speechRate = coerceNumber(elements.speechRate, defaults.speechRate);
 
         toggleFields.forEach((key) => {
             settings[key] = Boolean(elements[key].checked);
@@ -158,7 +192,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         numberFields.forEach((key) => {
             if (key === 'speechRate') return;
-            settings[key] = coerceNumber(elements[key], DEFAULT_SETTINGS[key]);
+            settings[key] = coerceNumber(elements[key], defaults[key]);
         });
 
         return settings;
@@ -172,10 +206,31 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 1200);
     }
 
+    function loadProfile(profile) {
+        chrome.storage.sync.get(null, (items) => {
+            const settingsByProfile = (items[SETTINGS_STORAGE_KEY] && typeof items[SETTINGS_STORAGE_KEY] === 'object')
+                ? items[SETTINGS_STORAGE_KEY]
+                : {};
+            const legacy = pickLegacySettings(items || {});
+            const profileSettings = {
+                ...getProfileDefaults(profile),
+                ...(profile === PROFILE_CHATGPT ? legacy : {}),
+                ...(settingsByProfile[profile] || {})
+            };
+            applySettingsToUI(profileSettings);
+        });
+    }
+
     function saveSettings() {
-        const settings = collectSettings();
-        chrome.storage.sync.set(settings, () => {
-            flashSaved();
+        const nextSettings = collectSettings();
+        chrome.storage.sync.get({ [SETTINGS_STORAGE_KEY]: {} }, (items) => {
+            const settingsByProfile = (items[SETTINGS_STORAGE_KEY] && typeof items[SETTINGS_STORAGE_KEY] === 'object')
+                ? { ...items[SETTINGS_STORAGE_KEY] }
+                : {};
+            settingsByProfile[currentProfile] = nextSettings;
+            chrome.storage.sync.set({ [SETTINGS_STORAGE_KEY]: settingsByProfile }, () => {
+                flashSaved();
+            });
         });
     }
 
@@ -187,14 +242,19 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 250);
     }
 
+    elements.settingsProfile.addEventListener('change', () => {
+        currentProfile = elements.settingsProfile.value === PROFILE_LOCAL ? PROFILE_LOCAL : PROFILE_CHATGPT;
+        loadProfile(currentProfile);
+    });
+
     elements.speechRate.addEventListener('input', () => {
-        const rate = coerceNumber(elements.speechRate, DEFAULT_SETTINGS.speechRate);
+        const rate = coerceNumber(elements.speechRate, getProfileDefaults(currentProfile).speechRate);
         updateSpeechRateValue(rate);
         scheduleSave();
     });
 
     elements.volumeBoostLevel.addEventListener('input', () => {
-        const level = coerceNumber(elements.volumeBoostLevel, DEFAULT_SETTINGS.volumeBoostLevel);
+        const level = coerceNumber(elements.volumeBoostLevel, getProfileDefaults(currentProfile).volumeBoostLevel);
         updateVolumeBoostValue(level);
         scheduleSave();
     });
@@ -217,11 +277,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     elements.resetBtn.addEventListener('click', () => {
-        applySettingsToUI(DEFAULT_SETTINGS);
+        applySettingsToUI(getProfileDefaults(currentProfile));
         saveSettings();
     });
 
-    chrome.storage.sync.get(DEFAULT_SETTINGS, (settings) => {
-        applySettingsToUI(settings);
-    });
+    currentProfile = PROFILE_CHATGPT;
+    elements.settingsProfile.value = currentProfile;
+    loadProfile(currentProfile);
 });

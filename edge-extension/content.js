@@ -1,7 +1,11 @@
 (function() {
     'use strict';
 
-    const DEFAULT_SETTINGS = {
+    const SETTINGS_STORAGE_KEY = 'settingsByProfile';
+    const PROFILE_CHATGPT = 'chatgpt';
+    const PROFILE_LOCAL = 'local';
+
+    const BASE_DEFAULT_SETTINGS = {
         speechRate: 5,
         wordHighlight: true,
         gapTrim: true,
@@ -33,6 +37,50 @@
         autoReadStableMs: 800,
         autoReadMinParagraphs: 3
     };
+
+    const PROFILE_DEFAULT_SETTINGS = {
+        [PROFILE_CHATGPT]: { ...BASE_DEFAULT_SETTINGS },
+        [PROFILE_LOCAL]: {
+            ...BASE_DEFAULT_SETTINGS,
+            autoRead: false,
+            globalPasteEnabled: false,
+            regularPasteEnabled: false,
+            regularAutoSend: false,
+            niceAutoPasteEnabled: false,
+            niceAutoSend: false
+        }
+    };
+
+    function getProfileFromUrl(urlLike) {
+        try {
+            const url = new URL(urlLike || '');
+            if (url.protocol === 'file:') return PROFILE_LOCAL;
+            const host = (url.hostname || '').toLowerCase();
+            if (host === 'chatgpt.com' || host === 'chat.openai.com') return PROFILE_CHATGPT;
+            if (host === 'localhost' || host === '127.0.0.1') return PROFILE_LOCAL;
+        } catch (_error) {
+            // Fall back to chatgpt defaults when URL parsing fails.
+        }
+        return PROFILE_CHATGPT;
+    }
+
+    function getCurrentProfile() {
+        return getProfileFromUrl(window.location && window.location.href ? window.location.href : '');
+    }
+
+    function getProfileDefaults(profile) {
+        return PROFILE_DEFAULT_SETTINGS[profile] || PROFILE_DEFAULT_SETTINGS[PROFILE_CHATGPT];
+    }
+
+    function pickLegacySettings(items) {
+        const legacy = {};
+        for (const key of Object.keys(BASE_DEFAULT_SETTINGS)) {
+            if (Object.prototype.hasOwnProperty.call(items, key)) {
+                legacy[key] = items[key];
+            }
+        }
+        return legacy;
+    }
 
     const TTSReader = {
         speechSynthesis: window.speechSynthesis,
@@ -85,6 +133,7 @@
         editObserver: null,
         limitWarningObserver: null,
         isChatGPTPage: false,
+        settingsProfile: PROFILE_CHATGPT,
         processedParagraph: { element: null, originalHTML: '', wordSpans: [], wordOffsets: [] },
 
         CONFIG: {
@@ -137,6 +186,7 @@
         },
 
         init() {
+            this.settingsProfile = getCurrentProfile();
             this.detectContext();
             this.waitForPageLoad();
             this.createUI();
@@ -2128,19 +2178,50 @@
         }
     }
 
+    function getStoredProfileSettings(items, profile) {
+        const settingsByProfile = (items[SETTINGS_STORAGE_KEY] && typeof items[SETTINGS_STORAGE_KEY] === 'object')
+            ? items[SETTINGS_STORAGE_KEY]
+            : {};
+        const legacy = pickLegacySettings(items);
+        return {
+            ...getProfileDefaults(profile),
+            ...(profile === PROFILE_CHATGPT ? legacy : {}),
+            ...(settingsByProfile[profile] || {})
+        };
+    }
+
     function initWithStoredSettings() {
-        chrome.storage.sync.get(DEFAULT_SETTINGS, (settings) => {
+        chrome.storage.sync.get(null, (items) => {
+            const profile = getCurrentProfile();
+            TTSReader.settingsProfile = profile;
+            const settings = getStoredProfileSettings(items || {}, profile);
             applySettings(settings, { silent: true });
             TTSReader.init();
         });
 
         chrome.storage.onChanged.addListener((changes, area) => {
             if (area !== 'sync') return;
-            const updated = {};
-            Object.keys(changes).forEach((key) => {
-                updated[key] = changes[key].newValue;
-            });
-            applySettings(updated, { silent: true });
+
+            if (Object.prototype.hasOwnProperty.call(changes, SETTINGS_STORAGE_KEY)) {
+                const profile = TTSReader.settingsProfile || getCurrentProfile();
+                const nextProfiles = changes[SETTINGS_STORAGE_KEY].newValue || {};
+                const profileSettings = {
+                    ...getProfileDefaults(profile),
+                    ...(nextProfiles[profile] || {})
+                };
+                applySettings(profileSettings, { silent: true });
+                return;
+            }
+
+            const legacyUpdated = {};
+            for (const key of Object.keys(BASE_DEFAULT_SETTINGS)) {
+                if (Object.prototype.hasOwnProperty.call(changes, key)) {
+                    legacyUpdated[key] = changes[key].newValue;
+                }
+            }
+            if (Object.keys(legacyUpdated).length > 0) {
+                applySettings(legacyUpdated, { silent: true });
+            }
         });
     }
 
@@ -2187,6 +2268,7 @@
                     TTSReader.refreshParagraphsIfNeeded(false);
                     sendResponse({
                         state: getPlaybackState(),
+                        profile: TTSReader.settingsProfile || getCurrentProfile(),
                         progress: {
                             current: TTSReader.currentParagraphIndex >= 0 ? TTSReader.currentParagraphIndex + 1 : 0,
                             total: TTSReader.paragraphsList.length
