@@ -10,6 +10,7 @@ document.addEventListener('DOMContentLoaded', () => {
         readUserMessages: false,
         autoRead: false,
         loopOnEnd: true,
+        autoScrollEnabled: true,
         showDiagnostics: true,
         volumeBoostEnabled: true,
         volumeBoostLevel: 1.3,
@@ -60,6 +61,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const readUserMessagesToggle = document.getElementById('readUserMessagesToggle');
     const autoReadToggle = document.getElementById('autoReadToggle');
     const loopToggle = document.getElementById('loopToggle');
+    const autoScrollToggle = document.getElementById('autoScrollToggle');
     const diagnosticsToggle = document.getElementById('diagnosticsToggle');
     const volumeBoostToggle = document.getElementById('volumeBoostToggle');
     const enterToSendToggle = document.getElementById('enterToSendToggle');
@@ -186,6 +188,7 @@ document.addEventListener('DOMContentLoaded', () => {
         readUserMessagesToggle.checked = Boolean(settings.readUserMessages);
         autoReadToggle.checked = Boolean(settings.autoRead);
         loopToggle.checked = Boolean(settings.loopOnEnd);
+        autoScrollToggle.checked = Boolean(settings.autoScrollEnabled);
         diagnosticsToggle.checked = Boolean(settings.showDiagnostics);
         volumeBoostToggle.checked = Boolean(settings.volumeBoostEnabled);
         enterToSendToggle.checked = Boolean(settings.enterToSendEnabled);
@@ -282,6 +285,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     loopToggle.addEventListener('change', (e) => {
         persistSetting('loopOnEnd', e.target.checked);
+    });
+    autoScrollToggle.addEventListener('change', (e) => {
+        persistSetting('autoScrollEnabled', e.target.checked);
     });
     diagnosticsToggle.addEventListener('change', (e) => {
         persistSetting('showDiagnostics', e.target.checked);

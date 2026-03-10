@@ -11,6 +11,7 @@ const BASE_DEFAULT_SETTINGS = {
     readUserMessages: false,
     autoRead: false,
     loopOnEnd: true,
+    autoScrollEnabled: true,
     showDiagnostics: true,
     volumeBoostEnabled: true,
     volumeBoostLevel: 1.3,
