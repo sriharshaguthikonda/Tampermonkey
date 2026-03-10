@@ -641,14 +641,56 @@ function makeDraggable(element) {
                document.querySelector('div[contenteditable][data-message-author-role="user"]');
     };
 
+    function applyTextToPromptArea(promptArea, text) {
+        if (!promptArea) return false;
+
+        const normalizedText = String(text || '').replace(/\r\n/g, '\n');
+        promptArea.focus();
+
+        if (promptArea.tagName === 'TEXTAREA' || promptArea.tagName === 'INPUT') {
+            promptArea.value = normalizedText;
+            promptArea.dispatchEvent(new Event('input', { bubbles: true }));
+            promptArea.selectionStart = promptArea.value.length;
+            promptArea.selectionEnd = promptArea.value.length;
+            return true;
+        }
+
+        const selection = window.getSelection();
+        let insertedWithCommand = false;
+        if (selection) {
+            const selectAllRange = document.createRange();
+            selectAllRange.selectNodeContents(promptArea);
+            selection.removeAllRanges();
+            selection.addRange(selectAllRange);
+        }
+
+        try {
+            if (typeof document.execCommand === 'function') {
+                insertedWithCommand = document.execCommand('insertText', false, normalizedText);
+            }
+        } catch (_error) {
+            insertedWithCommand = false;
+        }
+
+        if (!insertedWithCommand) {
+            promptArea.textContent = normalizedText;
+        }
+
+        promptArea.dispatchEvent(new Event('input', { bubbles: true }));
+        if (selection) {
+            const endRange = document.createRange();
+            endRange.selectNodeContents(promptArea);
+            endRange.collapse(false);
+            selection.removeAllRanges();
+            selection.addRange(endRange);
+        }
+        return true;
+    }
+
     const setQueryAndSend = (query, autoSend = false) => {
         const promptArea = findPromptArea();
         if (promptArea) {
-            promptArea.focus();
-            promptArea.innerHTML = query;
-
-            const inputEvent = new Event('input', { bubbles: true });
-            promptArea.dispatchEvent(inputEvent);
+            applyTextToPromptArea(promptArea, query);
 
             if (autoSend) {
                 const observer = new MutationObserver((mutations, obs) => {
@@ -710,18 +752,7 @@ function pasteIntoInputArea(text) {
 
     const promptArea = findPromptArea();
     if (promptArea) {
-        promptArea.focus();
-        promptArea.innerHTML = text;
-
-        const inputEvent = new Event('input', { bubbles: true });
-        promptArea.dispatchEvent(inputEvent);
-
-        const selection = window.getSelection();
-        const range = document.createRange();
-        range.selectNodeContents(promptArea);
-        range.collapse(false);
-        selection.removeAllRanges();
-        selection.addRange(range);
+        applyTextToPromptArea(promptArea, text);
 
         if (settings.regularAutoSend) {
             const observer = new MutationObserver((mutations, obs) => {
@@ -901,16 +932,7 @@ document.addEventListener('paste', function(event) {
 
     if (pastedText.trim()) {
         if (settings.niceAutoPasteEnabled) {
-            const formattedQuery = `According to NICE guidelines, what is the answer for the following :
-<p></p>
-<p></p>
-<p></p>
-<p></p>
-<p></p>
-<p></p>
-<p></p>
-<p></p>
-${pastedText} `;
+            const formattedQuery = `According to NICE guidelines, what is the answer for the following:\n\n${pastedText}`;
 
             console.log('Auto-pasting to ChatGPT with NICE formatting:', pastedText.substring(0, 50) + '...');
 
@@ -1205,7 +1227,6 @@ ${pastedText} `;
     console.log('- Paste anywhere to auto-format with NICE guidelines or regular paste (if enabled)');
     console.log('- All features configurable in settings panel');
 })();
-
 
 
 

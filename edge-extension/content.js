@@ -298,19 +298,39 @@
         setPromptText(text) {
             const promptArea = this.findPromptArea();
             if (!promptArea) return false;
+            const normalizedText = String(text || '').replace(/\r\n/g, '\n');
 
             promptArea.focus();
             if (promptArea.tagName === 'TEXTAREA' || promptArea.tagName === 'INPUT') {
-                promptArea.value = text;
+                promptArea.value = normalizedText;
                 promptArea.dispatchEvent(new Event('input', { bubbles: true }));
                 promptArea.selectionStart = promptArea.value.length;
                 promptArea.selectionEnd = promptArea.value.length;
                 return true;
             }
 
-            promptArea.textContent = text;
-            promptArea.dispatchEvent(new Event('input', { bubbles: true }));
             const selection = window.getSelection();
+            let insertedWithCommand = false;
+            if (selection) {
+                const selectAllRange = document.createRange();
+                selectAllRange.selectNodeContents(promptArea);
+                selection.removeAllRanges();
+                selection.addRange(selectAllRange);
+            }
+
+            try {
+                if (typeof document.execCommand === 'function') {
+                    insertedWithCommand = document.execCommand('insertText', false, normalizedText);
+                }
+            } catch (_error) {
+                insertedWithCommand = false;
+            }
+
+            if (!insertedWithCommand) {
+                promptArea.textContent = normalizedText;
+            }
+
+            promptArea.dispatchEvent(new Event('input', { bubbles: true }));
             if (selection) {
                 const range = document.createRange();
                 range.selectNodeContents(promptArea);
