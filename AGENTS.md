@@ -46,3 +46,13 @@ ChatGPT Universal TTS Reader with Precision Navigation & Highlighting.js
 ```
 
 If you choose to rename it to `*.user.js`, update both the file path and metadata URLs accordingly.
+
+## Git hygiene rules (always follow)
+- Commit often in small, focused chunks (one logical change per commit).
+- Use clear commit messages in imperative style (example: `Add profile-based local defaults`).
+- Before every push, sync first:
+  1. `git fetch origin`
+  2. `git pull --rebase origin <your-branch>` (or `git pull --rebase`)
+- Resolve conflicts locally, re-run quick checks, then push.
+- Do not mix unrelated files in the same commit.
+- Avoid force-push on shared branches unless explicitly coordinated.
