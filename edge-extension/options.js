@@ -17,6 +17,7 @@ document.addEventListener('DOMContentLoaded', () => {
         globalPasteEnabled: true,
         regularPasteEnabled: true,
         regularAutoSend: false,
+        regularAutoSendInInput: false,
         niceAutoPasteEnabled: true,
         niceAutoSend: false,
         copyButtonEnabled: true,
@@ -44,6 +45,7 @@ document.addEventListener('DOMContentLoaded', () => {
             globalPasteEnabled: false,
             regularPasteEnabled: false,
             regularAutoSend: false,
+            regularAutoSendInInput: false,
             niceAutoPasteEnabled: false,
             niceAutoSend: false
         }
@@ -66,6 +68,7 @@ document.addEventListener('DOMContentLoaded', () => {
         globalPasteEnabled: document.getElementById('globalPasteEnabled'),
         regularPasteEnabled: document.getElementById('regularPasteEnabled'),
         regularAutoSend: document.getElementById('regularAutoSend'),
+        regularAutoSendInInput: document.getElementById('regularAutoSendInInput'),
         niceAutoPasteEnabled: document.getElementById('niceAutoPasteEnabled'),
         niceAutoSend: document.getElementById('niceAutoSend'),
         copyButtonEnabled: document.getElementById('copyButtonEnabled'),
@@ -116,6 +119,7 @@ document.addEventListener('DOMContentLoaded', () => {
         'globalPasteEnabled',
         'regularPasteEnabled',
         'regularAutoSend',
+        'regularAutoSendInInput',
         'niceAutoPasteEnabled',
         'niceAutoSend',
         'copyButtonEnabled',

@@ -19,6 +19,7 @@
         globalPasteEnabled: true,
         regularPasteEnabled: true,
         regularAutoSend: false,
+        regularAutoSendInInput: false,
         niceAutoPasteEnabled: true,
         niceAutoSend: false,
         copyButtonEnabled: true,
@@ -46,6 +47,7 @@
             globalPasteEnabled: false,
             regularPasteEnabled: false,
             regularAutoSend: false,
+            regularAutoSendInInput: false,
             niceAutoPasteEnabled: false,
             niceAutoSend: false
         }
@@ -175,6 +177,7 @@
             GLOBAL_PASTE_ENABLED: true,
             REGULAR_PASTE_ENABLED: true,
             REGULAR_AUTO_SEND: false,
+            REGULAR_AUTO_SEND_IN_INPUT: false,
             NICE_AUTO_PASTE_ENABLED: true,
             NICE_AUTO_SEND: false,
             COPY_BUTTON_ENABLED: true,
@@ -373,11 +376,18 @@
         },
 
         handleGlobalPaste(event) {
-            if (!this.isChatGPTPage || !this.CONFIG.GLOBAL_PASTE_ENABLED) return;
+            if (!this.isChatGPTPage) return;
             const promptArea = this.findPromptArea();
             if (!promptArea) return;
 
-            if (this.isPromptFocused(promptArea)) return;
+            if (this.isPromptFocused(promptArea)) {
+                if (this.CONFIG.REGULAR_PASTE_ENABLED && this.CONFIG.REGULAR_AUTO_SEND_IN_INPUT) {
+                    setTimeout(() => this.scheduleSendButtonClick(), 40);
+                }
+                return;
+            }
+
+            if (!this.CONFIG.GLOBAL_PASTE_ENABLED) return;
             if (this.hasBlockingOpenElements(promptArea)) return;
 
             const activeElement = document.activeElement;
@@ -545,6 +555,15 @@
             this.CONFIG.REGULAR_AUTO_SEND = nextValue;
             if (!silent) {
                 this.showNotification(`Regular auto-send ${nextValue ? 'on' : 'off'}`);
+            }
+        },
+
+        setRegularAutoSendInInputEnabled(enabled, silent = false) {
+            const nextValue = Boolean(enabled);
+            if (this.CONFIG.REGULAR_AUTO_SEND_IN_INPUT === nextValue) return;
+            this.CONFIG.REGULAR_AUTO_SEND_IN_INPUT = nextValue;
+            if (!silent) {
+                this.showNotification(`Textbox auto-send ${nextValue ? 'on' : 'off'}`);
             }
         },
 
@@ -2104,6 +2123,9 @@
         if (typeof settings.regularAutoSend === 'boolean') {
             TTSReader.setRegularAutoSendEnabled(settings.regularAutoSend, silent);
         }
+        if (typeof settings.regularAutoSendInInput === 'boolean') {
+            TTSReader.setRegularAutoSendInInputEnabled(settings.regularAutoSendInInput, silent);
+        }
         if (typeof settings.niceAutoPasteEnabled === 'boolean') {
             TTSReader.setNiceAutoPasteEnabled(settings.niceAutoPasteEnabled, silent);
         }
@@ -2287,6 +2309,7 @@
                             globalPasteEnabled: TTSReader.CONFIG.GLOBAL_PASTE_ENABLED,
                             regularPasteEnabled: TTSReader.CONFIG.REGULAR_PASTE_ENABLED,
                             regularAutoSend: TTSReader.CONFIG.REGULAR_AUTO_SEND,
+                            regularAutoSendInInput: TTSReader.CONFIG.REGULAR_AUTO_SEND_IN_INPUT,
                             niceAutoPasteEnabled: TTSReader.CONFIG.NICE_AUTO_PASTE_ENABLED,
                             niceAutoSend: TTSReader.CONFIG.NICE_AUTO_SEND,
                             copyButtonEnabled: TTSReader.CONFIG.COPY_BUTTON_ENABLED,

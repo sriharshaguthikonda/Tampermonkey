@@ -17,6 +17,7 @@ document.addEventListener('DOMContentLoaded', () => {
         globalPasteEnabled: true,
         regularPasteEnabled: true,
         regularAutoSend: false,
+        regularAutoSendInInput: false,
         niceAutoPasteEnabled: true,
         niceAutoSend: false,
         copyButtonEnabled: true,
@@ -33,6 +34,7 @@ document.addEventListener('DOMContentLoaded', () => {
             globalPasteEnabled: false,
             regularPasteEnabled: false,
             regularAutoSend: false,
+            regularAutoSendInInput: false,
             niceAutoPasteEnabled: false,
             niceAutoSend: false
         }
@@ -64,6 +66,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const globalPasteToggle = document.getElementById('globalPasteToggle');
     const regularPasteToggle = document.getElementById('regularPasteToggle');
     const regularAutoSendToggle = document.getElementById('regularAutoSendToggle');
+    const regularAutoSendInInputToggle = document.getElementById('regularAutoSendInInputToggle');
     const nicePasteToggle = document.getElementById('nicePasteToggle');
     const niceSendToggle = document.getElementById('niceSendToggle');
     const copyButtonsToggle = document.getElementById('copyButtonsToggle');
@@ -189,6 +192,7 @@ document.addEventListener('DOMContentLoaded', () => {
         globalPasteToggle.checked = Boolean(settings.globalPasteEnabled);
         regularPasteToggle.checked = Boolean(settings.regularPasteEnabled);
         regularAutoSendToggle.checked = Boolean(settings.regularAutoSend);
+        regularAutoSendInInputToggle.checked = Boolean(settings.regularAutoSendInInput);
         nicePasteToggle.checked = Boolean(settings.niceAutoPasteEnabled);
         niceSendToggle.checked = Boolean(settings.niceAutoSend);
         copyButtonsToggle.checked = Boolean(settings.copyButtonEnabled);
@@ -296,6 +300,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     regularAutoSendToggle.addEventListener('change', (e) => {
         persistSetting('regularAutoSend', e.target.checked);
+    });
+    regularAutoSendInInputToggle.addEventListener('change', (e) => {
+        persistSetting('regularAutoSendInInput', e.target.checked);
     });
     nicePasteToggle.addEventListener('change', (e) => {
         persistSetting('niceAutoPasteEnabled', e.target.checked);

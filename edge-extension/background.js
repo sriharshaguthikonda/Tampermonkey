@@ -18,6 +18,7 @@ const BASE_DEFAULT_SETTINGS = {
     globalPasteEnabled: true,
     regularPasteEnabled: true,
     regularAutoSend: false,
+    regularAutoSendInInput: false,
     niceAutoPasteEnabled: true,
     niceAutoSend: false,
     copyButtonEnabled: true,
@@ -52,6 +53,7 @@ const PROFILE_DEFAULT_SETTINGS = {
         globalPasteEnabled: false,
         regularPasteEnabled: false,
         regularAutoSend: false,
+        regularAutoSendInInput: false,
         niceAutoPasteEnabled: false,
         niceAutoSend: false
     }

@@ -22,6 +22,7 @@
         globalPasteEnabled: true,
         regularPasteEnabled: true,
         regularAutoSend: false,
+        regularAutoSendInInput: false,
         doubleClickEditEnabled: true,
         autoCloseLimitWarning: true,
         limitWarningDelay: 1500,
@@ -91,6 +92,10 @@ function createSettingsUI() {
                 <label>
                     <input type="checkbox" id="regularAutoSend" ${settings.regularAutoSend ? 'checked' : ''}>
                     Auto-Send Regular Paste
+                </label>
+                <label>
+                    <input type="checkbox" id="regularAutoSendInInput" ${settings.regularAutoSendInInput ? 'checked' : ''}>
+                    Auto-Send if Pasting in Textbox
                 </label>
                 <label>
                     <input type="checkbox" id="doubleClickEditEnabled" ${settings.doubleClickEditEnabled ? 'checked' : ''}>
@@ -551,6 +556,11 @@ function makeDraggable(element) {
             saveSettings();
         });
 
+        document.getElementById('regularAutoSendInInput').addEventListener('change', (e) => {
+            settings.regularAutoSendInInput = e.target.checked;
+            saveSettings();
+        });
+
         document.getElementById('doubleClickEditEnabled').addEventListener('change', (e) => {
             settings.doubleClickEditEnabled = e.target.checked;
             saveSettings();
@@ -737,6 +747,36 @@ function pasteIntoInputArea(text) {
     }
 }
 
+function sendAfterTextboxPasteIfEnabled() {
+    if (!settings.regularPasteEnabled || !settings.regularAutoSendInInput) return;
+
+    const clickSend = () => {
+        const sendButton = document.querySelector(SEND_BUTTON_SELECTOR);
+        if (sendButton && !sendButton.disabled) {
+            sendButton.click();
+            return true;
+        }
+        return false;
+    };
+
+    setTimeout(() => {
+        if (clickSend()) return;
+        const observer = new MutationObserver((mutations, obs) => {
+            if (clickSend()) {
+                obs.disconnect();
+            }
+        });
+
+        observer.observe(document.body, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            attributeFilter: ['disabled']
+        });
+        setTimeout(() => observer.disconnect(), 5000);
+    }, 40);
+}
+
     // ================= Helper Function to Check for Open Elements =================
     function checkForOpenElements() {
         // Check for edit mode - look for the specific edit container with Cancel/Send buttons
@@ -839,7 +879,8 @@ document.addEventListener('paste', function(event) {
     const promptArea = findPromptArea();
 
     // If we're already in the prompt area, let normal paste work
-    if (activeElement === promptArea) {
+    if (promptArea && (activeElement === promptArea || promptArea.contains(activeElement))) {
+        sendAfterTextboxPasteIfEnabled();
         return;
     }
 
@@ -1164,7 +1205,6 @@ ${pastedText} `;
     console.log('- Paste anywhere to auto-format with NICE guidelines or regular paste (if enabled)');
     console.log('- All features configurable in settings panel');
 })();
-
 
 
 
