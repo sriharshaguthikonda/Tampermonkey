@@ -1007,15 +1007,19 @@ document.addEventListener('paste', function(event) {
             existingSecondButton.remove();
         }
 
-        if (target.querySelector('.copy-button')) return;
+        if (target.querySelector('.copy-button-row')) return;
+        target.querySelectorAll('.copy-button').forEach(btn => btn.remove());
+
+        const copyButtonRow = document.createElement('div');
+        copyButtonRow.classList.add('copy-button-row');
+        copyButtonRow.style.display = 'flex';
+        copyButtonRow.style.justifyContent = 'flex-end';
+        copyButtonRow.style.marginTop = '8px';
 
         const copyButton = document.createElement('button');
         copyButton.innerText = 'Copy';
         copyButton.classList.add('copy-button');
 
-        copyButton.style.position = 'absolute';
-        copyButton.style.top = '5px';
-        copyButton.style.right = '5px';
         copyButton.style.padding = '5px 10px';
         copyButton.style.fontSize = '0.9rem';
         copyButton.style.cursor = 'pointer';
@@ -1023,11 +1027,10 @@ document.addEventListener('paste', function(event) {
         copyButton.style.borderRadius = '4px';
         copyButton.style.backgroundColor = '#007bff';
         copyButton.style.color = '#fff';
-        copyButton.style.zIndex = '1000';
 
         copyButton.addEventListener('click', function() {
             const clone = target.cloneNode(true);
-            clone.querySelectorAll('.copy-button').forEach(btn => btn.remove());
+            clone.querySelectorAll('.copy-button, .copy-button-row').forEach(btn => btn.remove());
             const text = clone.innerText;
 
             navigator.clipboard.writeText(text)
@@ -1039,9 +1042,8 @@ document.addEventListener('paste', function(event) {
                 });
         });
 
-        target.style.position = 'relative';
-        target.style.paddingRight = '70px';
-        target.appendChild(copyButton);
+        copyButtonRow.appendChild(copyButton);
+        target.appendChild(copyButtonRow);
     }
 
     function processExistingMessages() {
@@ -1227,7 +1229,6 @@ document.addEventListener('paste', function(event) {
     console.log('- Paste anywhere to auto-format with NICE guidelines or regular paste (if enabled)');
     console.log('- All features configurable in settings panel');
 })();
-
 
 
 

@@ -607,19 +607,24 @@
 
         addCopyButton(target) {
             if (!target || !target.isConnected) return;
-            const existingButton = target.querySelector('.tmx-copy-button');
-            if (existingButton) return;
 
+            const existingRow = target.querySelector('.tmx-copy-row');
+            if (existingRow) return;
+            target.querySelectorAll('.tmx-copy-button').forEach((button) => button.remove());
+
+            const row = document.createElement('div');
+            row.className = 'tmx-copy-row';
+            row.style.cssText = 'display:flex; justify-content:flex-end; margin-top:8px;';
             const copyButton = document.createElement('button');
             copyButton.className = 'tmx-copy-button';
             copyButton.type = 'button';
             copyButton.textContent = 'Copy';
-            copyButton.style.cssText = 'position:absolute; top:6px; right:6px; padding:3px 8px; font-size:12px; line-height:1.2; border:none; border-radius:6px; background:#0b5ed7; color:#fff; cursor:pointer; z-index:2;';
+            copyButton.style.cssText = 'padding:3px 8px; font-size:12px; line-height:1.2; border:none; border-radius:6px; background:#0b5ed7; color:#fff; cursor:pointer;';
             copyButton.addEventListener('click', (event) => {
                 event.preventDefault();
                 event.stopPropagation();
                 const clone = target.cloneNode(true);
-                clone.querySelectorAll('.tmx-copy-button').forEach((button) => button.remove());
+                clone.querySelectorAll('.tmx-copy-row, .tmx-copy-button').forEach((node) => node.remove());
                 const text = (clone.innerText || clone.textContent || '').trim();
                 if (!text) return;
                 navigator.clipboard.writeText(text)
@@ -627,14 +632,12 @@
                     .catch(() => this.showNotification('Copy failed.'));
             });
 
-            if (window.getComputedStyle(target).position === 'static') {
-                target.style.position = 'relative';
-            }
-            target.appendChild(copyButton);
+            row.appendChild(copyButton);
+            target.appendChild(row);
         },
 
         removeCopyButtons() {
-            document.querySelectorAll('.tmx-copy-button').forEach((button) => button.remove());
+            document.querySelectorAll('.tmx-copy-row, .tmx-copy-button').forEach((node) => node.remove());
         },
 
         updateCopyButtons() {
