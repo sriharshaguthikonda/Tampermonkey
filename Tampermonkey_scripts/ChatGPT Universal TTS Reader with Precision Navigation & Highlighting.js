@@ -101,7 +101,29 @@
             LOOP_WAIT_MS: 1200,
             LOOP_ON_END: true,
             HOTKEYS: { ACTIVATE: 'U', PAUSE_RESUME: 'P', NAV_NEXT: 'ArrowRight', NAV_PREV: 'ArrowLeft', STOP: 'Escape' },
-            EMOJI_REGEX: /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE0F}]/ug
+            EMOJI_REGEX: /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE0F}]/ug,
+            VOICE_PREFERENCES: {
+                preferredVoice: null,
+                pitch: 1.0,
+                rate: 1.0,
+                volume: 1.0,
+                presets: {
+                    casual: { rate: 1.2, pitch: 0.9 },
+                    learning: { rate: 0.8, pitch: 1.0 },
+                    news: { rate: 1.0, pitch: 1.1 }
+                }
+            },
+            READING_MODES: {
+                SENTENCE: 'sentence',
+                PARAGRAPH: 'paragraph',
+                CONTINUOUS: 'continuous'
+            },
+            READING_STATS: {
+                wordsPerMinute: 0,
+                totalTimeMs: 0,
+                startTime: null
+            },
+            READING_MODE: 'sentence',
         },
 
         init() {
@@ -144,9 +166,81 @@
         loadVoices() {
             return new Promise((resolve) => {
                 const voices = this.speechSynthesis.getVoices();
-                if (voices.length > 0) resolve(voices);
-                else this.speechSynthesis.onvoiceschanged = () => resolve(this.speechSynthesis.getVoices());
+                if (voices.length > 0) {
+                    this.voices = voices;
+                    this.restoreVoicePreferences();
+                    resolve(voices);
+                }
+                else this.speechSynthesis.onvoiceschanged = () => {
+                    this.voices = this.speechSynthesis.getVoices();
+                    this.restoreVoicePreferences();
+                    resolve(this.voices);
+                };
             });
+        },
+
+        restoreVoicePreferences() {
+            if (!this.voices || !this.CONFIG.VOICE_PREFERENCES.preferredVoice) return;
+            
+            const preferredVoice = this.voices.find(voice => 
+                voice.name === this.CONFIG.VOICE_PREFERENCES.preferredVoice ||
+                (voice.lang && voice.lang.startsWith(this.CONFIG.VOICE_PREFERENCES.preferredVoice?.split('-')[0] || 'en'))
+            );
+            
+            if (preferredVoice) {
+                this.currentVoice = preferredVoice;
+                this.applyVoicePreset(this.CONFIG.VOICE_PREFERENCES.presets.learning);
+            }
+        },
+
+        applyVoicePreset(preset) {
+            if (!preset) return;
+            this.CONFIG.VOICE_PREFERENCES.pitch = preset.pitch;
+            this.CONFIG.VOICE_PREFERENCES.rate = preset.rate;
+            this.CONFIG.SPEECH_RATE = preset.rate;
+            this.saveVoicePreferences();
+        },
+
+        saveVoicePreferences() {
+            if (this.currentVoice) {
+                this.CONFIG.VOICE_PREFERENCES.preferredVoice = this.currentVoice.name;
+            }
+            localStorage.setItem('tts-voice-prefs', JSON.stringify(this.CONFIG.VOICE_PREFERENCES));
+        },
+
+        setVoice(voiceName) {
+            const voice = this.voices.find(v => v.name === voiceName);
+            if (voice) {
+                this.currentVoice = voice;
+                this.saveVoicePreferences();
+            }
+        },
+
+        updateReadingStats(wordCount) {
+            if (!this.CONFIG.READING_STATS.startTime) return;
+            
+            const now = Date.now();
+            const elapsedMs = now - this.CONFIG.READING_STATS.startTime;
+            if (elapsedMs > 0) {
+                this.CONFIG.READING_STATS.wordsPerMinute = Math.round((wordCount * 60000) / elapsedMs);
+                this.CONFIG.READING_STATS.totalTimeMs += elapsedMs;
+            }
+        },
+
+        detectIntelligentPause(text) {
+            const pauseIndicators = /[.!?]+\s*$/;
+            const commaPauses = /,\s*$/;
+            const questionMarks = /[?]$/;
+            
+            return pauseIndicators.test(text.trim()) || 
+                   commaPauses.test(text.trim()) || 
+                   questionMarks.test(text.trim());
+        },
+
+        setReadingMode(mode) {
+            if (!this.CONFIG.READING_MODES[mode.toUpperCase()]) return;
+            this.CONFIG.READING_MODE = mode;
+            this.showNotification(`Reading mode: ${mode}`);
         },
 
         initParagraphObserver() {
@@ -1255,16 +1349,88 @@
             uiPanel.id = 'tts-control-panel';
             uiPanel.setAttribute('data-tts-ui', 'true');
             uiPanel.setAttribute('aria-hidden', 'true');
-            uiPanel.style.cssText = `position: fixed; top: 80px; left: 10%; width: 180px; padding: 8px; background: rgba(0,0,0,0.7); color: #fff; font-family: Arial, sans-serif; font-size: 13px; border-radius: 6px; cursor: move; z-index: 2147483647; user-select: none; -webkit-user-select: none;`;
-            uiPanel.innerHTML = `<div style="font-weight:bold; text-align:center; margin-bottom: 5px;">TTS Reader</div><label for="tts-speed" style="display:block; margin-bottom:4px;">Speed: <span id="speed-value">${this.CONFIG.SPEECH_RATE.toFixed(1)}</span>x</label><input type="range" id="tts-speed" min="0.5" max="5" step="0.1" value="${this.CONFIG.SPEECH_RATE}" style="width:100%;"><label for="tts-highlight-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-highlight-toggle" ${this.CONFIG.WORD_HIGHLIGHT_ENABLED ? 'checked' : ''} style="margin:0;">Word highlight</label><label for="tts-gap-trim-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-gap-trim-toggle" ${this.CONFIG.GAP_TRIM_ENABLED ? 'checked' : ''} style="margin:0;">Gap trim</label><label for="tts-read-user-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-read-user-toggle" ${this.CONFIG.READ_USER_MESSAGES ? 'checked' : ''} style="margin:0;">Read user msgs</label><label for="tts-saved-html-detection-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-saved-html-detection-toggle" ${this.CONFIG.SAVED_HTML_USER_DETECTION ? 'checked' : ''} style="margin:0;">Saved HTML detection</label><label for="tts-auto-read-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-auto-read-toggle" ${this.CONFIG.AUTO_READ_NEW_MESSAGES ? 'checked' : ''} style="margin:0;">Auto-read new</label><label for="tts-loop-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-loop-toggle" ${this.CONFIG.LOOP_ON_END ? 'checked' : ''} style="margin:0;">Loop to top</label>`;
+            uiPanel.style.cssText = `position: fixed; top: 80px; left: 10%; width: 220px; padding: 8px; background: rgba(0,0,0,0.7); color: #fff; font-family: Arial, sans-serif; font-size: 13px; border-radius: 6px; cursor: move; z-index: 2147483647; user-select: none; -webkit-user-select: none;`;
+            uiPanel.innerHTML = `
+                <div style="font-weight:bold; text-align:center; margin-bottom: 5px;">TTS Reader</div>
+                
+                <label for="tts-speed" style="display:block; margin-bottom:4px;">Speed: <span id="speed-value">${this.CONFIG.SPEECH_RATE.toFixed(1)}</span>x</label>
+                <input type="range" id="tts-speed" min="0.5" max="5" step="0.1" value="${this.CONFIG.SPEECH_RATE}" style="width:100%;">
+                
+                <div style="border-top: 1px solid rgba(255,255,255,0.2); margin-top: 6px; padding-top: 6px;">
+                
+                <label for="tts-voice-select" style="display:block; margin-bottom:4px;">Voice:</label>
+                <select id="tts-voice-select" style="width:100%; margin-bottom:6px; background: rgba(0,0,0,0.8); color: #fff; border: none; padding: 2px;">
+                    <option value="">Default</option>
+                </select>
+                
+                <div style="display:flex; gap:10px; margin-bottom:6px;">
+                    <button id="tts-preset-casual" style="flex:1; padding:4px 8px; background: rgba(255,255,255,0.2); border: none; color: #fff; cursor: pointer; border-radius: 3px;">Casual</button>
+                    <button id="tts-preset-learning" style="flex:1; padding:4px 8px; background: rgba(255,255,255,0.2); border: none; color: #fff; cursor: pointer; border-radius: 3px;">Learning</button>
+                    <button id="tts-preset-news" style="flex:1; padding:4px 8px; background: rgba(255,255,255,0.2); border: none; color: #fff; cursor: pointer; border-radius: 3px;">News</button>
+                </div>
+                
+                <label for="tts-reading-mode" style="display:block; margin-bottom:4px;">Reading mode:</label>
+                <select id="tts-reading-mode" style="width:100%; margin-bottom:6px; background: rgba(0,0,0,0.8); color: #fff; border: none; padding: 2px;">
+                    <option value="sentence">Sentence</option>
+                    <option value="paragraph">Paragraph</option>
+                    <option value="continuous">Continuous</option>
+                </select>
+                
+                <div style="display: flex; flex-direction: column; gap: 4px;">
+                    <label for="tts-highlight-toggle" style="display:flex; align-items:center; gap:6px; cursor:pointer;"><input type="checkbox" id="tts-highlight-toggle" ${this.CONFIG.WORD_HIGHLIGHT_ENABLED ? 'checked' : ''} style="margin:0;">Word highlight</label>
+                    <label for="tts-gap-trim-toggle" style="display:flex; align-items:center; gap:6px; cursor:pointer;"><input type="checkbox" id="tts-gap-trim-toggle" ${this.CONFIG.GAP_TRIM_ENABLED ? 'checked' : ''} style="margin:0;">Gap trim</label>
+                    <label for="tts-read-user-toggle" style="display:flex; align-items:center; gap:6px; cursor:pointer;"><input type="checkbox" id="tts-read-user-toggle" ${this.CONFIG.READ_USER_MESSAGES ? 'checked' : ''} style="margin:0;">Read user msgs</label>
+                    <label for="tts-saved-html-detection-toggle" style="display:flex; align-items:center; gap:6px; cursor:pointer;"><input type="checkbox" id="tts-saved-html-detection-toggle" ${this.CONFIG.SAVED_HTML_USER_DETECTION ? 'checked' : ''} style="margin:0;">Saved HTML detection</label>
+                    <label for="tts-auto-read-toggle" style="display:flex; align-items:center; gap:6px; cursor:pointer;"><input type="checkbox" id="tts-auto-read-toggle" ${this.CONFIG.AUTO_READ_NEW_MESSAGES ? 'checked' : ''} style="margin:0;">Auto-read new</label>
+                    <label for="tts-loop-toggle" style="display:flex; align-items:center; gap:6px; cursor:pointer;"><input type="checkbox" id="tts-loop-toggle" ${this.CONFIG.LOOP_ON_END ? 'checked' : ''} style="margin:0;">Loop to top</label>
+                </div>
+            `;
             document.body.appendChild(uiPanel);
-
+            
+            // Populate voice selection after voices are loaded
+            this.loadVoices().then(() => {
+                const voiceSelect = document.getElementById('tts-voice-select');
+                if (voiceSelect) {
+                    voiceSelect.innerHTML = '<option value="">Default</option>' + 
+                        this.voices.map(voice => `<option value="${voice.name}">${voice.name} (${voice.lang})</option>`).join('');
+                }
+            });
+            
             const speedInput = document.getElementById('tts-speed');
             speedInput.addEventListener('input', e => {
                 this.CONFIG.SPEECH_RATE = parseFloat(e.target.value);
                 document.getElementById('speed-value').textContent = this.CONFIG.SPEECH_RATE.toFixed(1);
             });
             speedInput.addEventListener('mousedown', e => e.stopPropagation());
+            
+            // Voice selection and presets
+            const voiceSelect = document.getElementById('tts-voice-select');
+            voiceSelect.addEventListener('change', e => {
+                this.setVoice(e.target.value);
+            });
+            voiceSelect.addEventListener('mousedown', e => e.stopPropagation());
+            
+            // Preset buttons
+            const casualPreset = document.getElementById('tts-preset-casual');
+            casualPreset.addEventListener('click', () => this.applyVoicePreset(this.CONFIG.VOICE_PREFERENCES.presets.casual));
+            casualPreset.addEventListener('mousedown', e => e.stopPropagation());
+            
+            const learningPreset = document.getElementById('tts-preset-learning');
+            learningPreset.addEventListener('click', () => this.applyVoicePreset(this.CONFIG.VOICE_PREFERENCES.presets.learning));
+            learningPreset.addEventListener('mousedown', e => e.stopPropagation());
+            
+            const newsPreset = document.getElementById('tts-preset-news');
+            newsPreset.addEventListener('click', () => this.applyVoicePreset(this.CONFIG.VOICE_PREFERENCES.presets.news));
+            newsPreset.addEventListener('mousedown', e => e.stopPropagation());
+            
+            // Reading mode
+            const readingModeSelect = document.getElementById('tts-reading-mode');
+            readingModeSelect.addEventListener('change', e => {
+                this.setReadingMode(e.target.value);
+            });
+            readingModeSelect.addEventListener('mousedown', e => e.stopPropagation());
+            
+            // Original checkboxes
             const highlightToggle = document.getElementById('tts-highlight-toggle');
             highlightToggle.addEventListener('change', e => {
                 this.setWordHighlightEnabled(e.target.checked);
