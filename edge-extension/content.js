@@ -137,8 +137,11 @@
         overlayPanel: null,
         diagnosticsPanel: null,
         progressPanel: null,
-        navigationPanel: null,
-        navigationPanelHideId: null,
+        navigationTrailCanvas: null,
+        navigationTrailCtx: null,
+        navigationTrailPoints: [],
+        navigationTrailAnimationId: null,
+        navigationStateTimeoutId: null,
         lastUtteranceEndTime: 0,
         lastGapMs: null,
         lastWrapMs: null,
@@ -173,7 +176,8 @@
             NAV_FOCUS_HOLD_MS: 800,
             NAV_KEYUP_READ_DELAY_MS: 150,
             NAV_FOCUS_FADE_MS: 800,
-            NAV_STATUS_VISIBLE_MS: 1200,
+            NAV_TRAIL_FADE_MS: 650,
+            NAV_TRAIL_MAX_POINTS: 14,
             SCROLL_THROTTLE_MS: 250,
             SCROLL_EDGE_PADDING: 80,
             AUTO_SCROLL_ENABLED: true,
@@ -873,7 +877,7 @@
         clearHighlights(keepFading = false) {
             const selectors = ['.tts-current-sentence', '.tts-current-word'];
             if (!keepFading) {
-                selectors.push('.tts-navigation-focus', '.tts-focus-fade-out', '.tts-navigation-ping');
+                selectors.push('.tts-navigation-focus', '.tts-focus-fade-out');
             }
             document.querySelectorAll(selectors.join(', ')).forEach(el => {
                 el.classList.remove(...selectors.map(s => s.substring(1)));
@@ -1104,50 +1108,120 @@
             this.progressPanel.style.opacity = '1';
         },
 
-        showNavigationStatus(index, direction = 0) {
-            if (!this.navigationPanel) return;
-            const total = this.paragraphsList.length;
-            const current = index + 1;
-            const arrow = direction > 0 ? '↓' : direction < 0 ? '↑' : '•';
-            const para = this.paragraphsList[index];
-            let snippet = para && para.text ? para.text.replace(/\s+/g, ' ').trim() : '';
-            if (snippet.length > 72) {
-                snippet = `${snippet.slice(0, 72)}...`;
-            }
-            this.navigationPanel.textContent = snippet
-                ? `${arrow} ${current}/${total} ${snippet}`
-                : `${arrow} ${current}/${total}`;
-            this.navigationPanel.style.opacity = '1';
-            this.navigationPanel.style.transform = 'translateX(-50%) translateY(0)';
-            if (this.navigationPanelHideId) {
-                clearTimeout(this.navigationPanelHideId);
-            }
-            this.navigationPanelHideId = setTimeout(() => {
-                this.navigationPanelHideId = null;
-                this.hideNavigationStatus();
-            }, this.CONFIG.NAV_STATUS_VISIBLE_MS);
+        ensureNavigationTrailLayer() {
+            if (this.navigationTrailCanvas && this.navigationTrailCanvas.isConnected) return;
+            const canvas = document.createElement('canvas');
+            canvas.id = 'tts-navigation-trail';
+            canvas.setAttribute('data-tts-ui', 'true');
+            canvas.setAttribute('aria-hidden', 'true');
+            canvas.style.cssText = 'position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 2147483645; pointer-events: none;';
+            document.body.appendChild(canvas);
+            this.navigationTrailCanvas = canvas;
+            this.navigationTrailCtx = canvas.getContext('2d');
+            this.resizeNavigationTrailLayer();
         },
 
-        hideNavigationStatus(force = false) {
-            if (!this.navigationPanel) return;
-            if (force && this.navigationPanelHideId) {
-                clearTimeout(this.navigationPanelHideId);
-                this.navigationPanelHideId = null;
+        resizeNavigationTrailLayer() {
+            const canvas = this.navigationTrailCanvas;
+            const ctx = this.navigationTrailCtx;
+            if (!canvas || !ctx) return;
+            const dpr = window.devicePixelRatio || 1;
+            const width = Math.max(1, Math.round(window.innerWidth * dpr));
+            const height = Math.max(1, Math.round(window.innerHeight * dpr));
+            if (canvas.width !== width || canvas.height !== height) {
+                canvas.width = width;
+                canvas.height = height;
             }
-            this.navigationPanel.style.opacity = '0';
-            this.navigationPanel.style.transform = 'translateX(-50%) translateY(8px)';
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         },
 
-        triggerNavigationPulse(element) {
-            if (!element) return;
-            element.classList.remove('tts-navigation-ping');
-            void element.offsetWidth;
-            element.classList.add('tts-navigation-ping');
-            setTimeout(() => {
-                if (element && element.isConnected) {
-                    element.classList.remove('tts-navigation-ping');
+        addNavigationTrailPoint(element) {
+            if (!element || !element.isConnected) return;
+            this.ensureNavigationTrailLayer();
+            const rect = element.getBoundingClientRect();
+            const x = Math.max(0, Math.min(window.innerWidth, rect.left + rect.width / 2));
+            const y = Math.max(0, Math.min(window.innerHeight, rect.top + rect.height / 2));
+            this.navigationTrailPoints.push({
+                x,
+                y,
+                createdAt: performance.now()
+            });
+            const maxPoints = this.CONFIG.NAV_TRAIL_MAX_POINTS;
+            if (this.navigationTrailPoints.length > maxPoints) {
+                this.navigationTrailPoints.splice(0, this.navigationTrailPoints.length - maxPoints);
+            }
+            this.renderNavigationTrail(performance.now());
+            this.startNavigationTrailAnimation();
+        },
+
+        renderNavigationTrail(now = performance.now()) {
+            const canvas = this.navigationTrailCanvas;
+            const ctx = this.navigationTrailCtx;
+            if (!canvas || !ctx) return;
+
+            this.resizeNavigationTrailLayer();
+
+            const fadeMs = this.CONFIG.NAV_TRAIL_FADE_MS;
+            this.navigationTrailPoints = this.navigationTrailPoints.filter(point => now - point.createdAt <= fadeMs);
+
+            ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+            if (this.navigationTrailPoints.length === 0) return;
+
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            for (let i = 1; i < this.navigationTrailPoints.length; i++) {
+                const prev = this.navigationTrailPoints[i - 1];
+                const point = this.navigationTrailPoints[i];
+                const ageRatio = Math.min(1, (now - point.createdAt) / fadeMs);
+                const alpha = 1 - ageRatio;
+                ctx.strokeStyle = `rgba(52, 152, 219, ${0.15 + (alpha * 0.45)})`;
+                ctx.lineWidth = 2 + (alpha * 2.5);
+                ctx.beginPath();
+                ctx.moveTo(prev.x, prev.y);
+                ctx.lineTo(point.x, point.y);
+                ctx.stroke();
+            }
+
+            this.navigationTrailPoints.forEach((point, index) => {
+                const ageRatio = Math.min(1, (now - point.createdAt) / fadeMs);
+                const alpha = 1 - ageRatio;
+                const isLatest = index === this.navigationTrailPoints.length - 1;
+                const radius = (isLatest ? 6 : 4) + (alpha * 2);
+
+                ctx.beginPath();
+                ctx.fillStyle = `rgba(52, 152, 219, ${0.2 + (alpha * 0.6)})`;
+                ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            const latest = this.navigationTrailPoints[this.navigationTrailPoints.length - 1];
+            if (latest) {
+                const age = now - latest.createdAt;
+                const pulseMs = 360;
+                if (age <= pulseMs) {
+                    const progress = age / pulseMs;
+                    const ringRadius = 12 + (progress * 22);
+                    const ringAlpha = 0.45 * (1 - progress);
+                    ctx.beginPath();
+                    ctx.strokeStyle = `rgba(52, 152, 219, ${ringAlpha})`;
+                    ctx.lineWidth = 2;
+                    ctx.arc(latest.x, latest.y, ringRadius, 0, Math.PI * 2);
+                    ctx.stroke();
                 }
-            }, 450);
+            }
+        },
+
+        startNavigationTrailAnimation() {
+            if (this.navigationTrailAnimationId) return;
+            const tick = (now) => {
+                this.renderNavigationTrail(now);
+                if (this.navigationTrailPoints.length === 0) {
+                    this.navigationTrailAnimationId = null;
+                    return;
+                }
+                this.navigationTrailAnimationId = requestAnimationFrame(tick);
+            };
+            this.navigationTrailAnimationId = requestAnimationFrame(tick);
         },
 
         initAutoReadObserver() {
@@ -1669,7 +1743,6 @@
         onUtteranceStart(index) {
             this.ttsActive = true;
             this.isPaused = false;
-            this.hideNavigationStatus(true);
 
             const startTime = performance.now();
             this.lastGapMs = this.lastUtteranceEndTime ? startTime - this.lastUtteranceEndTime : null;
@@ -1792,7 +1865,6 @@
             this.hidePointerArrow();
             this.stopAutoScroll();
             this.updateProgressPanel(true);
-            this.hideNavigationStatus(true);
 
             if (notify) this.showNotification('All TTS stopped');
             return true;
@@ -1822,9 +1894,14 @@
 
         navigate(direction, options = {}) {
             const previewOnly = options.previewOnly === true;
-            if (this.isNavigating) return;
             this.isNavigating = true;
-            setTimeout(() => { this.isNavigating = false; }, this.CONFIG.NAV_THROTTLE_MS);
+            if (this.navigationStateTimeoutId) {
+                clearTimeout(this.navigationStateTimeoutId);
+            }
+            this.navigationStateTimeoutId = setTimeout(() => {
+                this.isNavigating = false;
+                this.navigationStateTimeoutId = null;
+            }, 120);
 
             this.stopTTS(false);
 
@@ -1857,10 +1934,9 @@
                 const targetElement = this.paragraphsList[newIndex].element;
                 this.clearHighlights(true);
                 targetElement.classList.add('tts-navigation-focus');
-                this.triggerNavigationPulse(targetElement);
                 this.gentleScrollToElement(targetElement); // Still useful for navigation highlight
+                this.addNavigationTrailPoint(targetElement);
                 this.lastSpokenElement = targetElement;
-                this.showNavigationStatus(newIndex, direction);
 
                 this.pendingNavIndex = newIndex;
                 clearTimeout(this.navigationTimeoutId);
@@ -2027,6 +2103,8 @@
             }, { passive: true });
             window.addEventListener('resize', () => {
                 this.applyOverlayPanelPosition(this.CONFIG.OVERLAY_POSITION);
+                this.resizeNavigationTrailLayer();
+                this.renderNavigationTrail(performance.now());
             });
             window.addEventListener('beforeunload', () => this.stopTTS(false));
         },
@@ -2060,11 +2138,6 @@
                 .tts-current-word { background-color: rgba(250, 210, 50, 0.9) !important; font-weight: bold !important; color: black !important; border-radius: 3px; transform: scale(1.02); box-shadow: 0 2px 8px rgba(0,0,0,0.2); transition: background-color 0.1s, transform 0.1s; }
                 .tts-navigation-focus { background-color: rgba(52, 152, 219, 0.3) !important; box-shadow: inset 4px 0 0 #3498db !important; transition: background-color 0.3s, box-shadow 0.3s; }
                 .tts-focus-fade-out { box-shadow: none !important; background-color: transparent !important; transition: background-color var(--tts-focus-fade-ms, 500ms) ease, box-shadow var(--tts-focus-fade-ms, 500ms) ease; }
-                .tts-navigation-ping { animation: tts-nav-ping 0.42s ease-out; }
-                @keyframes tts-nav-ping {
-                    from { box-shadow: inset 4px 0 0 #3498db, 0 0 0 0 rgba(52, 152, 219, 0.55); }
-                    to { box-shadow: inset 4px 0 0 #3498db, 0 0 0 14px rgba(52, 152, 219, 0); }
-                }
                 .tts-overlay-hidden [data-tts-ui] { display: none !important; }
 
                 /* NEW: In-game waypoint style pointer */
@@ -2183,15 +2256,7 @@
             progress.textContent = 'Reading 0/0';
             document.body.appendChild(progress);
             this.progressPanel = progress;
-
-            const navigation = document.createElement('div');
-            navigation.id = 'tts-navigation-status';
-            navigation.setAttribute('data-tts-ui', 'true');
-            navigation.setAttribute('aria-hidden', 'true');
-            navigation.style.cssText = 'position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%) translateY(8px); max-width: min(70vw, 560px); background: var(--tts-ui-overlay-bg); color: var(--tts-ui-overlay-text); border: 1px solid var(--tts-ui-overlay-border); padding: 7px 10px; border-radius: 999px; font-family: Arial, sans-serif; font-size: 12px; z-index: 2147483647; pointer-events: none; user-select: none; -webkit-user-select: none; opacity: 0; transition: opacity 0.14s ease, transform 0.14s ease; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;';
-            navigation.textContent = 'Navigation';
-            document.body.appendChild(navigation);
-            this.navigationPanel = navigation;
+            this.ensureNavigationTrailLayer();
             this.applyOverlayVisibility();
         },
 
