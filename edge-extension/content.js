@@ -87,6 +87,23 @@
         return legacy;
     }
 
+    function persistProfileSetting(profile, key, value) {
+        if (typeof chrome === 'undefined' || !chrome.storage || !chrome.storage.sync) return;
+        chrome.storage.sync.get({ [SETTINGS_STORAGE_KEY]: {} }, (items) => {
+            const settingsByProfile = (items[SETTINGS_STORAGE_KEY] && typeof items[SETTINGS_STORAGE_KEY] === 'object')
+                ? { ...items[SETTINGS_STORAGE_KEY] }
+                : {};
+            const nextProfile = profile || getCurrentProfile();
+            const nextSettings = {
+                ...getProfileDefaults(nextProfile),
+                ...(settingsByProfile[nextProfile] || {})
+            };
+            nextSettings[key] = value;
+            settingsByProfile[nextProfile] = nextSettings;
+            chrome.storage.sync.set({ [SETTINGS_STORAGE_KEY]: settingsByProfile });
+        });
+    }
+
     const TTSReader = {
         speechSynthesis: window.speechSynthesis,
         ttsActive: false,
@@ -1356,6 +1373,98 @@
             }
         },
 
+        normalizeOverlayPosition(position) {
+            if (!position || typeof position !== 'object') return null;
+            const left = Number(position.left);
+            const top = Number(position.top);
+            if (!Number.isFinite(left) || !Number.isFinite(top)) return null;
+            return {
+                left: Math.round(left),
+                top: Math.round(top)
+            };
+        },
+
+        clampOverlayPosition(position, panel) {
+            const margin = 8;
+            const width = panel.offsetWidth || 180;
+            const height = panel.offsetHeight || 220;
+            const maxLeft = Math.max(margin, window.innerWidth - width - margin);
+            const maxTop = Math.max(margin, window.innerHeight - height - margin);
+            return {
+                left: Math.min(Math.max(position.left, margin), maxLeft),
+                top: Math.min(Math.max(position.top, margin), maxTop)
+            };
+        },
+
+        getDefaultOverlayPosition(panel) {
+            const margin = 12;
+            const width = panel.offsetWidth || 180;
+            const height = panel.offsetHeight || 220;
+            const candidatePositions = [
+                { left: margin, top: 80 },
+                { left: window.innerWidth - width - margin, top: 80 },
+                { left: margin, top: window.innerHeight - height - margin },
+                { left: window.innerWidth - width - margin, top: window.innerHeight - height - margin }
+            ];
+
+            let best = this.clampOverlayPosition(candidatePositions[0], panel);
+            let bestScore = Number.POSITIVE_INFINITY;
+            const sampleSelector = 'p, li, h1, h2, h3, h4, h5, h6, td, th, blockquote, article, [data-message-author-role]';
+
+            for (const candidate of candidatePositions) {
+                const clamped = this.clampOverlayPosition(candidate, panel);
+                let score = 0;
+                const samplePoints = [
+                    { x: clamped.left + 20, y: clamped.top + 20 },
+                    { x: clamped.left + width - 20, y: clamped.top + 20 },
+                    { x: clamped.left + 20, y: clamped.top + height - 20 },
+                    { x: clamped.left + width - 20, y: clamped.top + height - 20 },
+                    { x: clamped.left + width / 2, y: clamped.top + height / 2 }
+                ];
+                for (const point of samplePoints) {
+                    const x = Math.max(0, Math.min(window.innerWidth - 1, point.x));
+                    const y = Math.max(0, Math.min(window.innerHeight - 1, point.y));
+                    const hit = document.elementFromPoint(x, y);
+                    if (!hit) continue;
+                    if (hit.closest('[data-tts-ui]')) continue;
+                    if (hit.matches(sampleSelector) || hit.closest(sampleSelector)) {
+                        score += 2;
+                    } else if ((hit.textContent || '').trim().length > 0) {
+                        score += 1;
+                    }
+                }
+                if (score < bestScore) {
+                    bestScore = score;
+                    best = clamped;
+                }
+            }
+
+            return best;
+        },
+
+        applyOverlayPanelPosition(position = null) {
+            const panel = this.overlayPanel || document.getElementById('tts-control-panel');
+            if (!panel) return;
+            const normalized = this.normalizeOverlayPosition(position);
+            const target = normalized || this.getDefaultOverlayPosition(panel);
+            const clamped = this.clampOverlayPosition(target, panel);
+            panel.style.left = `${clamped.left}px`;
+            panel.style.top = `${clamped.top}px`;
+            this.CONFIG.OVERLAY_POSITION = normalized ? clamped : null;
+        },
+
+        setOverlayPosition(position, options = {}) {
+            const normalized = this.normalizeOverlayPosition(position);
+            this.CONFIG.OVERLAY_POSITION = normalized;
+            this.applyOverlayPanelPosition(normalized);
+            if (options.persist === true) {
+                persistProfileSetting(this.settingsProfile || getCurrentProfile(), 'overlayPosition', normalized);
+            }
+            if (!options.silent) {
+                this.showNotification(normalized ? 'Overlay position saved' : 'Overlay position reset');
+            }
+        },
+
         toggleWordHighlight() {
             this.setWordHighlightEnabled(!this.CONFIG.WORD_HIGHLIGHT_ENABLED);
         },
@@ -1832,6 +1941,9 @@
             window.addEventListener('scroll', () => {
                 if (!this.autoScrollInProgress) this.markUserInteraction();
             }, { passive: true });
+            window.addEventListener('resize', () => {
+                this.applyOverlayPanelPosition(this.CONFIG.OVERLAY_POSITION);
+            });
             window.addEventListener('beforeunload', () => this.stopTTS(false));
         },
 
@@ -1897,6 +2009,8 @@
             uiPanel.style.cssText = `position: fixed; top: 80px; left: 10%; width: 180px; padding: 8px; background: rgba(0,0,0,0.7); color: #fff; font-family: Arial, sans-serif; font-size: 13px; border-radius: 6px; cursor: move; z-index: 2147483647; user-select: none; -webkit-user-select: none;`;
             uiPanel.innerHTML = `<div style="font-weight:bold; text-align:center; margin-bottom: 5px;">TTS Reader</div><label for="tts-speed" style="display:block; margin-bottom:4px;">Speed: <span id="speed-value">${this.CONFIG.SPEECH_RATE.toFixed(1)}</span>x</label><input type="range" id="tts-speed" min="0.5" max="5" step="0.1" value="${this.CONFIG.SPEECH_RATE}" style="width:100%;"><label for="tts-highlight-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-highlight-toggle" ${this.CONFIG.WORD_HIGHLIGHT_ENABLED ? 'checked' : ''} style="margin:0;">Word highlight</label><label for="tts-gap-trim-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-gap-trim-toggle" ${this.CONFIG.GAP_TRIM_ENABLED ? 'checked' : ''} style="margin:0;">Gap trim</label><label for="tts-read-user-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-read-user-toggle" ${this.CONFIG.READ_USER_MESSAGES ? 'checked' : ''} style="margin:0;">Read user msgs</label><label for="tts-auto-read-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-auto-read-toggle" ${this.CONFIG.AUTO_READ_NEW_MESSAGES ? 'checked' : ''} style="margin:0;">Auto-read new</label><label for="tts-loop-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-loop-toggle" ${this.CONFIG.LOOP_ON_END ? 'checked' : ''} style="margin:0;">Loop to top</label><label for="tts-autoscroll-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-autoscroll-toggle" ${this.CONFIG.AUTO_SCROLL_ENABLED ? 'checked' : ''} style="margin:0;">Auto-scroll</label>`;
             document.body.appendChild(uiPanel);
+            this.overlayPanel = uiPanel;
+            this.applyOverlayPanelPosition(this.CONFIG.OVERLAY_POSITION);
 
             const speedInput = document.getElementById('tts-speed');
             speedInput.addEventListener('input', e => {
@@ -1934,7 +2048,9 @@
                 this.setAutoScrollEnabled(e.target.checked);
             });
             autoScrollToggle.addEventListener('mousedown', e => e.stopPropagation());
-            this.makeDraggable(uiPanel);
+            this.makeDraggable(uiPanel, (position) => {
+                this.setOverlayPosition(position, { persist: true, silent: true });
+            });
 
             if (this.CONFIG.SHOW_DIAGNOSTICS_PANEL) {
                 const diagnostics = document.createElement('div');
@@ -2123,16 +2239,16 @@
             }, 2500);
         },
 
-        makeDraggable(el) {
+        makeDraggable(el, onDrop = null) {
             let isDown = false, startX, startY, origLeft, origTop;
             el.addEventListener('mousedown', e => {
                 if(e.target.tagName === 'INPUT') return;
                 isDown = true;
                 startX = e.clientX;
                 startY = e.clientY;
-                const style = window.getComputedStyle(el);
-                origLeft = parseInt(style.left, 10);
-                origTop = parseInt(style.top, 10);
+                const rect = el.getBoundingClientRect();
+                origLeft = rect.left;
+                origTop = rect.top;
                 e.preventDefault();
             });
             document.addEventListener('mousemove', e => {
@@ -2140,7 +2256,17 @@
                 el.style.left = (origLeft + e.clientX - startX) + 'px';
                 el.style.top = (origTop + e.clientY - startY) + 'px';
             });
-            document.addEventListener('mouseup', () => { isDown = false; });
+            document.addEventListener('mouseup', () => {
+                if (!isDown) return;
+                isDown = false;
+                const rect = el.getBoundingClientRect();
+                const position = this.clampOverlayPosition({ left: rect.left, top: rect.top }, el);
+                el.style.left = `${position.left}px`;
+                el.style.top = `${position.top}px`;
+                if (typeof onDrop === 'function') {
+                    onDrop(position);
+                }
+            });
         },
     };
 
@@ -2177,6 +2303,9 @@
         }
         if (typeof settings.showPageOverlay === 'boolean') {
             TTSReader.setPageOverlayEnabled(settings.showPageOverlay, silent);
+        }
+        if (Object.prototype.hasOwnProperty.call(settings, 'overlayPosition')) {
+            TTSReader.setOverlayPosition(settings.overlayPosition, { silent: true });
         }
         if (typeof settings.volumeBoostEnabled === 'boolean') {
             TTSReader.setVolumeBoostEnabled(settings.volumeBoostEnabled, silent);
@@ -2378,6 +2507,7 @@
                             loopOnEnd: TTSReader.CONFIG.LOOP_ON_END,
                             autoScrollEnabled: TTSReader.CONFIG.AUTO_SCROLL_ENABLED,
                             showPageOverlay: TTSReader.CONFIG.SHOW_PAGE_OVERLAY,
+                            overlayPosition: TTSReader.CONFIG.OVERLAY_POSITION,
                             showDiagnostics: TTSReader.CONFIG.SHOW_DIAGNOSTICS_PANEL,
                             volumeBoostEnabled: TTSReader.CONFIG.VOLUME_BOOST_ENABLED,
                             volumeBoostLevel: TTSReader.CONFIG.VOLUME_BOOST_LEVEL,

@@ -12,6 +12,7 @@ document.addEventListener('DOMContentLoaded', () => {
         loopOnEnd: true,
         autoScrollEnabled: true,
         showPageOverlay: true,
+        overlayPosition: null,
         showDiagnostics: true,
         volumeBoostEnabled: true,
         volumeBoostLevel: 1.3,
@@ -91,7 +92,8 @@ document.addEventListener('DOMContentLoaded', () => {
         autoReadStableMs: document.getElementById('autoReadStableMs'),
         autoReadMinParagraphs: document.getElementById('autoReadMinParagraphs'),
         saveBtn: document.getElementById('saveBtn'),
-        resetBtn: document.getElementById('resetBtn')
+        resetBtn: document.getElementById('resetBtn'),
+        resetOverlayPositionBtn: document.getElementById('resetOverlayPositionBtn')
     };
 
     const numberFields = [
@@ -136,6 +138,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let saveTimer = null;
     let saveFeedbackTimer = null;
     let currentProfile = PROFILE_CHATGPT;
+    let currentOverlayPosition = null;
 
     function getProfileDefaults(profile) {
         return PROFILE_DEFAULT_SETTINGS[profile] || PROFILE_DEFAULT_SETTINGS[PROFILE_CHATGPT];
@@ -174,6 +177,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function applySettingsToUI(settings) {
         const merged = { ...getProfileDefaults(currentProfile), ...settings };
+        currentOverlayPosition = merged.overlayPosition ?? null;
 
         elements.speechRate.value = merged.speechRate;
         updateSpeechRateValue(Number(merged.speechRate));
@@ -204,6 +208,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (key === 'speechRate') return;
             settings[key] = coerceNumber(elements[key], defaults[key]);
         });
+        settings.overlayPosition = currentOverlayPosition;
 
         return settings;
     }
@@ -288,6 +293,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     elements.resetBtn.addEventListener('click', () => {
         applySettingsToUI(getProfileDefaults(currentProfile));
+        saveSettings();
+    });
+    elements.resetOverlayPositionBtn.addEventListener('click', () => {
+        currentOverlayPosition = null;
         saveSettings();
     });
 

@@ -12,6 +12,7 @@ document.addEventListener('DOMContentLoaded', () => {
         loopOnEnd: true,
         autoScrollEnabled: true,
         showPageOverlay: true,
+        overlayPosition: null,
         showDiagnostics: true,
         volumeBoostEnabled: true,
         volumeBoostLevel: 1.3,
@@ -56,6 +57,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const statusDiv = document.getElementById('status');
     const progressDiv = document.getElementById('progress');
     const optionsBtn = document.getElementById('optionsBtn');
+    const resetOverlayBtn = document.getElementById('resetOverlayBtn');
 
     const highlightToggle = document.getElementById('highlightToggle');
     const gapTrimToggle = document.getElementById('gapTrimToggle');
@@ -330,6 +332,11 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     autoCloseWarningsToggle.addEventListener('change', (e) => {
         persistSetting('autoCloseLimitWarning', e.target.checked);
+    });
+    resetOverlayBtn.addEventListener('click', () => {
+        persistSetting('overlayPosition', null);
+        showStatus('Overlay position reset.');
+        setTimeout(() => hideStatus(), 1200);
     });
 
     optionsBtn.addEventListener('click', () => {
