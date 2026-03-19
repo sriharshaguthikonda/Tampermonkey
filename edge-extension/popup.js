@@ -12,6 +12,7 @@ document.addEventListener('DOMContentLoaded', () => {
         autoRead: false,
         loopOnEnd: true,
         autoScrollEnabled: true,
+        idleArrowNavigation: true,
         showPageOverlay: true,
         overlayPosition: null,
         showDiagnostics: true,
@@ -69,6 +70,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const autoReadToggle = document.getElementById('autoReadToggle');
     const loopToggle = document.getElementById('loopToggle');
     const autoScrollToggle = document.getElementById('autoScrollToggle');
+    const idleArrowNavigationToggle = document.getElementById('idleArrowNavigationToggle');
     const pageOverlayToggle = document.getElementById('pageOverlayToggle');
     const diagnosticsToggle = document.getElementById('diagnosticsToggle');
     const volumeBoostToggle = document.getElementById('volumeBoostToggle');
@@ -198,6 +200,7 @@ document.addEventListener('DOMContentLoaded', () => {
         autoReadToggle.checked = Boolean(settings.autoRead);
         loopToggle.checked = Boolean(settings.loopOnEnd);
         autoScrollToggle.checked = Boolean(settings.autoScrollEnabled);
+        idleArrowNavigationToggle.checked = Boolean(settings.idleArrowNavigation);
         pageOverlayToggle.checked = Boolean(settings.showPageOverlay);
         diagnosticsToggle.checked = Boolean(settings.showDiagnostics);
         volumeBoostToggle.checked = Boolean(settings.volumeBoostEnabled);
@@ -301,6 +304,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     autoScrollToggle.addEventListener('change', (e) => {
         persistSetting('autoScrollEnabled', e.target.checked);
+    });
+    idleArrowNavigationToggle.addEventListener('change', (e) => {
+        persistSetting('idleArrowNavigation', e.target.checked);
     });
     pageOverlayToggle.addEventListener('change', (e) => {
         persistSetting('showPageOverlay', e.target.checked);

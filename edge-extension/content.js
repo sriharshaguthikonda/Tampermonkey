@@ -14,6 +14,7 @@
         autoRead: false,
         loopOnEnd: true,
         autoScrollEnabled: true,
+        idleArrowNavigation: true,
         showPageOverlay: true,
         overlayPosition: null,
         showDiagnostics: true,
@@ -179,7 +180,7 @@
             NAV_KEYUP_READ_DELAY_MS: 150,
             NAV_FOCUS_FADE_MS: 800,
             NAV_CTRL_JUMP_SEGMENTS: 5,
-            NAV_TRAIL_FADE_MS: 650,
+            NAV_TRAIL_FADE_MS: 2500,
             NAV_TRAIL_MAX_POINTS: 14,
             SPEED_STEP: 0.2,
             SCROLL_THROTTLE_MS: 250,
@@ -207,6 +208,7 @@
             WAIT_RETRY_MS: 250,
             LOOP_WAIT_MS: 1200,
             LOOP_ON_END: true,
+            IDLE_ARROW_NAVIGATION: true,
             VOLUME_BOOST_ENABLED: true,
             VOLUME_BOOST_LEVEL: 1.3,
             ENTER_TO_SEND_ENABLED: true,
@@ -1516,6 +1518,15 @@
             }
         },
 
+        setIdleArrowNavigationEnabled(enabled, silent = false) {
+            const nextValue = Boolean(enabled);
+            if (this.CONFIG.IDLE_ARROW_NAVIGATION === nextValue) return;
+            this.CONFIG.IDLE_ARROW_NAVIGATION = nextValue;
+            if (!silent) {
+                this.showNotification(`Idle arrow nav ${nextValue ? 'on' : 'off'}`);
+            }
+        },
+
         applyOverlayVisibility() {
             const root = document.documentElement;
             if (!root) return;
@@ -2132,8 +2143,9 @@
                 const KEY = this.CONFIG.HOTKEYS;
                 const isNavKey = key === KEY.NAV_NEXT || key === KEY.NAV_PREV;
                 const sessionHotkeysActive = this.shouldHandleNavigationHotkeys();
+                const canUseIdleNav = this.CONFIG.IDLE_ARROW_NAVIGATION;
 
-                if (isNavKey && !sessionHotkeysActive) {
+                if (isNavKey && !sessionHotkeysActive && !canUseIdleNav) {
                     this.navKeyHeld = false;
                     return;
                 }
@@ -2631,6 +2643,9 @@
         if (typeof settings.autoScrollEnabled === 'boolean') {
             TTSReader.setAutoScrollEnabled(settings.autoScrollEnabled, silent);
         }
+        if (typeof settings.idleArrowNavigation === 'boolean') {
+            TTSReader.setIdleArrowNavigationEnabled(settings.idleArrowNavigation, silent);
+        }
         if (typeof settings.showPageOverlay === 'boolean') {
             TTSReader.setPageOverlayEnabled(settings.showPageOverlay, silent);
         }
@@ -2845,6 +2860,7 @@
                             autoRead: TTSReader.CONFIG.AUTO_READ_NEW_MESSAGES,
                             loopOnEnd: TTSReader.CONFIG.LOOP_ON_END,
                             autoScrollEnabled: TTSReader.CONFIG.AUTO_SCROLL_ENABLED,
+                            idleArrowNavigation: TTSReader.CONFIG.IDLE_ARROW_NAVIGATION,
                             showPageOverlay: TTSReader.CONFIG.SHOW_PAGE_OVERLAY,
                             overlayPosition: TTSReader.CONFIG.OVERLAY_POSITION,
                             showDiagnostics: TTSReader.CONFIG.SHOW_DIAGNOSTICS_PANEL,
