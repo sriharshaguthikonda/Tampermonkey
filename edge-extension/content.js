@@ -137,6 +137,8 @@
         overlayPanel: null,
         diagnosticsPanel: null,
         progressPanel: null,
+        navigationPanel: null,
+        navigationPanelHideId: null,
         lastUtteranceEndTime: 0,
         lastGapMs: null,
         lastWrapMs: null,
@@ -171,6 +173,7 @@
             NAV_FOCUS_HOLD_MS: 800,
             NAV_KEYUP_READ_DELAY_MS: 150,
             NAV_FOCUS_FADE_MS: 800,
+            NAV_STATUS_VISIBLE_MS: 1200,
             SCROLL_THROTTLE_MS: 250,
             SCROLL_EDGE_PADDING: 80,
             AUTO_SCROLL_ENABLED: true,
@@ -870,7 +873,7 @@
         clearHighlights(keepFading = false) {
             const selectors = ['.tts-current-sentence', '.tts-current-word'];
             if (!keepFading) {
-                selectors.push('.tts-navigation-focus', '.tts-focus-fade-out');
+                selectors.push('.tts-navigation-focus', '.tts-focus-fade-out', '.tts-navigation-ping');
             }
             document.querySelectorAll(selectors.join(', ')).forEach(el => {
                 el.classList.remove(...selectors.map(s => s.substring(1)));
@@ -1099,6 +1102,52 @@
             const current = this.currentParagraphIndex >= 0 ? this.currentParagraphIndex + 1 : 0;
             this.progressPanel.textContent = `Reading ${current}/${total}`;
             this.progressPanel.style.opacity = '1';
+        },
+
+        showNavigationStatus(index, direction = 0) {
+            if (!this.navigationPanel) return;
+            const total = this.paragraphsList.length;
+            const current = index + 1;
+            const arrow = direction > 0 ? '↓' : direction < 0 ? '↑' : '•';
+            const para = this.paragraphsList[index];
+            let snippet = para && para.text ? para.text.replace(/\s+/g, ' ').trim() : '';
+            if (snippet.length > 72) {
+                snippet = `${snippet.slice(0, 72)}...`;
+            }
+            this.navigationPanel.textContent = snippet
+                ? `${arrow} ${current}/${total} ${snippet}`
+                : `${arrow} ${current}/${total}`;
+            this.navigationPanel.style.opacity = '1';
+            this.navigationPanel.style.transform = 'translateX(-50%) translateY(0)';
+            if (this.navigationPanelHideId) {
+                clearTimeout(this.navigationPanelHideId);
+            }
+            this.navigationPanelHideId = setTimeout(() => {
+                this.navigationPanelHideId = null;
+                this.hideNavigationStatus();
+            }, this.CONFIG.NAV_STATUS_VISIBLE_MS);
+        },
+
+        hideNavigationStatus(force = false) {
+            if (!this.navigationPanel) return;
+            if (force && this.navigationPanelHideId) {
+                clearTimeout(this.navigationPanelHideId);
+                this.navigationPanelHideId = null;
+            }
+            this.navigationPanel.style.opacity = '0';
+            this.navigationPanel.style.transform = 'translateX(-50%) translateY(8px)';
+        },
+
+        triggerNavigationPulse(element) {
+            if (!element) return;
+            element.classList.remove('tts-navigation-ping');
+            void element.offsetWidth;
+            element.classList.add('tts-navigation-ping');
+            setTimeout(() => {
+                if (element && element.isConnected) {
+                    element.classList.remove('tts-navigation-ping');
+                }
+            }, 450);
         },
 
         initAutoReadObserver() {
@@ -1620,6 +1669,7 @@
         onUtteranceStart(index) {
             this.ttsActive = true;
             this.isPaused = false;
+            this.hideNavigationStatus(true);
 
             const startTime = performance.now();
             this.lastGapMs = this.lastUtteranceEndTime ? startTime - this.lastUtteranceEndTime : null;
@@ -1742,6 +1792,7 @@
             this.hidePointerArrow();
             this.stopAutoScroll();
             this.updateProgressPanel(true);
+            this.hideNavigationStatus(true);
 
             if (notify) this.showNotification('All TTS stopped');
             return true;
@@ -1806,8 +1857,10 @@
                 const targetElement = this.paragraphsList[newIndex].element;
                 this.clearHighlights(true);
                 targetElement.classList.add('tts-navigation-focus');
+                this.triggerNavigationPulse(targetElement);
                 this.gentleScrollToElement(targetElement); // Still useful for navigation highlight
                 this.lastSpokenElement = targetElement;
+                this.showNavigationStatus(newIndex, direction);
 
                 this.pendingNavIndex = newIndex;
                 clearTimeout(this.navigationTimeoutId);
@@ -1989,6 +2042,11 @@
                 .tts-current-word { background-color: rgba(250, 210, 50, 0.9) !important; font-weight: bold !important; color: black !important; border-radius: 3px; transform: scale(1.02); box-shadow: 0 2px 8px rgba(0,0,0,0.2); transition: background-color 0.1s, transform 0.1s; }
                 .tts-navigation-focus { background-color: rgba(52, 152, 219, 0.3) !important; box-shadow: inset 4px 0 0 #3498db !important; transition: background-color 0.3s, box-shadow 0.3s; }
                 .tts-focus-fade-out { box-shadow: none !important; background-color: transparent !important; transition: background-color var(--tts-focus-fade-ms, 500ms) ease, box-shadow var(--tts-focus-fade-ms, 500ms) ease; }
+                .tts-navigation-ping { animation: tts-nav-ping 0.42s ease-out; }
+                @keyframes tts-nav-ping {
+                    from { box-shadow: inset 4px 0 0 #3498db, 0 0 0 0 rgba(52, 152, 219, 0.55); }
+                    to { box-shadow: inset 4px 0 0 #3498db, 0 0 0 14px rgba(52, 152, 219, 0); }
+                }
                 .tts-overlay-hidden [data-tts-ui] { display: none !important; }
 
                 /* NEW: In-game waypoint style pointer */
@@ -2107,6 +2165,15 @@
             progress.textContent = 'Reading 0/0';
             document.body.appendChild(progress);
             this.progressPanel = progress;
+
+            const navigation = document.createElement('div');
+            navigation.id = 'tts-navigation-status';
+            navigation.setAttribute('data-tts-ui', 'true');
+            navigation.setAttribute('aria-hidden', 'true');
+            navigation.style.cssText = 'position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%) translateY(8px); max-width: min(70vw, 560px); background: rgba(0,0,0,0.78); color: #fff; padding: 7px 10px; border-radius: 999px; font-family: Arial, sans-serif; font-size: 12px; z-index: 2147483647; pointer-events: none; user-select: none; -webkit-user-select: none; opacity: 0; transition: opacity 0.14s ease, transform 0.14s ease; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;';
+            navigation.textContent = 'Navigation';
+            document.body.appendChild(navigation);
+            this.navigationPanel = navigation;
             this.applyOverlayVisibility();
         },
 
