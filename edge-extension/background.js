@@ -9,6 +9,7 @@ const BASE_DEFAULT_SETTINGS = {
     wordHighlight: true,
     gapTrim: true,
     readUserMessages: false,
+    readReferences: false,
     autoRead: false,
     loopOnEnd: true,
     autoScrollEnabled: true,

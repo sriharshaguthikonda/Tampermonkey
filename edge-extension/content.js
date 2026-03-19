@@ -10,6 +10,7 @@
         wordHighlight: true,
         gapTrim: true,
         readUserMessages: false,
+        readReferences: false,
         autoRead: false,
         loopOnEnd: true,
         autoScrollEnabled: true,
@@ -182,6 +183,8 @@
             WORD_HIGHLIGHT_ENABLED: true,
             GAP_TRIM_ENABLED: true,
             READ_USER_MESSAGES: false,
+            READ_REFERENCES: false,
+            REFERENCE_SELECTORS: '[data-testid="webpage-citation-pill"], [data-testid*="citation"], .webpage-citation-pill, .citation-pill, [data-source], cite',
             PREWRAP_IDLE_TIMEOUT_MS: 250,
             DEFERRED_REVERT_IDLE_MS: 250,
             SHOW_DIAGNOSTICS_PANEL: true,
@@ -815,7 +818,22 @@
 
         getTextFromElement(element) {
             if (!element) return '';
-            const rawText = element.textContent || '';
+            let rawText = '';
+            if (this.isChatGPTPage && !this.CONFIG.READ_REFERENCES) {
+                const refSelector = this.CONFIG.REFERENCE_SELECTORS;
+                if (element.matches && element.matches(refSelector)) {
+                    return '';
+                }
+                if (element.querySelector && element.querySelector(refSelector)) {
+                    const clone = element.cloneNode(true);
+                    clone.querySelectorAll(refSelector).forEach(node => node.remove());
+                    rawText = clone.textContent || '';
+                } else {
+                    rawText = element.textContent || '';
+                }
+            } else {
+                rawText = element.textContent || '';
+            }
             const cleaned = this.cleanTextForTTS(rawText);
             return this.trimGapForParagraphEnd(cleaned);
         },
@@ -1329,6 +1347,19 @@
             }
             if (!silent) {
                 this.showNotification(`User messages ${this.CONFIG.READ_USER_MESSAGES ? 'on' : 'off'}`);
+            }
+        },
+
+        setReadReferencesEnabled(enabled, silent = false) {
+            const nextValue = Boolean(enabled);
+            if (this.CONFIG.READ_REFERENCES === nextValue) return;
+            this.CONFIG.READ_REFERENCES = nextValue;
+            this.paragraphsDirty = true;
+            if (!this.continuousReadingActive) {
+                this.refreshParagraphsIfNeeded(true);
+            }
+            if (!silent) {
+                this.showNotification(`References ${this.CONFIG.READ_REFERENCES ? 'on' : 'off'}`);
             }
         },
 
@@ -2007,7 +2038,7 @@
             uiPanel.setAttribute('data-tts-ui', 'true');
             uiPanel.setAttribute('aria-hidden', 'true');
             uiPanel.style.cssText = `position: fixed; top: 80px; left: 10%; width: 180px; padding: 8px; background: rgba(0,0,0,0.7); color: #fff; font-family: Arial, sans-serif; font-size: 13px; border-radius: 6px; cursor: move; z-index: 2147483647; user-select: none; -webkit-user-select: none;`;
-            uiPanel.innerHTML = `<div style="font-weight:bold; text-align:center; margin-bottom: 5px;">TTS Reader</div><label for="tts-speed" style="display:block; margin-bottom:4px;">Speed: <span id="speed-value">${this.CONFIG.SPEECH_RATE.toFixed(1)}</span>x</label><input type="range" id="tts-speed" min="0.5" max="5" step="0.1" value="${this.CONFIG.SPEECH_RATE}" style="width:100%;"><label for="tts-highlight-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-highlight-toggle" ${this.CONFIG.WORD_HIGHLIGHT_ENABLED ? 'checked' : ''} style="margin:0;">Word highlight</label><label for="tts-gap-trim-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-gap-trim-toggle" ${this.CONFIG.GAP_TRIM_ENABLED ? 'checked' : ''} style="margin:0;">Gap trim</label><label for="tts-read-user-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-read-user-toggle" ${this.CONFIG.READ_USER_MESSAGES ? 'checked' : ''} style="margin:0;">Read user msgs</label><label for="tts-auto-read-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-auto-read-toggle" ${this.CONFIG.AUTO_READ_NEW_MESSAGES ? 'checked' : ''} style="margin:0;">Auto-read new</label><label for="tts-loop-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-loop-toggle" ${this.CONFIG.LOOP_ON_END ? 'checked' : ''} style="margin:0;">Loop to top</label><label for="tts-autoscroll-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-autoscroll-toggle" ${this.CONFIG.AUTO_SCROLL_ENABLED ? 'checked' : ''} style="margin:0;">Auto-scroll</label>`;
+            uiPanel.innerHTML = `<div style="font-weight:bold; text-align:center; margin-bottom: 5px;">TTS Reader</div><label for="tts-speed" style="display:block; margin-bottom:4px;">Speed: <span id="speed-value">${this.CONFIG.SPEECH_RATE.toFixed(1)}</span>x</label><input type="range" id="tts-speed" min="0.5" max="5" step="0.1" value="${this.CONFIG.SPEECH_RATE}" style="width:100%;"><label for="tts-highlight-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-highlight-toggle" ${this.CONFIG.WORD_HIGHLIGHT_ENABLED ? 'checked' : ''} style="margin:0;">Word highlight</label><label for="tts-gap-trim-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-gap-trim-toggle" ${this.CONFIG.GAP_TRIM_ENABLED ? 'checked' : ''} style="margin:0;">Gap trim</label><label for="tts-read-user-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-read-user-toggle" ${this.CONFIG.READ_USER_MESSAGES ? 'checked' : ''} style="margin:0;">Read user msgs</label><label for="tts-read-refs-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-read-refs-toggle" ${this.CONFIG.READ_REFERENCES ? 'checked' : ''} style="margin:0;">Read refs</label><label for="tts-auto-read-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-auto-read-toggle" ${this.CONFIG.AUTO_READ_NEW_MESSAGES ? 'checked' : ''} style="margin:0;">Auto-read new</label><label for="tts-loop-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-loop-toggle" ${this.CONFIG.LOOP_ON_END ? 'checked' : ''} style="margin:0;">Loop to top</label><label for="tts-autoscroll-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-autoscroll-toggle" ${this.CONFIG.AUTO_SCROLL_ENABLED ? 'checked' : ''} style="margin:0;">Auto-scroll</label>`;
             document.body.appendChild(uiPanel);
             this.overlayPanel = uiPanel;
             this.applyOverlayPanelPosition(this.CONFIG.OVERLAY_POSITION);
@@ -2033,6 +2064,11 @@
                 this.setReadUserMessagesEnabled(e.target.checked);
             });
             readUserToggle.addEventListener('mousedown', e => e.stopPropagation());
+            const readRefsToggle = document.getElementById('tts-read-refs-toggle');
+            readRefsToggle.addEventListener('change', e => {
+                this.setReadReferencesEnabled(e.target.checked);
+            });
+            readRefsToggle.addEventListener('mousedown', e => e.stopPropagation());
             const autoReadToggle = document.getElementById('tts-auto-read-toggle');
             autoReadToggle.addEventListener('change', e => {
                 this.setAutoReadEnabled(e.target.checked);
@@ -2295,6 +2331,9 @@
         if (typeof settings.readUserMessages === 'boolean') {
             TTSReader.setReadUserMessagesEnabled(settings.readUserMessages, silent);
         }
+        if (typeof settings.readReferences === 'boolean') {
+            TTSReader.setReadReferencesEnabled(settings.readReferences, silent);
+        }
         if (typeof settings.loopOnEnd === 'boolean') {
             TTSReader.setLoopEnabled(settings.loopOnEnd, silent);
         }
@@ -2503,6 +2542,7 @@
                             wordHighlight: TTSReader.CONFIG.WORD_HIGHLIGHT_ENABLED,
                             gapTrim: TTSReader.CONFIG.GAP_TRIM_ENABLED,
                             readUserMessages: TTSReader.CONFIG.READ_USER_MESSAGES,
+                            readReferences: TTSReader.CONFIG.READ_REFERENCES,
                             autoRead: TTSReader.CONFIG.AUTO_READ_NEW_MESSAGES,
                             loopOnEnd: TTSReader.CONFIG.LOOP_ON_END,
                             autoScrollEnabled: TTSReader.CONFIG.AUTO_SCROLL_ENABLED,

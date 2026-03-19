@@ -8,6 +8,7 @@ document.addEventListener('DOMContentLoaded', () => {
         wordHighlight: true,
         gapTrim: true,
         readUserMessages: false,
+        readReferences: false,
         autoRead: false,
         loopOnEnd: true,
         autoScrollEnabled: true,
@@ -62,6 +63,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const highlightToggle = document.getElementById('highlightToggle');
     const gapTrimToggle = document.getElementById('gapTrimToggle');
     const readUserMessagesToggle = document.getElementById('readUserMessagesToggle');
+    const readReferencesToggle = document.getElementById('readReferencesToggle');
     const autoReadToggle = document.getElementById('autoReadToggle');
     const loopToggle = document.getElementById('loopToggle');
     const autoScrollToggle = document.getElementById('autoScrollToggle');
@@ -190,6 +192,7 @@ document.addEventListener('DOMContentLoaded', () => {
         highlightToggle.checked = Boolean(settings.wordHighlight);
         gapTrimToggle.checked = Boolean(settings.gapTrim);
         readUserMessagesToggle.checked = Boolean(settings.readUserMessages);
+        readReferencesToggle.checked = Boolean(settings.readReferences);
         autoReadToggle.checked = Boolean(settings.autoRead);
         loopToggle.checked = Boolean(settings.loopOnEnd);
         autoScrollToggle.checked = Boolean(settings.autoScrollEnabled);
@@ -284,6 +287,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     readUserMessagesToggle.addEventListener('change', (e) => {
         persistSetting('readUserMessages', e.target.checked);
+    });
+    readReferencesToggle.addEventListener('change', (e) => {
+        persistSetting('readReferences', e.target.checked);
     });
     autoReadToggle.addEventListener('change', (e) => {
         persistSetting('autoRead', e.target.checked);
