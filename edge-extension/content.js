@@ -2307,7 +2307,19 @@
     };
 
     function getPlaybackState() {
-        if (!TTSReader.ttsActive) return 'stopped';
+        const synth = TTSReader.speechSynthesis;
+        const hasSpeechActivity = Boolean(
+            TTSReader.ttsActive ||
+            (synth && (synth.speaking || synth.pending))
+        );
+        const hasQueuedSpeech = TTSReader.queuedParagraphs.size > 0;
+        const hasActiveSession = Boolean(
+            TTSReader.continuousReadingActive ||
+            TTSReader.waitingForMoreContent ||
+            hasSpeechActivity ||
+            hasQueuedSpeech
+        );
+        if (!hasActiveSession) return 'stopped';
         return TTSReader.isPaused ? 'paused' : 'playing';
     }
 
