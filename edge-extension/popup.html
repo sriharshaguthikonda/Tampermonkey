@@ -6,6 +6,47 @@
     <title>ChatGPT TTS Reader</title>
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
     <style>
+        :root {
+            color-scheme: light dark;
+            --popup-bg: #f5f6f8;
+            --popup-text: #1f2937;
+            --popup-muted: #667085;
+            --popup-border: #d8dee6;
+            --popup-panel: #ffffff;
+            --popup-primary: #1a73e8;
+            --popup-primary-hover: #1557b0;
+            --popup-secondary-bg: #eef2f7;
+            --popup-secondary-text: #4b5563;
+            --popup-secondary-hover: #e4e9f1;
+            --popup-disabled: #c4c7cf;
+            --popup-slider-track: #d5dbe4;
+            --popup-status-bg: #e8f0fe;
+            --popup-status-text: #1a73e8;
+            --popup-hotkey-bg: #f1f3f4;
+            --popup-hotkey-border: #d0d7de;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --popup-bg: #111418;
+                --popup-text: #e5e7eb;
+                --popup-muted: #9ca3af;
+                --popup-border: #2a313d;
+                --popup-panel: #161b22;
+                --popup-primary: #4f9bff;
+                --popup-primary-hover: #67a7ff;
+                --popup-secondary-bg: #1f2630;
+                --popup-secondary-text: #d1d5db;
+                --popup-secondary-hover: #26303d;
+                --popup-disabled: #4b5563;
+                --popup-slider-track: #374151;
+                --popup-status-bg: #1a2f4f;
+                --popup-status-text: #9ec5ff;
+                --popup-hotkey-bg: #1f2937;
+                --popup-hotkey-border: #374151;
+            }
+        }
+
         body {
             width: 320px;
             max-height: 620px;
@@ -13,8 +54,8 @@
             margin: 0;
             padding: 15px;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
-            background-color: #f5f5f5;
-            color: #333;
+            background-color: var(--popup-bg);
+            color: var(--popup-text);
         }
         
         .header {
@@ -22,13 +63,13 @@
             align-items: center;
             margin-bottom: 15px;
             padding-bottom: 10px;
-            border-bottom: 1px solid #e0e0e0;
+            border-bottom: 1px solid var(--popup-border);
         }
         
         .header h1 {
             margin: 0;
             font-size: 18px;
-            color: #1a73e8;
+            color: var(--popup-primary);
         }
         
         .controls {
@@ -44,7 +85,7 @@
         }
         
         .btn {
-            background-color: #1a73e8;
+            background-color: var(--popup-primary);
             color: white;
             border: none;
             border-radius: 4px;
@@ -58,21 +99,22 @@
         }
         
         .btn:hover {
-            background-color: #1557b0;
+            background-color: var(--popup-primary-hover);
         }
         
         .btn:disabled {
-            background-color: #cccccc;
+            background-color: var(--popup-disabled);
             cursor: not-allowed;
         }
         
         .btn.secondary {
-            background-color: #f1f3f4;
-            color: #5f6368;
+            background-color: var(--popup-secondary-bg);
+            color: var(--popup-secondary-text);
+            border: 1px solid var(--popup-border);
         }
         
         .btn.secondary:hover {
-            background-color: #e8eaed;
+            background-color: var(--popup-secondary-hover);
         }
         
         .slider-container {
@@ -86,8 +128,8 @@
             display: flex;
             flex-direction: column;
             gap: 8px;
-            background: #ffffff;
-            border: 1px solid #e0e0e0;
+            background: var(--popup-panel);
+            border: 1px solid var(--popup-border);
             border-radius: 8px;
             padding: 10px;
         }
@@ -97,7 +139,7 @@
             align-items: center;
             justify-content: space-between;
             font-size: 13px;
-            color: #444;
+            color: var(--popup-text);
         }
 
         .toggle-item input {
@@ -110,7 +152,7 @@
             font-weight: 700;
             text-transform: uppercase;
             letter-spacing: 0.04em;
-            color: #6b7280;
+            color: var(--popup-muted);
         }
         
         .slider {
@@ -118,7 +160,7 @@
             -webkit-appearance: none;
             height: 6px;
             border-radius: 3px;
-            background: #e0e0e0;
+            background: var(--popup-slider-track);
             outline: none;
         }
         
@@ -128,7 +170,7 @@
             width: 16px;
             height: 16px;
             border-radius: 50%;
-            background: #1a73e8;
+            background: var(--popup-primary);
             cursor: pointer;
         }
         
@@ -142,26 +184,34 @@
         
         .status.active {
             display: block;
-            background-color: #e8f0fe;
-            color: #1a73e8;
+            background-color: var(--popup-status-bg);
+            color: var(--popup-status-text);
         }
         
         .hotkey {
-            background-color: #f1f3f4;
+            background-color: var(--popup-hotkey-bg);
             border-radius: 3px;
             padding: 2px 6px;
             font-family: monospace;
             font-size: 12px;
-            border: 1px solid #dadce0;
+            border: 1px solid var(--popup-hotkey-border);
         }
         
         .footer {
             margin-top: 15px;
             padding-top: 10px;
-            border-top: 1px solid #e0e0e0;
+            border-top: 1px solid var(--popup-border);
             font-size: 12px;
-            color: #5f6368;
+            color: var(--popup-muted);
             text-align: center;
+        }
+
+        .tone-muted {
+            color: var(--popup-muted);
+        }
+
+        .value-label {
+            color: var(--popup-text);
         }
     </style>
 </head>
@@ -207,15 +257,15 @@
         </div>
         
         <div class="slider-container">
-            <span class="material-icons" style="color: #5f6368;">speed</span>
+            <span class="material-icons tone-muted">speed</span>
             <input type="range" min="0.5" max="5" value="5" step="0.1" class="slider" id="rateSlider">
-            <span id="rateValue" style="min-width: 30px; text-align: right;">5.0x</span>
+            <span id="rateValue" class="value-label" style="min-width: 30px; text-align: right;">5.0x</span>
         </div>
 
         <div class="slider-container">
-            <span class="material-icons" style="color: #5f6368;">volume_up</span>
+            <span class="material-icons tone-muted">volume_up</span>
             <input type="range" min="1" max="2" value="1.3" step="0.1" class="slider" id="volumeSlider">
-            <span id="volumeValue" style="min-width: 36px; text-align: right;">1.3x</span>
+            <span id="volumeValue" class="value-label" style="min-width: 36px; text-align: right;">1.3x</span>
         </div>
 
         <div class="toggle-list">
@@ -309,7 +359,7 @@
         </button>
 
         <div id="status" class="status"></div>
-        <div id="progress" class="status" style="display:block; background-color: transparent; color: #5f6368; padding: 0;"></div>
+        <div id="progress" class="status" style="display:block; background-color: transparent; color: var(--popup-muted); padding: 0;"></div>
     </div>
 
     <div class="footer" style="display:flex; flex-direction:column; gap:6px;">

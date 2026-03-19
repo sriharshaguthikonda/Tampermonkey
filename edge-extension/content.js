@@ -2037,6 +2037,24 @@
             document.documentElement.style.setProperty('--tts-focus-fade-ms', `${this.CONFIG.NAV_FOCUS_FADE_MS}ms`);
             const style = document.createElement('style');
             style.textContent = `
+                :root {
+                    --tts-ui-panel-bg: rgba(255, 255, 255, 0.9);
+                    --tts-ui-panel-text: #111827;
+                    --tts-ui-panel-border: rgba(31, 41, 55, 0.18);
+                    --tts-ui-overlay-bg: rgba(255, 255, 255, 0.92);
+                    --tts-ui-overlay-text: #111827;
+                    --tts-ui-overlay-border: rgba(31, 41, 55, 0.22);
+                }
+                @media (prefers-color-scheme: dark) {
+                    :root {
+                        --tts-ui-panel-bg: rgba(0, 0, 0, 0.72);
+                        --tts-ui-panel-text: #ffffff;
+                        --tts-ui-panel-border: rgba(255, 255, 255, 0.18);
+                        --tts-ui-overlay-bg: rgba(0, 0, 0, 0.75);
+                        --tts-ui-overlay-text: #ffffff;
+                        --tts-ui-overlay-border: rgba(255, 255, 255, 0.2);
+                    }
+                }
                 /* ... (highlighting styles are the same) ... */
                 .tts-current-sentence { background-color: rgba(46, 204, 113, 0.08) !important; box-shadow: inset 4px 0 0 #2ecc71 !important; transition: background-color 0.3s, box-shadow 0.3s; }
                 .tts-current-word { background-color: rgba(250, 210, 50, 0.9) !important; font-weight: bold !important; color: black !important; border-radius: 3px; transform: scale(1.02); box-shadow: 0 2px 8px rgba(0,0,0,0.2); transition: background-color 0.1s, transform 0.1s; }
@@ -2095,7 +2113,7 @@
             uiPanel.id = 'tts-control-panel';
             uiPanel.setAttribute('data-tts-ui', 'true');
             uiPanel.setAttribute('aria-hidden', 'true');
-            uiPanel.style.cssText = `position: fixed; top: 80px; left: 10%; width: 180px; padding: 8px; background: rgba(0,0,0,0.7); color: #fff; font-family: Arial, sans-serif; font-size: 13px; border-radius: 6px; cursor: move; z-index: 2147483647; user-select: none; -webkit-user-select: none;`;
+            uiPanel.style.cssText = `position: fixed; top: 80px; left: 10%; width: 180px; padding: 8px; background: var(--tts-ui-panel-bg); color: var(--tts-ui-panel-text); border: 1px solid var(--tts-ui-panel-border); font-family: Arial, sans-serif; font-size: 13px; border-radius: 6px; cursor: move; z-index: 2147483647; user-select: none; -webkit-user-select: none;`;
             uiPanel.innerHTML = `<div style="font-weight:bold; text-align:center; margin-bottom: 5px;">TTS Reader</div><label for="tts-speed" style="display:block; margin-bottom:4px;">Speed: <span id="speed-value">${this.CONFIG.SPEECH_RATE.toFixed(1)}</span>x</label><input type="range" id="tts-speed" min="0.5" max="5" step="0.1" value="${this.CONFIG.SPEECH_RATE}" style="width:100%;"><label for="tts-highlight-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-highlight-toggle" ${this.CONFIG.WORD_HIGHLIGHT_ENABLED ? 'checked' : ''} style="margin:0;">Word highlight</label><label for="tts-gap-trim-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-gap-trim-toggle" ${this.CONFIG.GAP_TRIM_ENABLED ? 'checked' : ''} style="margin:0;">Gap trim</label><label for="tts-read-user-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-read-user-toggle" ${this.CONFIG.READ_USER_MESSAGES ? 'checked' : ''} style="margin:0;">Read user msgs</label><label for="tts-read-refs-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-read-refs-toggle" ${this.CONFIG.READ_REFERENCES ? 'checked' : ''} style="margin:0;">Read refs</label><label for="tts-auto-read-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-auto-read-toggle" ${this.CONFIG.AUTO_READ_NEW_MESSAGES ? 'checked' : ''} style="margin:0;">Auto-read new</label><label for="tts-loop-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-loop-toggle" ${this.CONFIG.LOOP_ON_END ? 'checked' : ''} style="margin:0;">Loop to top</label><label for="tts-autoscroll-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-autoscroll-toggle" ${this.CONFIG.AUTO_SCROLL_ENABLED ? 'checked' : ''} style="margin:0;">Auto-scroll</label>`;
             document.body.appendChild(uiPanel);
             this.overlayPanel = uiPanel;
@@ -2151,7 +2169,7 @@
                 diagnostics.id = 'tts-diagnostics-panel';
                 diagnostics.setAttribute('data-tts-ui', 'true');
                 diagnostics.setAttribute('aria-hidden', 'true');
-                diagnostics.style.cssText = 'position: fixed; right: 12px; bottom: 12px; background: rgba(0,0,0,0.75); color: #fff; padding: 6px 8px; border-radius: 6px; font-family: Arial, sans-serif; font-size: 11px; z-index: 2147483647; pointer-events: none; user-select: none; -webkit-user-select: none;';
+                diagnostics.style.cssText = 'position: fixed; right: 12px; bottom: 12px; background: var(--tts-ui-overlay-bg); color: var(--tts-ui-overlay-text); border: 1px solid var(--tts-ui-overlay-border); padding: 6px 8px; border-radius: 6px; font-family: Arial, sans-serif; font-size: 11px; z-index: 2147483647; pointer-events: none; user-select: none; -webkit-user-select: none;';
                 diagnostics.textContent = 'gap: -- ms | wrap: -- ms';
                 document.body.appendChild(diagnostics);
                 this.diagnosticsPanel = diagnostics;
@@ -2161,7 +2179,7 @@
             progress.id = 'tts-progress-panel';
             progress.setAttribute('data-tts-ui', 'true');
             progress.setAttribute('aria-hidden', 'true');
-            progress.style.cssText = 'position: fixed; right: 12px; bottom: 44px; background: rgba(0,0,0,0.75); color: #fff; padding: 6px 8px; border-radius: 6px; font-family: Arial, sans-serif; font-size: 11px; z-index: 2147483647; pointer-events: none; user-select: none; -webkit-user-select: none; opacity: 0; transition: opacity 0.2s ease;';
+            progress.style.cssText = 'position: fixed; right: 12px; bottom: 44px; background: var(--tts-ui-overlay-bg); color: var(--tts-ui-overlay-text); border: 1px solid var(--tts-ui-overlay-border); padding: 6px 8px; border-radius: 6px; font-family: Arial, sans-serif; font-size: 11px; z-index: 2147483647; pointer-events: none; user-select: none; -webkit-user-select: none; opacity: 0; transition: opacity 0.2s ease;';
             progress.textContent = 'Reading 0/0';
             document.body.appendChild(progress);
             this.progressPanel = progress;
@@ -2170,7 +2188,7 @@
             navigation.id = 'tts-navigation-status';
             navigation.setAttribute('data-tts-ui', 'true');
             navigation.setAttribute('aria-hidden', 'true');
-            navigation.style.cssText = 'position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%) translateY(8px); max-width: min(70vw, 560px); background: rgba(0,0,0,0.78); color: #fff; padding: 7px 10px; border-radius: 999px; font-family: Arial, sans-serif; font-size: 12px; z-index: 2147483647; pointer-events: none; user-select: none; -webkit-user-select: none; opacity: 0; transition: opacity 0.14s ease, transform 0.14s ease; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;';
+            navigation.style.cssText = 'position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%) translateY(8px); max-width: min(70vw, 560px); background: var(--tts-ui-overlay-bg); color: var(--tts-ui-overlay-text); border: 1px solid var(--tts-ui-overlay-border); padding: 7px 10px; border-radius: 999px; font-family: Arial, sans-serif; font-size: 12px; z-index: 2147483647; pointer-events: none; user-select: none; -webkit-user-select: none; opacity: 0; transition: opacity 0.14s ease, transform 0.14s ease; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;';
             navigation.textContent = 'Navigation';
             document.body.appendChild(navigation);
             this.navigationPanel = navigation;
@@ -2332,7 +2350,7 @@
             notification.id = 'tts-notification-popup';
             notification.setAttribute('data-tts-ui', 'true');
             notification.setAttribute('aria-hidden', 'true');
-            notification.style.cssText = `position: fixed; top: 20px; right: 20px; background: #333; color: white; padding: 10px 20px; border-radius: 5px; font-family: Arial, sans-serif; font-size: 14px; z-index: 2147483647; opacity: 0; transition: opacity 0.3s; user-select: none; -webkit-user-select: none;`;
+            notification.style.cssText = `position: fixed; top: 20px; right: 20px; background: var(--tts-ui-overlay-bg); color: var(--tts-ui-overlay-text); border: 1px solid var(--tts-ui-overlay-border); padding: 10px 20px; border-radius: 5px; font-family: Arial, sans-serif; font-size: 14px; z-index: 2147483647; opacity: 0; transition: opacity 0.3s; user-select: none; -webkit-user-select: none;`;
             notification.textContent = message;
             document.body.appendChild(notification);
             setTimeout(() => { notification.style.opacity = '1'; }, 10);
