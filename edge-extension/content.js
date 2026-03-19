@@ -13,6 +13,8 @@
         autoRead: false,
         loopOnEnd: true,
         autoScrollEnabled: true,
+        showPageOverlay: true,
+        overlayPosition: null,
         showDiagnostics: true,
         volumeBoostEnabled: true,
         volumeBoostLevel: 1.3,
@@ -114,6 +116,7 @@
         pendingReverts: [],
         pendingRevertId: null,
         pendingRevertUsesIdle: false,
+        overlayPanel: null,
         diagnosticsPanel: null,
         progressPanel: null,
         lastUtteranceEndTime: 0,
@@ -153,6 +156,8 @@
             SCROLL_THROTTLE_MS: 250,
             SCROLL_EDGE_PADDING: 80,
             AUTO_SCROLL_ENABLED: true,
+            SHOW_PAGE_OVERLAY: true,
+            OVERLAY_POSITION: null,
             AUTO_SCROLL_MODE: 'paragraph',
             AUTO_SCROLL_INTERVAL_MS: 2000,
             AUTO_SCROLL_USER_PAUSE_MS: 2000,
@@ -1336,6 +1341,21 @@
             }
         },
 
+        applyOverlayVisibility() {
+            const root = document.documentElement;
+            if (!root) return;
+            root.classList.toggle('tts-overlay-hidden', !this.CONFIG.SHOW_PAGE_OVERLAY);
+        },
+
+        setPageOverlayEnabled(enabled, silent = false) {
+            const nextValue = Boolean(enabled);
+            this.CONFIG.SHOW_PAGE_OVERLAY = nextValue;
+            this.applyOverlayVisibility();
+            if (!silent && nextValue) {
+                this.showNotification('Page overlay on');
+            }
+        },
+
         toggleWordHighlight() {
             this.setWordHighlightEnabled(!this.CONFIG.WORD_HIGHLIGHT_ENABLED);
         },
@@ -1826,6 +1846,7 @@
                 .tts-current-word { background-color: rgba(250, 210, 50, 0.9) !important; font-weight: bold !important; color: black !important; border-radius: 3px; transform: scale(1.02); box-shadow: 0 2px 8px rgba(0,0,0,0.2); transition: background-color 0.1s, transform 0.1s; }
                 .tts-navigation-focus { background-color: rgba(52, 152, 219, 0.3) !important; box-shadow: inset 4px 0 0 #3498db !important; transition: background-color 0.3s, box-shadow 0.3s; }
                 .tts-focus-fade-out { box-shadow: none !important; background-color: transparent !important; transition: background-color var(--tts-focus-fade-ms, 500ms) ease, box-shadow var(--tts-focus-fade-ms, 500ms) ease; }
+                .tts-overlay-hidden [data-tts-ui] { display: none !important; }
 
                 /* NEW: In-game waypoint style pointer */
                 #tts-pointer {
@@ -1934,6 +1955,7 @@
             progress.textContent = 'Reading 0/0';
             document.body.appendChild(progress);
             this.progressPanel = progress;
+            this.applyOverlayVisibility();
         },
 
         // MODIFIED: This function is now mostly disabled for TTS reading.
@@ -2153,6 +2175,9 @@
         if (typeof settings.autoScrollEnabled === 'boolean') {
             TTSReader.setAutoScrollEnabled(settings.autoScrollEnabled, silent);
         }
+        if (typeof settings.showPageOverlay === 'boolean') {
+            TTSReader.setPageOverlayEnabled(settings.showPageOverlay, silent);
+        }
         if (typeof settings.volumeBoostEnabled === 'boolean') {
             TTSReader.setVolumeBoostEnabled(settings.volumeBoostEnabled, silent);
         }
@@ -2352,6 +2377,7 @@
                             autoRead: TTSReader.CONFIG.AUTO_READ_NEW_MESSAGES,
                             loopOnEnd: TTSReader.CONFIG.LOOP_ON_END,
                             autoScrollEnabled: TTSReader.CONFIG.AUTO_SCROLL_ENABLED,
+                            showPageOverlay: TTSReader.CONFIG.SHOW_PAGE_OVERLAY,
                             showDiagnostics: TTSReader.CONFIG.SHOW_DIAGNOSTICS_PANEL,
                             volumeBoostEnabled: TTSReader.CONFIG.VOLUME_BOOST_ENABLED,
                             volumeBoostLevel: TTSReader.CONFIG.VOLUME_BOOST_LEVEL,

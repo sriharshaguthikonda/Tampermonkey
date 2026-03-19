@@ -12,6 +12,7 @@ const BASE_DEFAULT_SETTINGS = {
     autoRead: false,
     loopOnEnd: true,
     autoScrollEnabled: true,
+    showPageOverlay: true,
     showDiagnostics: true,
     volumeBoostEnabled: true,
     volumeBoostLevel: 1.3,
