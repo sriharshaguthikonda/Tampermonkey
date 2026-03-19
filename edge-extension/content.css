@@ -1,0 +1,197 @@
+/* Content Script Styles */
+
+/* Highlighting styles */
+.tts-current-word {
+    background-color: rgba(255, 235, 59, 0.5);
+    border-radius: 3px;
+    padding: 0 2px;
+    transition: background-color 0.3s ease;
+}
+
+.tts-highlight {
+    background-color: rgba(255, 235, 59, 0.8);
+    border-radius: 3px;
+    padding: 0 2px;
+}
+
+.tts-navigation-focus {
+    background-color: rgba(33, 150, 243, 0.2);
+    box-shadow: inset 3px 0 0 #2196F3;
+    transition: background-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+/* Pointer arrow styles */
+.tts-pointer-container {
+    position: fixed;
+    pointer-events: none;
+    z-index: 10000;
+    transition: transform 0.3s ease;
+}
+
+.tts-pointer-arrow {
+    width: 30px;
+    height: 30px;
+    background-color: rgba(33, 150, 243, 0.8);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+}
+
+.tts-pointer-arrow::after {
+    content: '→';
+    font-weight: bold;
+    box-shadow: 0 0 0 2px #ffc107;
+    z-index: 2;
+}
+
+/* Pointer arrow styles */
+.tts-pointer {
+    position: fixed;
+    width: 0;
+    height: 0;
+    border-left: 8px solid transparent;
+    border-right: 8px solid transparent;
+    border-bottom: 12px solid #ff5722;
+    z-index: 10000;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s ease-in-out, transform 0.2s ease-in-out;
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.2));
+}
+
+#tts-pointer {
+    position: fixed;
+    width: 0;
+    height: 0;
+    border-left: 8px solid transparent;
+    border-right: 8px solid transparent;
+    border-bottom: 12px solid #ff5722;
+    z-index: 10000;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s ease-in-out, transform 0.2s ease-in-out;
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.2));
+}
+
+/* Notification styles */
+.tts-notification {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    background: rgba(0, 0, 0, 0.85);
+    color: white;
+    padding: 12px 18px;
+    border-radius: 8px;
+    z-index: 10000;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+    font-size: 14px;
+    line-height: 1.4;
+    pointer-events: none;
+    opacity: 0;
+    transform: translateY(-20px);
+    transition: opacity 0.3s ease-out, transform 0.3s ease-out;
+    max-width: 300px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    backdrop-filter: blur(4px);
+}
+
+/* Controls container */
+#tts-controls-container {
+    position: fixed;
+    bottom: 30px;
+    right: 30px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid #e0e0e0;
+    border-radius: 12px;
+    padding: 12px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+    z-index: 10000;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    backdrop-filter: blur(8px);
+    transform: translateY(20px);
+    opacity: 0;
+    transition: opacity 0.3s ease-out, transform 0.3s ease-out;
+}
+
+#tts-controls-container.visible {
+    transform: translateY(0);
+    opacity: 1;
+}
+
+#tts-controls {
+    display: flex;
+    gap: 8px;
+}
+
+#tts-controls button {
+    background: #f8f9fa;
+    border: 1px solid #dadce0;
+    border-radius: 6px;
+    padding: 8px 12px;
+    cursor: pointer;
+    font-size: 14px;
+    color: #3c4043;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease-in-out;
+}
+
+#tts-controls button:hover {
+    background: #f1f3f4;
+    border-color: #d2e3fc;
+    color: #1967d2;
+}
+
+#tts-controls button:active {
+    background: #e8f0fe;
+    transform: translateY(1px);
+}
+
+#tts-controls button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none !important;
+}
+
+/* Rate control */
+#tts-rate-control {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 4px;
+}
+
+#tts-rate-control label {
+    font-size: 12px;
+    color: #5f6368;
+    white-space: nowrap;
+}
+
+#tts-rate-slider {
+    flex: 1;
+    min-width: 100px;
+}
+
+/* Status indicator */
+#tts-status {
+    font-size: 12px;
+    color: #5f6368;
+    text-align: center;
+    margin-top: 4px;
+    min-height: 16px;
+}
+
+/* Animation for reading progress */
+@keyframes tts-highlight {
+    from { background-color: rgba(255, 235, 59, 0.3); }
+    to { background-color: rgba(255, 235, 59, 0.8); }
+}
+
+.tts-reading {
+    animation: tts-highlight 1s ease-in-out infinite alternate;
+}
