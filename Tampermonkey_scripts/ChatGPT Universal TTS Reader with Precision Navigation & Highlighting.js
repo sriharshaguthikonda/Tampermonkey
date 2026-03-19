@@ -1109,6 +1109,10 @@
             }
         },
 
+        shouldHandleNavigationHotkeys() {
+            return this.ttsActive || this.continuousReadingActive || this.waitingForMoreContent || this.isPaused;
+        },
+
         navigate(direction, options = {}) {
             const previewOnly = options.previewOnly === true;
             if (this.isNavigating) return;
@@ -1236,6 +1240,12 @@
                 const shiftOnly = e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey;
                 const ctrlShift = e.ctrlKey && e.shiftKey;
                 const KEY = this.CONFIG.HOTKEYS;
+                const isNavKey = key === KEY.NAV_NEXT || key === KEY.NAV_PREV;
+
+                if (isNavKey && !this.shouldHandleNavigationHotkeys()) {
+                    this.navKeyHeld = false;
+                    return;
+                }
 
                 switch (key) {
                     case KEY.NAV_NEXT:
@@ -1276,6 +1286,7 @@
                 const key = e.key;
                 const KEY = this.CONFIG.HOTKEYS;
                 if (key === KEY.NAV_NEXT || key === KEY.NAV_PREV) {
+                    if (!this.navKeyHeld) return;
                     e.preventDefault();
                     this.navKeyHeld = false;
                     this.startReadingFromPendingNav();
