@@ -153,6 +153,18 @@ body {
     color: var(--opt-muted);
 }
 
+.note-list {
+    margin: 0;
+    padding-left: 18px;
+    color: var(--opt-muted);
+    font-size: 13px;
+    line-height: 1.5;
+}
+
+.note-list li + li {
+    margin-top: 4px;
+}
+
 .actions {
     display: flex;
     justify-content: flex-end;

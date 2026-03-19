@@ -34,6 +34,8 @@
         navFocusHoldMs: 800,
         navKeyupReadDelayMs: 150,
         navThrottleMs: 20,
+        navCtrlJumpSegments: 5,
+        speedStep: 0.2,
         scrollThrottleMs: 250,
         scrollEdgePadding: 80,
         loopWaitMs: 1200,
@@ -176,8 +178,10 @@
             NAV_FOCUS_HOLD_MS: 800,
             NAV_KEYUP_READ_DELAY_MS: 150,
             NAV_FOCUS_FADE_MS: 800,
+            NAV_CTRL_JUMP_SEGMENTS: 5,
             NAV_TRAIL_FADE_MS: 650,
             NAV_TRAIL_MAX_POINTS: 14,
+            SPEED_STEP: 0.2,
             SCROLL_THROTTLE_MS: 250,
             SCROLL_EDGE_PADDING: 80,
             AUTO_SCROLL_ENABLED: true,
@@ -1896,6 +1900,69 @@
             return this.ttsActive || this.continuousReadingActive || this.waitingForMoreContent || this.isPaused;
         },
 
+        getNavigationJumpStep(multiplier = 1) {
+            const parsed = Number(this.CONFIG.NAV_CTRL_JUMP_SEGMENTS);
+            const base = Number.isFinite(parsed) ? Math.max(1, Math.round(parsed)) : 5;
+            const scaled = Math.max(1, Math.round(base * Number(multiplier || 1)));
+            return scaled;
+        },
+
+        getSpeedStep() {
+            const parsed = Number(this.CONFIG.SPEED_STEP);
+            return Number.isFinite(parsed) ? Math.max(0.1, parsed) : 0.2;
+        },
+
+        adjustSpeechRateByStep(direction) {
+            const delta = this.getSpeedStep() * (direction < 0 ? -1 : 1);
+            const nextRate = Math.min(5, Math.max(0.5, this.CONFIG.SPEECH_RATE + delta));
+            this.setSpeechRate(nextRate);
+        },
+
+        resolveCurrentNavigationIndex() {
+            let currentIndex = this.currentParagraphIndex;
+            if (currentIndex < 0 || currentIndex >= this.paragraphsList.length || (this.lastSpokenElement && this.paragraphsList[currentIndex].element !== this.lastSpokenElement)) {
+                currentIndex = this.lastSpokenElement
+                    ? this.paragraphsList.findIndex(p => p.element === this.lastSpokenElement)
+                    : -1;
+            }
+
+            if (currentIndex === -1) {
+                const threshold = window.innerHeight * 0.2;
+                currentIndex = this.paragraphsList.findIndex(p => p.element.getBoundingClientRect().bottom > threshold);
+                currentIndex = (currentIndex === -1) ? 0 : currentIndex - 1;
+            }
+            return currentIndex;
+        },
+
+        focusNavigationIndex(index, options = {}) {
+            const previewOnly = options.previewOnly === true;
+            const outOfRangeMessage = options.outOfRangeMessage || null;
+            if (index < 0 || index >= this.paragraphsList.length) {
+                if (outOfRangeMessage) {
+                    this.showNotification(outOfRangeMessage);
+                }
+                return false;
+            }
+
+            const targetElement = this.paragraphsList[index].element;
+            this.clearHighlights(true);
+            targetElement.classList.add('tts-navigation-focus');
+            this.gentleScrollToElement(targetElement);
+            this.addNavigationTrailPoint(targetElement);
+            this.lastSpokenElement = targetElement;
+            this.pendingNavIndex = index;
+            clearTimeout(this.navigationTimeoutId);
+
+            if (!previewOnly) {
+                this.navigationTimeoutId = setTimeout(() => {
+                    if (this.pendingNavIndex === -1) return;
+                    this.continuousReadingActive = true;
+                    this.readFromParagraph(this.pendingNavIndex);
+                }, this.CONFIG.NAV_FOCUS_HOLD_MS);
+            }
+            return true;
+        },
+
         navigate(direction, options = {}) {
             const previewOnly = options.previewOnly === true;
             this.isNavigating = true;
@@ -1919,41 +1986,49 @@
                 setTimeout(() => currentFocus.classList.remove('tts-focus-fade-out'), this.CONFIG.NAV_FOCUS_FADE_MS);
             }
 
-            let currentIndex = this.currentParagraphIndex;
-            if (currentIndex < 0 || currentIndex >= this.paragraphsList.length || (this.lastSpokenElement && this.paragraphsList[currentIndex].element !== this.lastSpokenElement)) {
-                currentIndex = this.lastSpokenElement
-                    ? this.paragraphsList.findIndex(p => p.element === this.lastSpokenElement)
-                    : -1;
-            }
-
-            if (currentIndex === -1) {
-                const threshold = window.innerHeight * 0.2;
-                currentIndex = this.paragraphsList.findIndex(p => p.element.getBoundingClientRect().bottom > threshold);
-                currentIndex = (currentIndex === -1) ? 0 : currentIndex - 1;
-            }
-
+            const currentIndex = this.resolveCurrentNavigationIndex();
             const newIndex = currentIndex + direction;
+            this.focusNavigationIndex(newIndex, {
+                previewOnly,
+                outOfRangeMessage: direction > 0 ? 'End of page.' : 'Start of page.'
+            });
+        },
 
-            if (newIndex >= 0 && newIndex < this.paragraphsList.length) {
-                const targetElement = this.paragraphsList[newIndex].element;
-                this.clearHighlights(true);
-                targetElement.classList.add('tts-navigation-focus');
-                this.gentleScrollToElement(targetElement); // Still useful for navigation highlight
-                this.addNavigationTrailPoint(targetElement);
-                this.lastSpokenElement = targetElement;
-
-                this.pendingNavIndex = newIndex;
-                clearTimeout(this.navigationTimeoutId);
-                if (!previewOnly) {
-                    this.navigationTimeoutId = setTimeout(() => {
-                        if (this.pendingNavIndex === -1) return;
-                        this.continuousReadingActive = true;
-                        this.readFromParagraph(this.pendingNavIndex);
-                    }, this.CONFIG.NAV_FOCUS_HOLD_MS);
-                }
-            } else {
-                 this.showNotification(direction > 0 ? "End of page." : "Start of page.");
+        jumpToBoundary(boundary, options = {}) {
+            this.isNavigating = true;
+            if (this.navigationStateTimeoutId) {
+                clearTimeout(this.navigationStateTimeoutId);
             }
+            this.navigationStateTimeoutId = setTimeout(() => {
+                this.isNavigating = false;
+                this.navigationStateTimeoutId = null;
+            }, 120);
+
+            this.stopTTS(false);
+            this.refreshParagraphsIfNeeded(false);
+            if (this.paragraphsList.length === 0) {
+                this.showNotification('No readable text found.');
+                return;
+            }
+
+            const currentFocus = document.querySelector('.tts-navigation-focus');
+            if (currentFocus) {
+                currentFocus.classList.remove('tts-navigation-focus');
+                currentFocus.classList.add('tts-focus-fade-out');
+                setTimeout(() => currentFocus.classList.remove('tts-focus-fade-out'), this.CONFIG.NAV_FOCUS_FADE_MS);
+            }
+
+            const previewOnly = options.previewOnly !== false;
+            const targetIndex = boundary === 'start' ? 0 : this.paragraphsList.length - 1;
+            this.focusNavigationIndex(targetIndex, { previewOnly });
+        },
+
+        replayCurrentParagraph() {
+            const index = this.currentParagraphIndex;
+            if (!Number.isInteger(index) || index < 0) return;
+            this.stopTTS(false);
+            this.continuousReadingActive = true;
+            this.readFromParagraph(index);
         },
 
         startReadingFromPendingNav() {
@@ -2050,26 +2125,69 @@
                 const activeEl = document.activeElement;
                 if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable)) return;
                 const key = e.key;
+                const keyLower = String(key || '').toLowerCase();
                 const shiftOnly = e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey;
                 const ctrlShift = e.ctrlKey && e.shiftKey;
+                const ctrlOrMeta = e.ctrlKey || e.metaKey;
                 const KEY = this.CONFIG.HOTKEYS;
                 const isNavKey = key === KEY.NAV_NEXT || key === KEY.NAV_PREV;
+                const sessionHotkeysActive = this.shouldHandleNavigationHotkeys();
 
-                if (isNavKey && !this.shouldHandleNavigationHotkeys()) {
+                if (isNavKey && !sessionHotkeysActive) {
                     this.navKeyHeld = false;
                     return;
+                }
+
+                if ((key === 'Home' || key === 'End') && sessionHotkeysActive) {
+                    e.preventDefault();
+                    this.navKeyHeld = false;
+                    const previewOnly = !ctrlOrMeta;
+                    this.jumpToBoundary(key === 'Home' ? 'start' : 'end', { previewOnly });
+                    return;
+                }
+
+                if ((key === ' ' || key === 'Spacebar') && sessionHotkeysActive) {
+                    e.preventDefault();
+                    this.pauseResumeTTS();
+                    return;
+                }
+
+                if ((key === '[' || key === ']') && sessionHotkeysActive && !ctrlOrMeta && !e.altKey) {
+                    e.preventDefault();
+                    this.adjustSpeechRateByStep(key === '[' ? -1 : 1);
+                    return;
+                }
+
+                if (sessionHotkeysActive && !ctrlOrMeta && !e.altKey) {
+                    if (keyLower === 'r') {
+                        e.preventDefault();
+                        this.replayCurrentParagraph();
+                        return;
+                    }
+                    if (keyLower === 'l') {
+                        e.preventDefault();
+                        this.setLoopEnabled(!this.CONFIG.LOOP_ON_END);
+                        persistProfileSetting(this.settingsProfile, 'loopOnEnd', this.CONFIG.LOOP_ON_END);
+                        return;
+                    }
+                    if (keyLower === 'a') {
+                        e.preventDefault();
+                        this.setAutoScrollEnabled(!this.CONFIG.AUTO_SCROLL_ENABLED);
+                        persistProfileSetting(this.settingsProfile, 'autoScrollEnabled', this.CONFIG.AUTO_SCROLL_ENABLED);
+                        return;
+                    }
                 }
 
                 switch (key) {
                     case KEY.NAV_NEXT:
                         e.preventDefault();
                         this.navKeyHeld = true;
-                        this.navigate(1, { previewOnly: true });
+                        this.navigate(ctrlOrMeta ? this.getNavigationJumpStep() : 1, { previewOnly: true });
                         break;
                     case KEY.NAV_PREV:
                         e.preventDefault();
                         this.navKeyHeld = true;
-                        this.navigate(-1, { previewOnly: true });
+                        this.navigate(ctrlOrMeta ? -this.getNavigationJumpStep() : -1, { previewOnly: true });
                         break;
                     case KEY.STOP: e.preventDefault(); this.stopTTS(); break;
                 }
@@ -2585,6 +2703,14 @@
             const next = Number(settings.navThrottleMs);
             if (Number.isFinite(next)) TTSReader.CONFIG.NAV_THROTTLE_MS = next;
         }
+        if (typeof settings.navCtrlJumpSegments !== 'undefined') {
+            const next = Number(settings.navCtrlJumpSegments);
+            if (Number.isFinite(next)) TTSReader.CONFIG.NAV_CTRL_JUMP_SEGMENTS = Math.max(1, Math.round(next));
+        }
+        if (typeof settings.speedStep !== 'undefined') {
+            const next = Number(settings.speedStep);
+            if (Number.isFinite(next)) TTSReader.CONFIG.SPEED_STEP = Math.max(0.1, next);
+        }
         if (typeof settings.scrollThrottleMs !== 'undefined') {
             const next = Number(settings.scrollThrottleMs);
             if (Number.isFinite(next)) TTSReader.CONFIG.SCROLL_THROTTLE_MS = next;
@@ -2734,7 +2860,9 @@
                             copyButtonEnabled: TTSReader.CONFIG.COPY_BUTTON_ENABLED,
                             doubleClickEditEnabled: TTSReader.CONFIG.DOUBLE_CLICK_EDIT_ENABLED,
                             autoCloseLimitWarning: TTSReader.CONFIG.AUTO_CLOSE_LIMIT_WARNING,
-                            limitWarningDelay: TTSReader.CONFIG.LIMIT_WARNING_DELAY_MS
+                            limitWarningDelay: TTSReader.CONFIG.LIMIT_WARNING_DELAY_MS,
+                            navCtrlJumpSegments: TTSReader.CONFIG.NAV_CTRL_JUMP_SEGMENTS,
+                            speedStep: TTSReader.CONFIG.SPEED_STEP
                         }
                     });
                     return true;

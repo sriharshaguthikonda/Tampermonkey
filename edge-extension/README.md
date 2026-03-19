@@ -48,10 +48,18 @@ An Edge extension that converts ChatGPT conversations into speech with highlight
 
 ### Keyboard Shortcuts
 
-- **U**: Activate crosshair to choose where reading starts
-- **P**: Pause/Resume reading
+- **Shift + U**: Activate crosshair to choose where reading starts
+- **Ctrl + Shift + P**: Pause/Resume reading
 - **Escape**: Stop reading
-- **Left/Right Arrows**: Navigate between sentences
+- **Left/Right Arrows**: Navigate between segments
+- **Ctrl + Left/Right Arrows**: Jump multiple segments (configurable)
+- **Home/End**: Jump to first/last segment (preview)
+- **Ctrl + Home/End**: Jump to first/last and resume reading
+- **Space**: Pause/Resume while a TTS session is active
+- **[ / ]**: Decrease/increase speech rate by configured step
+- **R**: Replay current segment
+- **L**: Toggle loop to top
+- **A**: Toggle auto-scroll
 
 ## Building for Distribution
 

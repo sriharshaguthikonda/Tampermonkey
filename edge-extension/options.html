@@ -158,6 +158,14 @@
                     <input id="navThrottleMs" type="number" min="0" step="5" />
                 </div>
                 <div class="field">
+                    <label for="navCtrlJumpSegments">Ctrl+Arrow jump segments</label>
+                    <input id="navCtrlJumpSegments" type="number" min="1" max="50" step="1" />
+                </div>
+                <div class="field">
+                    <label for="speedStep">Shortcut speed step (x)</label>
+                    <input id="speedStep" type="number" min="0.1" max="1" step="0.1" />
+                </div>
+                <div class="field">
                     <label for="scrollThrottleMs">Scroll throttle (ms)</label>
                     <input id="scrollThrottleMs" type="number" min="0" step="10" />
                 </div>
@@ -187,6 +195,21 @@
                 </div>
             </div>
             <p class="note">Advanced changes apply immediately; for UI layout changes, reload the ChatGPT tab.</p>
+        </section>
+
+        <section class="card">
+            <h2>Keyboard Shortcuts (While TTS Session Is Active)</h2>
+            <ul class="note-list">
+                <li><strong>Arrow Left/Right</strong>: Move by 1 segment</li>
+                <li><strong>Ctrl + Arrow Left/Right</strong>: Jump by configured segments</li>
+                <li><strong>Home/End</strong>: Jump to first/last segment (preview)</li>
+                <li><strong>Ctrl + Home/End</strong>: Jump to first/last and resume reading</li>
+                <li><strong>Space</strong>: Pause/resume</li>
+                <li><strong>[ / ]</strong>: Decrease/increase speech rate by configured step</li>
+                <li><strong>R</strong>: Replay current segment</li>
+                <li><strong>L</strong>: Toggle loop-to-top</li>
+                <li><strong>A</strong>: Toggle auto-scroll</li>
+            </ul>
         </section>
 
         <section class="actions">

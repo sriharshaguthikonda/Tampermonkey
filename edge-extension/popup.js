@@ -27,7 +27,9 @@ document.addEventListener('DOMContentLoaded', () => {
         copyButtonEnabled: true,
         doubleClickEditEnabled: true,
         autoCloseLimitWarning: true,
-        limitWarningDelay: 1500
+        limitWarningDelay: 1500,
+        navCtrlJumpSegments: 5,
+        speedStep: 0.2
     };
 
     const PROFILE_DEFAULT_SETTINGS = {
