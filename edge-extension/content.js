@@ -13,6 +13,8 @@ class TTSReader {
         this.pointerLoopId = null;
         this.paragraphsList = [];
         this.processedParagraph = { element: null, originalHTML: '', wordSpans: [] };
+        this.currentSentences = [];
+        this.currentSentenceIndex = 0;
         this.CONFIG = {
             CANDIDATE_SELECTORS: 'p, li, h1, h2, h3, h4, h5, h6, td, th, .markdown, div[class*="content"], article',
             IGNORE_SELECTORS: 'nav, script, style, noscript, header, footer, button, a, form, [aria-hidden="true"], [data-message-author-role="user"], pre, code, [class*="code"], [class*="language-"], [class*="highlight"], .token, #thread-bottom-container',
@@ -196,7 +198,7 @@ class TTSReader {
 
         // Start reading from the first paragraph
         this.currentParagraphIndex = 0;
-        this.readParagraph(paragraphs[0]);
+        this.readParagraph(paragraphs[0], 0);
 
         console.log('Started reading from cursor');
     }
@@ -224,53 +226,79 @@ class TTSReader {
         if (startIndex !== -1) {
             this.currentParagraphIndex = startIndex;
             this.continuousReadingActive = true;
-            this.readParagraph(this.paragraphsList[startIndex]);
+            this.readParagraph(this.paragraphsList[startIndex], 0);
         } else {
             console.log('No readable text found at or below your click');
         }
     }
 
     // Read a specific paragraph
-    readParagraph(paragraph) {
+    readParagraph(paragraph, startSentence = 0, autoStart = true) {
         if (!paragraph || !paragraph.element) return;
-        
+
+        // Wrap emojis so they are skipped by TTS
+        this.wrapEmojis(paragraph.element);
+
         const text = this.getTextFromElement(paragraph.element);
         if (!text) return;
-        
-        this.currentUtterance = new SpeechSynthesisUtterance(text);
-        this.currentUtterance.rate = this.CONFIG.SPEECH_RATE;
+
         this.currentParagraph = paragraph;
-        
-        // Set up event handlers
-        this.currentUtterance.onboundary = (event) => {
-            // Handle word highlighting
-            if (event.name === 'word' && event.charIndex > 0) {
-                this.highlightCurrentWord(event, paragraph.element);
+        this.currentSentences = this.splitIntoSentences(text);
+        this.currentSentenceIndex = startSentence;
+
+        if (autoStart) {
+            this.readCurrentSentence();
+        }
+    }
+
+    readCurrentSentence() {
+        if (!this.currentSentences.length) return;
+
+        const sentenceInfo = this.currentSentences[this.currentSentenceIndex];
+        const utter = new SpeechSynthesisUtterance(sentenceInfo.text);
+        utter.rate = this.CONFIG.SPEECH_RATE;
+
+        this.currentUtterance = utter;
+        this.ttsActive = true;
+        this.isPaused = false;
+
+        utter.onboundary = (event) => {
+            if (event.name === 'word' && event.charIndex >= 0) {
+                const adjusted = {
+                    charIndex: sentenceInfo.start + event.charIndex,
+                    charLength: event.charLength
+                };
+                this.highlightCurrentWord(adjusted, this.currentParagraph.element);
             }
         };
-        
-        this.currentUtterance.onend = () => {
+
+        utter.onend = () => {
             this.ttsActive = false;
             this.currentUtterance = null;
             this.hidePointerArrow();
-            // Move to next paragraph if in continuous mode
-            if (this.continuousReadingActive && this.paragraphsList.length > this.currentParagraphIndex + 1) {
-                this.currentParagraphIndex++;
-                this.readParagraph(this.paragraphsList[this.currentParagraphIndex]);
+            if (this.continuousReadingActive) {
+                this.moveToNextSentence();
             }
         };
-        
-        this.currentUtterance.onerror = (event) => {
+
+        utter.onerror = (event) => {
             console.error('TTS Error:', event);
             this.ttsActive = false;
             this.currentUtterance = null;
         };
-        
-        // Start speaking
-        this.ttsActive = true;
-        this.isPaused = false;
-        window.speechSynthesis.speak(this.currentUtterance);
+
+        window.speechSynthesis.speak(utter);
         this.updatePointerArrow();
+    }
+
+    moveToNextSentence() {
+        if (this.currentSentenceIndex < this.currentSentences.length - 1) {
+            this.currentSentenceIndex++;
+            this.readCurrentSentence();
+        } else if (this.paragraphsList.length > this.currentParagraphIndex + 1) {
+            this.currentParagraphIndex++;
+            this.readParagraph(this.paragraphsList[this.currentParagraphIndex], 0);
+        }
     }
     
     // Pause or resume TTS
@@ -307,41 +335,65 @@ class TTSReader {
         }
     }
     
-    // Navigate between paragraphs
+    // Navigate between sentences
     navigate(direction) {
         if (!this.paragraphsList || this.paragraphsList.length === 0) return;
-        
-        let newIndex;
+
+        this.stopTTS(false);
+
         if (direction === 'next') {
-            newIndex = Math.min(this.currentParagraphIndex + 1, this.paragraphsList.length - 1);
+            if (this.currentSentenceIndex < this.currentSentences.length - 1) {
+                this.currentSentenceIndex++;
+                this.readCurrentSentence();
+            } else if (this.currentParagraphIndex < this.paragraphsList.length - 1) {
+                this.currentParagraphIndex++;
+                this.readParagraph(this.paragraphsList[this.currentParagraphIndex], 0);
+            }
         } else {
-            newIndex = Math.max(this.currentParagraphIndex - 1, 0);
-        }
-        
-        if (newIndex !== this.currentParagraphIndex) {
-            this.currentParagraphIndex = newIndex;
-            this.stopTTS(false);
-            this.readParagraph(this.paragraphsList[this.currentParagraphIndex]);
+            if (this.currentSentenceIndex > 0) {
+                this.currentSentenceIndex--;
+                this.readCurrentSentence();
+            } else if (this.currentParagraphIndex > 0) {
+                this.currentParagraphIndex--;
+                // load previous paragraph and start at its last sentence
+                this.readParagraph(this.paragraphsList[this.currentParagraphIndex], 0, false);
+                this.currentSentenceIndex = this.currentSentences.length - 1;
+                this.readCurrentSentence();
+            }
         }
     }
 
     // Helper method to get clean text from an element
     getTextFromElement(element) {
         if (!element) return '';
-        
-        // Clone the node to avoid modifying the original
+
+        // Temporarily clone to process text without altering original nodes
         const clone = element.cloneNode(true);
-        
-        // Remove any buttons or interactive elements
+
+        // Remove interactive elements
         const buttons = clone.querySelectorAll('button, a, input, textarea, select');
         buttons.forEach(btn => btn.remove());
-        
-        // Get the text content and clean it up
-        let text = clone.textContent || '';
-        
-        // Clean up whitespace and newlines
+
+        // Skip any nodes marked as aria-hidden
+        const walker = document.createTreeWalker(
+            clone,
+            NodeFilter.SHOW_TEXT,
+            {
+                acceptNode: node => {
+                    return node.parentElement && node.parentElement.getAttribute('aria-hidden') === 'true'
+                        ? NodeFilter.FILTER_REJECT
+                        : NodeFilter.FILTER_ACCEPT;
+                }
+            },
+            false
+        );
+
+        let text = '';
+        while (walker.nextNode()) {
+            text += walker.currentNode.textContent;
+        }
+
         text = text.replace(/\s+/g, ' ').trim();
-        
         return text;
     }
     
@@ -375,41 +427,34 @@ class TTSReader {
     
     // Highlight the current word being spoken
     highlightCurrentWord(event, container) {
-        if (!container || !event.charIndex || !event.charLength) return;
-        
+        if (!container || typeof event.charIndex !== 'number' || typeof event.charLength !== 'number') return;
+
         // Clear previous highlights
         this.clearHighlights();
-        
-        // Get the text content and find the current word
-        const text = container.textContent || '';
-        const wordStart = event.charIndex;
-        const wordEnd = wordStart + event.charLength;
-        const word = text.substring(wordStart, wordEnd);
-        
-        if (!word.trim()) return;
-        
-        // Create a range for the current word
-        const range = document.createRange();
-        const textNode = this.findTextNode(container, wordStart);
-        
-        if (!textNode) return;
-        
+
+        const info = this.findTextNode(container, event.charIndex);
+        if (!info) return;
+
+        const { node, startIndex } = info;
+        const startOffset = event.charIndex - startIndex;
+        if (event.charLength <= 0) return;
+
+        const endOffset = startOffset + event.charLength;
+
         try {
-            range.setStart(textNode, wordStart);
-            range.setEnd(textNode, wordEnd);
-            
-            // Create a highlight span
+            const range = document.createRange();
+            range.setStart(node, startOffset);
+            range.setEnd(node, endOffset);
+
             const highlightSpan = document.createElement('span');
             highlightSpan.className = 'tts-highlight';
-            highlightSpan.textContent = word;
-            
-            // Apply the highlight
+            highlightSpan.setAttribute('aria-hidden', 'true');
+            highlightSpan.textContent = range.toString();
+
             range.deleteContents();
             range.insertNode(highlightSpan);
-            
-            // Scroll the highlighted word into view
+
             highlightSpan.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            
         } catch (e) {
             console.error('Error highlighting word:', e);
         }
@@ -420,22 +465,78 @@ class TTSReader {
         const walker = document.createTreeWalker(
             element,
             NodeFilter.SHOW_TEXT,
-            null,
+            {
+                acceptNode: node => {
+                    return node.parentElement && node.parentElement.getAttribute('aria-hidden') === 'true'
+                        ? NodeFilter.FILTER_REJECT
+                        : NodeFilter.FILTER_ACCEPT;
+                }
+            },
             false
         );
-        
+
         let currentIndex = 0;
         let node;
-        
-        while (node = walker.nextNode()) {
+
+        while ((node = walker.nextNode())) {
             const nodeLength = node.textContent.length;
             if (currentIndex + nodeLength > charIndex) {
-                return node;
+                return { node, startIndex: currentIndex };
             }
             currentIndex += nodeLength;
         }
-        
+
         return null;
+    }
+
+    // Wrap emoji characters in aria-hidden spans so TTS skips them
+    wrapEmojis(element) {
+        const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, null, false);
+        const textNodes = [];
+        while (walker.nextNode()) {
+            if (walker.currentNode.parentElement && walker.currentNode.parentElement.getAttribute('aria-hidden') === 'true') continue;
+            textNodes.push(walker.currentNode);
+        }
+        textNodes.forEach(node => {
+            const text = node.textContent;
+            let match;
+            let last = 0;
+            const frag = document.createDocumentFragment();
+            this.CONFIG.EMOJI_REGEX.lastIndex = 0;
+            while ((match = this.CONFIG.EMOJI_REGEX.exec(text)) !== null) {
+                if (match.index > last) {
+                    frag.appendChild(document.createTextNode(text.slice(last, match.index)));
+                }
+                const span = document.createElement('span');
+                span.setAttribute('aria-hidden', 'true');
+                span.className = 'tts-hidden-emoji';
+                span.textContent = match[0];
+                frag.appendChild(span);
+                last = match.index + match[0].length;
+            }
+            if (last < text.length) {
+                frag.appendChild(document.createTextNode(text.slice(last)));
+            }
+            if (frag.childNodes.length) {
+                node.replaceWith(frag);
+            }
+        });
+    }
+
+    // Split text into sentences with their starting offsets
+    splitIntoSentences(text) {
+        const regex = /[^.!?]+[.!?]+\s*/g;
+        const sentences = [];
+        let match;
+        let index = 0;
+        while ((match = regex.exec(text)) !== null) {
+            sentences.push({ text: match[0].trim(), start: match.index });
+            index = regex.lastIndex;
+        }
+        if (index < text.length) {
+            sentences.push({ text: text.slice(index).trim(), start: index });
+        }
+        return sentences;
     }
     
     // Clear all TTS highlights
