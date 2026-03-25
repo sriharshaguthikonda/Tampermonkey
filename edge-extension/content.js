@@ -178,9 +178,9 @@
         processedParagraph: { element: null, originalHTML: '', wordSpans: [], wordOffsets: [] },
 
         CONFIG: {
-            CANDIDATE_SELECTORS: 'p, li, h1, h2, h3, h4, h5, h6, td, th, .markdown, div[class*="content"], article',
+            CANDIDATE_SELECTORS: 'p, li, h1, h2, h3, h4, h5, h6, td, th, blockquote, .markdown, article',
             // Add #content-root and all its descendants to ignore list
-            IGNORE_SELECTORS: '.settings-header, nav, script, style, noscript, header, footer, button, a, form, [aria-hidden="true"], [data-tts-ui], pre, code, [class*="code"], [class*="language-"], [class*="highlight"], .token, #thread-bottom-container, #content-root, #content-root *',
+            IGNORE_SELECTORS: '.settings-header, nav, script, style, noscript, header, footer, button, a, form, [aria-hidden="true"], [data-tts-ui], .sr-only, pre, code, [class*="code"], [class*="language-"], [class*="highlight"], .token, #thread-bottom-container, #content-root, #content-root *',
             SPEECH_RATE: 5,
             VOICE_URI: '',
             QUEUE_LOOKAHEAD: 3,
@@ -205,6 +205,7 @@
             WORD_HIGHLIGHT_ENABLED: true,
             GAP_TRIM_ENABLED: true,
             READ_USER_MESSAGES: false,
+            USER_MESSAGE_SELECTORS: '[data-message-author-role="user"], section[data-turn="user"], [data-turn="user"]',
             READ_REFERENCES: false,
             REFERENCE_SELECTORS: '[data-testid="webpage-citation-pill"], [data-testid*="citation"], .webpage-citation-pill, .citation-pill, [data-source], cite',
             PREWRAP_IDLE_TIMEOUT_MS: 250,
@@ -1114,12 +1115,54 @@
             return this.trimGapForParagraphEnd(cleaned);
         },
 
+        isUserMessageElement(element) {
+            if (!element) return false;
+            const userSelectors = this.CONFIG.USER_MESSAGE_SELECTORS;
+
+            if (element.matches && element.matches(userSelectors)) {
+                return true;
+            }
+            if (element.closest && element.closest(userSelectors)) {
+                return true;
+            }
+
+            // Saved/archived ChatGPT HTML often labels user turns via a screen-reader heading.
+            const isYouSaidHeading = (node) => {
+                if (!node) return false;
+                const text = (node.textContent || '').trim();
+                return /^you said\b/i.test(text);
+            };
+
+            if (element.matches && element.matches('h4.sr-only') && isYouSaidHeading(element)) {
+                return true;
+            }
+
+            if (element.querySelector) {
+                if (element.querySelector(userSelectors)) {
+                    return true;
+                }
+                const heading = element.querySelector('h4.sr-only');
+                if (isYouSaidHeading(heading)) {
+                    return true;
+                }
+            }
+
+            const section = element.closest ? element.closest('section') : null;
+            if (!section) return false;
+            const sectionTurn = (section.getAttribute('data-turn') || '').toLowerCase();
+            if (sectionTurn === 'user') {
+                return true;
+            }
+            const sectionHeading = section.querySelector('h4.sr-only');
+            return isYouSaidHeading(sectionHeading);
+        },
+
         isVisiblyReadable(element) {
             if (!element || !element.tagName || element.offsetParent === null || window.getComputedStyle(element).visibility === 'hidden' || window.getComputedStyle(element).display === 'none') {
                 return false;
             }
             if (element.closest(this.CONFIG.IGNORE_SELECTORS)) return false;
-            if (this.isChatGPTPage && !this.CONFIG.READ_USER_MESSAGES && element.closest('[data-message-author-role="user"]')) return false;
+            if (!this.CONFIG.READ_USER_MESSAGES && this.isUserMessageElement(element)) return false;
             const text = this.getTextFromElement(element);
             if (!text || text.trim().length === 0) return false;
             return true;
