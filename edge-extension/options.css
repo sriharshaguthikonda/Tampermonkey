@@ -106,6 +106,12 @@ body {
     transform: scale(1.1);
 }
 
+.field.toggle label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
 .range-row {
     display: flex;
     align-items: center;
