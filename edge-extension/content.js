@@ -1718,6 +1718,62 @@
             this.currentWordSpan = span;
         },
 
+        describeSpeechErrorEvent(event) {
+            if (!event) return {};
+            return {
+                type: event.type || null,
+                error: event.error || null,
+                name: event.name || null,
+                charIndex: Number.isFinite(event.charIndex) ? event.charIndex : null,
+                elapsedTime: Number.isFinite(event.elapsedTime) ? event.elapsedTime : null,
+                utteranceTextLength: event.utterance && event.utterance.text ? event.utterance.text.length : null
+            };
+        },
+
+        logSpeechSynthesisError(context, event, extra = {}) {
+            const synth = this.speechSynthesis;
+            const eventInfo = this.describeSpeechErrorEvent(event);
+            const paragraph = Number.isInteger(extra.index) ? this.paragraphsList[extra.index] : null;
+            const paragraphText = paragraph && paragraph.text ? paragraph.text : '';
+            const payload = {
+                context,
+                url: window.location && window.location.href ? window.location.href : '',
+                event: eventInfo,
+                synthState: {
+                    speaking: Boolean(synth && synth.speaking),
+                    pending: Boolean(synth && synth.pending),
+                    paused: Boolean(synth && synth.paused)
+                },
+                ttsState: {
+                    ttsActive: this.ttsActive,
+                    continuousReadingActive: this.continuousReadingActive,
+                    isPaused: this.isPaused,
+                    currentParagraphIndex: this.currentParagraphIndex,
+                    queueSize: this.queuedParagraphs.size,
+                    paragraphsCount: this.paragraphsList.length
+                },
+                utterance: {
+                    index: Number.isInteger(extra.index) ? extra.index : null,
+                    voiceName: extra.voiceName || null,
+                    voiceLang: extra.voiceLang || null,
+                    rate: Number.isFinite(extra.rate) ? extra.rate : null,
+                    textLength: typeof extra.text === 'string' ? extra.text.length : null,
+                    textSample: typeof extra.text === 'string' ? extra.text.slice(0, 160) : null
+                },
+                paragraph: paragraph ? {
+                    textLength: paragraphText.length,
+                    textSample: paragraphText.slice(0, 160)
+                } : null
+            };
+
+            const nonFatal = eventInfo.error === 'interrupted' || eventInfo.error === 'canceled';
+            if (nonFatal) {
+                console.warn('[TTS] Speech synthesis interruption', payload);
+            } else {
+                console.error('[TTS] Speech synthesis error', payload);
+            }
+        },
+
         triggerTTS(text, onComplete = null) {
             if (!text || text.length === 0) {
                 if (onComplete) onComplete();
@@ -1745,7 +1801,12 @@
                 }
             };
             utterance.onerror = (e) => {
-                console.error("Speech Synthesis Error:", e);
+                this.logSpeechSynthesisError('triggerTTS', e, {
+                    text,
+                    rate: utterance.rate,
+                    voiceName: utterance.voice ? utterance.voice.name : null,
+                    voiceLang: utterance.voice ? utterance.voice.lang : null
+                });
                 this.ttsActive = false;
                 this.revertParagraph();
                 if (onComplete && this.continuousReadingActive) onComplete();
@@ -1776,7 +1837,7 @@
                 utterance.onboundary = (event) => this.highlightCurrentWord(event);
             }
             utterance.onend = () => this.onUtteranceEnd(index);
-            utterance.onerror = (e) => this.onUtteranceError(index, e);
+            utterance.onerror = (e) => this.onUtteranceError(index, e, utterance);
 
             this.queuedParagraphs.add(index);
             this.speechSynthesis.speak(utterance);
@@ -1852,8 +1913,14 @@
             }
         },
 
-        onUtteranceError(index, error) {
-            console.error('Speech Synthesis Error:', error);
+        onUtteranceError(index, error, utterance = null) {
+            this.logSpeechSynthesisError('queuedParagraph', error, {
+                index,
+                text: utterance && typeof utterance.text === 'string' ? utterance.text : null,
+                rate: utterance && Number.isFinite(utterance.rate) ? utterance.rate : this.CONFIG.SPEECH_RATE,
+                voiceName: utterance && utterance.voice ? utterance.voice.name : null,
+                voiceLang: utterance && utterance.voice ? utterance.voice.lang : null
+            });
             this.ttsActive = false;
             this.queuedParagraphs.delete(index);
             this.flushPendingReverts();
