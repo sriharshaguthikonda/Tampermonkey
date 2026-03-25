@@ -164,6 +164,7 @@
         mediaObserver: null,
         lastEnterPressTime: 0,
         pasteHandler: null,
+        sendCaptureHandler: null,
         copyObserver: null,
         editObserver: null,
         limitWarningObserver: null,
@@ -284,6 +285,10 @@
                 this.pasteHandler = (event) => this.handleGlobalPaste(event);
                 document.addEventListener('paste', this.pasteHandler, true);
             }
+            if (!this.sendCaptureHandler) {
+                this.sendCaptureHandler = (event) => this.handleSendButtonCapture(event);
+                document.addEventListener('click', this.sendCaptureHandler, true);
+            }
 
             if (!this.copyObserver) {
                 this.copyObserver = new MutationObserver(() => this.updateCopyButtons());
@@ -321,17 +326,32 @@
             return null;
         },
 
-        findSendButton() {
-            const selectors = [
+        getSendButtonSelectors() {
+            return [
                 'button[aria-label="Send prompt"]',
                 'button[data-testid="send-button"]',
                 'button.btn.relative.btn-primary:not([aria-label="Dictate button"])'
             ];
+        },
+
+        findSendButton() {
+            const selectors = this.getSendButtonSelectors();
             for (const selector of selectors) {
                 const button = document.querySelector(selector);
                 if (button && !button.disabled) return button;
             }
             return null;
+        },
+
+        isSendButtonElement(element) {
+            if (!element || !element.matches) return false;
+            return this.getSendButtonSelectors().some((selector) => {
+                try {
+                    return element.matches(selector);
+                } catch (_error) {
+                    return false;
+                }
+            });
         },
 
         isEditableElement(element) {
@@ -402,6 +422,39 @@
             return String(el.innerText || el.textContent || '').replace(/\r\n/g, '\n');
         },
 
+        capturePromptForHistoryFromPromptArea(source = '') {
+            if (!this.isChatGPTPage || !this.CONFIG.PROMPT_HISTORY_NAV_ENABLED) return;
+            const promptArea = this.findPromptArea();
+            if (!promptArea) return;
+            const text = this.getPromptText(promptArea);
+            if (!text || !text.trim()) return;
+            this.addPromptToHistory(text);
+            if (this.CONFIG.SHOW_DIAGNOSTICS_PANEL) {
+                console.debug('[TTS] Prompt captured for history', {
+                    source,
+                    length: text.length
+                });
+            }
+        },
+
+        capturePromptForNativeEnterSend(event) {
+            if (!this.isChatGPTPage || !this.CONFIG.PROMPT_HISTORY_NAV_ENABLED) return;
+            if (this.CONFIG.ENTER_TO_SEND_ENABLED) return;
+            if (!event || event.key !== 'Enter') return;
+            if (event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return;
+
+            const promptArea = this.findPromptArea();
+            if (!promptArea || !this.isPromptFocused(promptArea)) return;
+            this.capturePromptForHistoryFromPromptArea('native-enter');
+        },
+
+        handleSendButtonCapture(event) {
+            if (!this.isChatGPTPage || !this.CONFIG.PROMPT_HISTORY_NAV_ENABLED) return;
+            const target = event && event.target && event.target.closest ? event.target.closest('button') : null;
+            if (!target || !this.isSendButtonElement(target)) return;
+            this.capturePromptForHistoryFromPromptArea('send-button-click');
+        },
+
         normalizePromptHistoryText(text) {
             return String(text || '').replace(/\r\n/g, '\n').trim();
         },
@@ -424,13 +477,20 @@
             this.promptHistoryDraftTooLarge = false;
         },
 
+        extractCleanText(element) {
+            if (!element) return '';
+            const clone = element.cloneNode(true);
+            clone.querySelectorAll('[data-tmx-control], .tmx-copy-row, .tmx-copy-button, [data-tts-ui]').forEach((node) => node.remove());
+            return this.normalizePromptHistoryText(clone.innerText || clone.textContent || '');
+        },
+
         extractUserMessageText(messageElement) {
             if (!messageElement || messageElement.getAttribute('data-message-author-role') !== 'user') return '';
             const preferredNode = messageElement.querySelector('.whitespace-pre-wrap');
             if (preferredNode) {
-                return this.normalizePromptHistoryText(preferredNode.innerText || preferredNode.textContent || '');
+                return this.extractCleanText(preferredNode);
             }
-            return this.normalizePromptHistoryText(messageElement.innerText || messageElement.textContent || '');
+            return this.extractCleanText(messageElement);
         },
 
         hydratePromptHistoryFromDom() {
@@ -560,6 +620,7 @@
             const clickIfReady = () => {
                 const sendButton = this.findSendButton();
                 if (sendButton) {
+                    this.capturePromptForHistoryFromPromptArea('auto-send-click');
                     sendButton.click();
                     return true;
                 }
@@ -660,6 +721,7 @@
             if (now - this.lastEnterPressTime <= this.CONFIG.ENTER_TO_SEND_DOUBLE_PRESS_MS) {
                 const sendButton = this.findSendButton();
                 if (sendButton) {
+                    this.capturePromptForHistoryFromPromptArea('double-enter-send');
                     sendButton.click();
                 }
                 this.lastEnterPressTime = 0;
@@ -814,15 +876,22 @@
         addCopyButton(target) {
             if (!target || !target.isConnected) return;
 
-            const existingRow = target.querySelector('.tmx-copy-row');
-            if (existingRow) return;
-            target.querySelectorAll('.tmx-copy-button').forEach((button) => button.remove());
+            const adjacentRow = target.nextElementSibling && target.nextElementSibling.classList
+                && target.nextElementSibling.classList.contains('tmx-copy-row')
+                ? target.nextElementSibling
+                : null;
+            if (target.dataset.tmxCopyButtonAttached === '1' && adjacentRow) return;
+            if (adjacentRow) adjacentRow.remove();
 
             const row = document.createElement('div');
             row.className = 'tmx-copy-row';
+            row.setAttribute('data-tmx-control', 'copy-row');
+            row.setAttribute('aria-hidden', 'true');
             row.style.cssText = 'display:flex; justify-content:flex-end; margin-top:8px;';
             const copyButton = document.createElement('button');
             copyButton.className = 'tmx-copy-button';
+            copyButton.setAttribute('data-tmx-control', 'copy-button');
+            copyButton.setAttribute('aria-hidden', 'true');
             copyButton.type = 'button';
             copyButton.textContent = 'Copy';
             copyButton.style.cssText = 'padding:3px 8px; font-size:12px; line-height:1.2; border:none; border-radius:6px; background:#0b5ed7; color:#fff; cursor:pointer;';
@@ -839,11 +908,15 @@
             });
 
             row.appendChild(copyButton);
-            target.appendChild(row);
+            target.insertAdjacentElement('afterend', row);
+            target.dataset.tmxCopyButtonAttached = '1';
         },
 
         removeCopyButtons() {
             document.querySelectorAll('.tmx-copy-row, .tmx-copy-button').forEach((node) => node.remove());
+            document.querySelectorAll('[data-tmx-copy-button-attached]').forEach((node) => {
+                delete node.dataset.tmxCopyButtonAttached;
+            });
         },
 
         updateCopyButtons() {
@@ -2409,6 +2482,7 @@
         setupEventListeners() {
             document.addEventListener('keydown', (e) => {
                 this.markUserInteraction();
+                this.capturePromptForNativeEnterSend(e);
                 this.handleEnterToSend(e);
                 if (this.handlePromptHistoryHotkeys(e)) return;
 
