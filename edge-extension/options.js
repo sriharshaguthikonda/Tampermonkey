@@ -14,6 +14,7 @@ document.addEventListener('DOMContentLoaded', () => {
         loopOnEnd: true,
         autoScrollEnabled: true,
         idleArrowNavigation: true,
+        promptHistoryNavEnabled: true,
         showPageOverlay: true,
         overlayPosition: null,
         showDiagnostics: true,
@@ -55,7 +56,8 @@ document.addEventListener('DOMContentLoaded', () => {
             regularAutoSend: false,
             regularAutoSendInInput: false,
             niceAutoPasteEnabled: false,
-            niceAutoSend: false
+            niceAutoSend: false,
+            promptHistoryNavEnabled: false
         }
     };
 
@@ -75,6 +77,7 @@ document.addEventListener('DOMContentLoaded', () => {
         loopOnEnd: document.getElementById('loopOnEnd'),
         autoScrollEnabled: document.getElementById('autoScrollEnabled'),
         idleArrowNavigation: document.getElementById('idleArrowNavigation'),
+        promptHistoryNavEnabled: document.getElementById('promptHistoryNavEnabled'),
         showPageOverlay: document.getElementById('showPageOverlay'),
         showDiagnostics: document.getElementById('showDiagnostics'),
         enterToSendEnabled: document.getElementById('enterToSendEnabled'),
@@ -137,6 +140,7 @@ document.addEventListener('DOMContentLoaded', () => {
         'loopOnEnd',
         'autoScrollEnabled',
         'idleArrowNavigation',
+        'promptHistoryNavEnabled',
         'showPageOverlay',
         'showDiagnostics',
         'enterToSendEnabled',

@@ -16,6 +16,7 @@
         loopOnEnd: true,
         autoScrollEnabled: true,
         idleArrowNavigation: true,
+        promptHistoryNavEnabled: true,
         showPageOverlay: true,
         overlayPosition: null,
         showDiagnostics: true,
@@ -57,7 +58,8 @@
             regularAutoSend: false,
             regularAutoSendInInput: false,
             niceAutoPasteEnabled: false,
-            niceAutoSend: false
+            niceAutoSend: false,
+            promptHistoryNavEnabled: false
         }
     };
 
@@ -165,6 +167,10 @@
         copyObserver: null,
         editObserver: null,
         limitWarningObserver: null,
+        promptHistoryObserver: null,
+        promptHistory: [],
+        promptHistoryCursor: -1,
+        promptHistoryDraft: '',
         isChatGPTPage: false,
         settingsProfile: PROFILE_CHATGPT,
         processedParagraph: { element: null, originalHTML: '', wordSpans: [], wordOffsets: [] },
@@ -211,6 +217,8 @@
             LOOP_WAIT_MS: 1200,
             LOOP_ON_END: true,
             IDLE_ARROW_NAVIGATION: true,
+            PROMPT_HISTORY_NAV_ENABLED: true,
+            PROMPT_HISTORY_MAX: 200,
             VOLUME_BOOST_ENABLED: true,
             VOLUME_BOOST_LEVEL: 1.3,
             ENTER_TO_SEND_ENABLED: true,
@@ -292,6 +300,7 @@
                 this.limitWarningObserver.observe(document.body, { childList: true, subtree: true });
             }
             this.checkAndCloseLimitWarnings();
+            this.initPromptHistoryObserver();
         },
 
         findPromptArea() {
@@ -378,6 +387,129 @@
                 range.collapse(false);
                 selection.removeAllRanges();
                 selection.addRange(range);
+            }
+            return true;
+        },
+
+        getPromptText(promptArea = null) {
+            const el = promptArea || this.findPromptArea();
+            if (!el) return '';
+            if (el.tagName === 'TEXTAREA' || el.tagName === 'INPUT') {
+                return String(el.value || '').replace(/\r\n/g, '\n');
+            }
+            return String(el.innerText || el.textContent || '').replace(/\r\n/g, '\n');
+        },
+
+        normalizePromptHistoryText(text) {
+            return String(text || '').replace(/\r\n/g, '\n').trim();
+        },
+
+        addPromptToHistory(text) {
+            const normalized = this.normalizePromptHistoryText(text);
+            if (!normalized) return;
+            const last = this.promptHistory.length > 0 ? this.promptHistory[this.promptHistory.length - 1] : '';
+            if (last === normalized) return;
+
+            this.promptHistory.push(normalized);
+            const maxItems = Math.max(20, Number(this.CONFIG.PROMPT_HISTORY_MAX) || 200);
+            if (this.promptHistory.length > maxItems) {
+                this.promptHistory.splice(0, this.promptHistory.length - maxItems);
+            }
+            this.promptHistoryCursor = -1;
+            this.promptHistoryDraft = '';
+        },
+
+        extractUserMessageText(messageElement) {
+            if (!messageElement || messageElement.getAttribute('data-message-author-role') !== 'user') return '';
+            const preferredNode = messageElement.querySelector('.whitespace-pre-wrap');
+            if (preferredNode) {
+                return this.normalizePromptHistoryText(preferredNode.innerText || preferredNode.textContent || '');
+            }
+            return this.normalizePromptHistoryText(messageElement.innerText || messageElement.textContent || '');
+        },
+
+        hydratePromptHistoryFromDom() {
+            this.promptHistory = [];
+            const userMessages = Array.from(document.querySelectorAll('[data-message-author-role="user"]'));
+            userMessages.forEach((messageElement) => {
+                const text = this.extractUserMessageText(messageElement);
+                if (text) this.addPromptToHistory(text);
+            });
+            this.promptHistoryCursor = -1;
+            this.promptHistoryDraft = '';
+        },
+
+        initPromptHistoryObserver() {
+            if (!this.isChatGPTPage || this.promptHistoryObserver) return;
+            this.hydratePromptHistoryFromDom();
+            this.promptHistoryObserver = new MutationObserver((mutations) => {
+                for (const mutation of mutations) {
+                    if (!mutation.addedNodes || mutation.addedNodes.length === 0) continue;
+                    for (const node of mutation.addedNodes) {
+                        if (node.nodeType !== Node.ELEMENT_NODE) continue;
+                        const element = node;
+                        const candidates = [];
+                        if (element.matches && element.matches('[data-message-author-role="user"]')) {
+                            candidates.push(element);
+                        }
+                        if (element.querySelectorAll) {
+                            candidates.push(...element.querySelectorAll('[data-message-author-role="user"]'));
+                        }
+                        candidates.forEach((candidate) => {
+                            const text = this.extractUserMessageText(candidate);
+                            if (text) this.addPromptToHistory(text);
+                        });
+                    }
+                }
+            });
+            this.promptHistoryObserver.observe(document.body, { childList: true, subtree: true });
+        },
+
+        setPromptHistoryNavigationEnabled(enabled, silent = false) {
+            const nextValue = Boolean(enabled);
+            if (this.CONFIG.PROMPT_HISTORY_NAV_ENABLED === nextValue) return;
+            this.CONFIG.PROMPT_HISTORY_NAV_ENABLED = nextValue;
+            this.promptHistoryCursor = -1;
+            this.promptHistoryDraft = '';
+            if (!silent) {
+                this.showNotification(`Prompt history nav ${nextValue ? 'on' : 'off'}`);
+            }
+        },
+
+        handlePromptHistoryHotkeys(event) {
+            if (!this.isChatGPTPage || !this.CONFIG.PROMPT_HISTORY_NAV_ENABLED) return false;
+            if (!event.ctrlKey || event.shiftKey || event.altKey || event.metaKey) return false;
+            if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return false;
+
+            const promptArea = this.findPromptArea();
+            if (!promptArea || !this.isPromptFocused(promptArea)) return false;
+
+            event.preventDefault();
+            event.stopPropagation();
+
+            if (this.promptHistory.length === 0) {
+                this.showNotification('No prompt history yet.');
+                return true;
+            }
+
+            const direction = event.key === 'ArrowUp' ? -1 : 1;
+            if (this.promptHistoryCursor === -1) {
+                this.promptHistoryDraft = this.getPromptText(promptArea);
+                this.promptHistoryCursor = this.promptHistory.length;
+            }
+
+            let nextCursor = this.promptHistoryCursor + direction;
+            nextCursor = Math.max(0, Math.min(nextCursor, this.promptHistory.length));
+
+            if (nextCursor === this.promptHistoryCursor) {
+                return true;
+            }
+
+            this.promptHistoryCursor = nextCursor;
+            if (nextCursor === this.promptHistory.length) {
+                this.setPromptText(this.promptHistoryDraft || '');
+            } else {
+                this.setPromptText(this.promptHistory[nextCursor] || '');
             }
             return true;
         },
@@ -1731,6 +1863,7 @@
         },
 
         logSpeechSynthesisError(context, event, extra = {}) {
+            if (!this.CONFIG.SHOW_DIAGNOSTICS_PANEL) return;
             const synth = this.speechSynthesis;
             const eventInfo = this.describeSpeechErrorEvent(event);
             const paragraph = Number.isInteger(extra.index) ? this.paragraphsList[extra.index] : null;
@@ -1771,6 +1904,13 @@
                 console.warn('[TTS] Speech synthesis interruption', payload);
             } else {
                 console.error('[TTS] Speech synthesis error', payload);
+            }
+
+            try {
+                const jsonPayload = JSON.stringify(payload, null, 2);
+                console.log(`[TTS] Speech synthesis diagnostics JSON (${context})\n${jsonPayload}`);
+            } catch (_error) {
+                console.warn('[TTS] Failed to serialize diagnostics payload');
             }
         },
 
@@ -2237,6 +2377,7 @@
             document.addEventListener('keydown', (e) => {
                 this.markUserInteraction();
                 this.handleEnterToSend(e);
+                if (this.handlePromptHistoryHotkeys(e)) return;
 
                 const activeEl = document.activeElement;
                 if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable)) return;
@@ -2765,6 +2906,9 @@
         if (typeof settings.idleArrowNavigation === 'boolean') {
             TTSReader.setIdleArrowNavigationEnabled(settings.idleArrowNavigation, silent);
         }
+        if (typeof settings.promptHistoryNavEnabled === 'boolean') {
+            TTSReader.setPromptHistoryNavigationEnabled(settings.promptHistoryNavEnabled, silent);
+        }
         if (typeof settings.showPageOverlay === 'boolean') {
             TTSReader.setPageOverlayEnabled(settings.showPageOverlay, silent);
         }
@@ -2987,6 +3131,7 @@
                             loopOnEnd: TTSReader.CONFIG.LOOP_ON_END,
                             autoScrollEnabled: TTSReader.CONFIG.AUTO_SCROLL_ENABLED,
                             idleArrowNavigation: TTSReader.CONFIG.IDLE_ARROW_NAVIGATION,
+                            promptHistoryNavEnabled: TTSReader.CONFIG.PROMPT_HISTORY_NAV_ENABLED,
                             showPageOverlay: TTSReader.CONFIG.SHOW_PAGE_OVERLAY,
                             overlayPosition: TTSReader.CONFIG.OVERLAY_POSITION,
                             showDiagnostics: TTSReader.CONFIG.SHOW_DIAGNOSTICS_PANEL,

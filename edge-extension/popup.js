@@ -14,6 +14,7 @@ document.addEventListener('DOMContentLoaded', () => {
         loopOnEnd: true,
         autoScrollEnabled: true,
         idleArrowNavigation: true,
+        promptHistoryNavEnabled: true,
         showPageOverlay: true,
         overlayPosition: null,
         showDiagnostics: true,
@@ -44,7 +45,8 @@ document.addEventListener('DOMContentLoaded', () => {
             regularAutoSend: false,
             regularAutoSendInInput: false,
             niceAutoPasteEnabled: false,
-            niceAutoSend: false
+            niceAutoSend: false,
+            promptHistoryNavEnabled: false
         }
     };
 
@@ -73,6 +75,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const loopToggle = document.getElementById('loopToggle');
     const autoScrollToggle = document.getElementById('autoScrollToggle');
     const idleArrowNavigationToggle = document.getElementById('idleArrowNavigationToggle');
+    const promptHistoryNavToggle = document.getElementById('promptHistoryNavToggle');
     const pageOverlayToggle = document.getElementById('pageOverlayToggle');
     const diagnosticsToggle = document.getElementById('diagnosticsToggle');
     const volumeBoostToggle = document.getElementById('volumeBoostToggle');
@@ -252,6 +255,7 @@ document.addEventListener('DOMContentLoaded', () => {
         loopToggle.checked = Boolean(settings.loopOnEnd);
         autoScrollToggle.checked = Boolean(settings.autoScrollEnabled);
         idleArrowNavigationToggle.checked = Boolean(settings.idleArrowNavigation);
+        promptHistoryNavToggle.checked = Boolean(settings.promptHistoryNavEnabled);
         pageOverlayToggle.checked = Boolean(settings.showPageOverlay);
         diagnosticsToggle.checked = Boolean(settings.showDiagnostics);
         volumeBoostToggle.checked = Boolean(settings.volumeBoostEnabled);
@@ -361,6 +365,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     idleArrowNavigationToggle.addEventListener('change', (e) => {
         persistSetting('idleArrowNavigation', e.target.checked);
+    });
+    promptHistoryNavToggle.addEventListener('change', (e) => {
+        persistSetting('promptHistoryNavEnabled', e.target.checked);
     });
     pageOverlayToggle.addEventListener('change', (e) => {
         persistSetting('showPageOverlay', e.target.checked);
