@@ -5,6 +5,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const BASE_DEFAULT_SETTINGS = {
         speechRate: 5,
+        voiceUri: '',
         wordHighlight: true,
         gapTrim: true,
         readUserMessages: false,
@@ -58,6 +59,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const rateValue = document.getElementById('rateValue');
     const volumeSlider = document.getElementById('volumeSlider');
     const volumeValue = document.getElementById('volumeValue');
+    const voiceSelect = document.getElementById('voiceSelect');
     const statusDiv = document.getElementById('status');
     const progressDiv = document.getElementById('progress');
     const optionsBtn = document.getElementById('optionsBtn');
@@ -87,6 +89,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let activeTabId = null;
     let activeProfile = PROFILE_CHATGPT;
+    let availableVoices = [];
 
     function getProfileFromUrl(urlLike) {
         try {
@@ -185,11 +188,59 @@ document.addEventListener('DOMContentLoaded', () => {
         progressDiv.textContent = `Progress: ${progress.current}/${progress.total}`;
     }
 
+    function formatVoiceLabel(voice) {
+        const suffix = voice.default ? ' (Default)' : '';
+        return `${voice.name} - ${voice.lang}${suffix}`;
+    }
+
+    function updateVoiceSelect(voices, selectedVoiceUri = '') {
+        if (!voiceSelect) return;
+
+        const normalizedVoices = Array.isArray(voices) ? voices : [];
+        const nextSignature = JSON.stringify(normalizedVoices.map(v => [v.voiceURI, v.name, v.lang, v.default]));
+        const currentSignature = JSON.stringify(availableVoices.map(v => [v.voiceURI, v.name, v.lang, v.default]));
+        const shouldRebuild = nextSignature !== currentSignature || voiceSelect.options.length <= 1;
+
+        if (shouldRebuild) {
+            availableVoices = normalizedVoices;
+            voiceSelect.innerHTML = '';
+            const autoOption = document.createElement('option');
+            autoOption.value = '';
+            autoOption.textContent = 'Auto voice';
+            voiceSelect.appendChild(autoOption);
+
+            normalizedVoices.forEach((voice) => {
+                const option = document.createElement('option');
+                option.value = voice.voiceURI;
+                option.textContent = formatVoiceLabel(voice);
+                voiceSelect.appendChild(option);
+            });
+        }
+
+        const desired = typeof selectedVoiceUri === 'string' ? selectedVoiceUri : '';
+        if (voiceSelect.value !== desired) {
+            voiceSelect.value = desired;
+        }
+        if (voiceSelect.value !== desired) {
+            voiceSelect.value = '';
+        }
+    }
+
+    function requestVoiceList() {
+        if (!activeTabId) return;
+        chrome.tabs.sendMessage(activeTabId, { action: 'getVoices' }, (response) => {
+            if (chrome.runtime.lastError || !response) return;
+            updateVoiceSelect(response.voices || [], response.selectedVoiceUri || '');
+        });
+    }
+
     function applySettingsToUI(settings) {
         const defaults = getProfileDefaults(activeProfile);
         const rate = Number(settings.speechRate ?? defaults.speechRate);
         rateSlider.value = rate;
         rateValue.textContent = `${rate.toFixed(1)}x`;
+        const selectedVoiceUri = typeof settings.voiceUri === 'string' ? settings.voiceUri : '';
+        updateVoiceSelect(availableVoices, selectedVoiceUri);
         const volume = Number(settings.volumeBoostLevel ?? defaults.volumeBoostLevel);
         volumeSlider.value = volume;
         volumeValue.textContent = `${volume.toFixed(1)}x`;
@@ -283,6 +334,9 @@ document.addEventListener('DOMContentLoaded', () => {
         volumeValue.textContent = `${level.toFixed(1)}x`;
         persistSetting('volumeBoostLevel', level);
     });
+    voiceSelect.addEventListener('change', (e) => {
+        persistSetting('voiceUri', e.target.value || '');
+    });
 
     highlightToggle.addEventListener('change', (e) => {
         persistSetting('wordHighlight', e.target.checked);
@@ -370,6 +424,7 @@ document.addEventListener('DOMContentLoaded', () => {
         getStoredProfileSettings((settings) => {
             applySettingsToUI(settings);
         });
+        requestVoiceList();
 
         const requestState = () => {
             chrome.tabs.sendMessage(activeTabId, { action: 'getState' }, (response) => {
@@ -386,6 +441,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                     if (response.settings) {
                         applySettingsToUI(response.settings);
+                    }
+                    if (availableVoices.length === 0 || !voiceSelect.value) {
+                        requestVoiceList();
                     }
                 }
             });

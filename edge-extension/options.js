@@ -5,6 +5,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const BASE_DEFAULT_SETTINGS = {
         speechRate: 5,
+        voiceUri: '',
         wordHighlight: true,
         gapTrim: true,
         readUserMessages: false,
@@ -62,6 +63,7 @@ document.addEventListener('DOMContentLoaded', () => {
         settingsProfile: document.getElementById('settingsProfile'),
         speechRate: document.getElementById('speechRate'),
         speechRateValue: document.getElementById('speechRateValue'),
+        voiceUri: document.getElementById('voiceUri'),
         wordHighlight: document.getElementById('wordHighlight'),
         gapTrim: document.getElementById('gapTrim'),
         volumeBoostEnabled: document.getElementById('volumeBoostEnabled'),
@@ -123,6 +125,8 @@ document.addEventListener('DOMContentLoaded', () => {
         'autoReadMinParagraphs'
     ];
 
+    let availableVoices = [];
+
     const toggleFields = [
         'wordHighlight',
         'gapTrim',
@@ -176,6 +180,54 @@ document.addEventListener('DOMContentLoaded', () => {
         elements.volumeBoostLevelValue.textContent = `${display}x`;
     }
 
+    function formatVoiceLabel(voice) {
+        const suffix = voice.default ? ' (Default)' : '';
+        return `${voice.name} - ${voice.lang}${suffix}`;
+    }
+
+    function getVoicesFromBrowser() {
+        if (!window.speechSynthesis || typeof window.speechSynthesis.getVoices !== 'function') {
+            return [];
+        }
+        return window.speechSynthesis.getVoices().map((voice) => ({
+            name: voice.name,
+            lang: voice.lang,
+            default: Boolean(voice.default),
+            voiceURI: voice.voiceURI
+        }));
+    }
+
+    function updateVoiceSelect(voices, selectedVoiceUri = '') {
+        if (!elements.voiceUri) return;
+        const normalizedVoices = Array.isArray(voices) ? voices : [];
+        const nextSignature = JSON.stringify(normalizedVoices.map(v => [v.voiceURI, v.name, v.lang, v.default]));
+        const currentSignature = JSON.stringify(availableVoices.map(v => [v.voiceURI, v.name, v.lang, v.default]));
+        const shouldRebuild = nextSignature !== currentSignature || elements.voiceUri.options.length <= 1;
+
+        if (shouldRebuild) {
+            availableVoices = normalizedVoices;
+            elements.voiceUri.innerHTML = '';
+            const autoOption = document.createElement('option');
+            autoOption.value = '';
+            autoOption.textContent = 'Auto voice';
+            elements.voiceUri.appendChild(autoOption);
+            normalizedVoices.forEach((voice) => {
+                const option = document.createElement('option');
+                option.value = voice.voiceURI;
+                option.textContent = formatVoiceLabel(voice);
+                elements.voiceUri.appendChild(option);
+            });
+        }
+
+        const desired = typeof selectedVoiceUri === 'string' ? selectedVoiceUri : '';
+        if (elements.voiceUri.value !== desired) {
+            elements.voiceUri.value = desired;
+        }
+        if (elements.voiceUri.value !== desired) {
+            elements.voiceUri.value = '';
+        }
+    }
+
     function coerceNumber(el, fallback) {
         const raw = Number(el.value);
         if (!Number.isFinite(raw)) return fallback;
@@ -193,6 +245,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         elements.speechRate.value = merged.speechRate;
         updateSpeechRateValue(Number(merged.speechRate));
+        updateVoiceSelect(availableVoices, merged.voiceUri);
         elements.volumeBoostLevel.value = merged.volumeBoostLevel;
         updateVolumeBoostValue(Number(merged.volumeBoostLevel));
 
@@ -211,6 +264,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const settings = {};
 
         settings.speechRate = coerceNumber(elements.speechRate, defaults.speechRate);
+        settings.voiceUri = elements.voiceUri.value || '';
 
         toggleFields.forEach((key) => {
             settings[key] = Boolean(elements[key].checked);
@@ -279,6 +333,9 @@ document.addEventListener('DOMContentLoaded', () => {
         updateSpeechRateValue(rate);
         scheduleSave();
     });
+    elements.voiceUri.addEventListener('change', () => {
+        scheduleSave();
+    });
 
     elements.volumeBoostLevel.addEventListener('input', () => {
         const level = coerceNumber(elements.volumeBoostLevel, getProfileDefaults(currentProfile).volumeBoostLevel);
@@ -314,5 +371,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     currentProfile = PROFILE_CHATGPT;
     elements.settingsProfile.value = currentProfile;
+    const hydrateVoices = () => {
+        const voices = getVoicesFromBrowser();
+        if (!voices.length) return;
+        updateVoiceSelect(voices, elements.voiceUri.value || '');
+    };
+    hydrateVoices();
+    if (window.speechSynthesis) {
+        window.speechSynthesis.onvoiceschanged = () => {
+            hydrateVoices();
+            loadProfile(currentProfile);
+        };
+    }
     loadProfile(currentProfile);
 });

@@ -124,6 +124,23 @@
             width: 100%;
         }
 
+        .select-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+        }
+
+        .popup-select {
+            width: 100%;
+            background: var(--popup-panel);
+            color: var(--popup-text);
+            border: 1px solid var(--popup-border);
+            border-radius: 6px;
+            padding: 7px 8px;
+            font-size: 13px;
+        }
+
         .toggle-list {
             display: flex;
             flex-direction: column;
@@ -266,6 +283,13 @@
             <span class="material-icons tone-muted">speed</span>
             <input type="range" min="0.5" max="5" value="5" step="0.1" class="slider" id="rateSlider">
             <span id="rateValue" class="value-label" style="min-width: 30px; text-align: right;">5.0x</span>
+        </div>
+
+        <div class="select-container">
+            <span class="material-icons tone-muted">record_voice_over</span>
+            <select id="voiceSelect" class="popup-select">
+                <option value="">Auto voice</option>
+            </select>
         </div>
 
         <div class="slider-container">

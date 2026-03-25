@@ -7,6 +7,7 @@
 
     const BASE_DEFAULT_SETTINGS = {
         speechRate: 5,
+        voiceUri: '',
         wordHighlight: true,
         gapTrim: true,
         readUserMessages: false,
@@ -173,6 +174,7 @@
             // Add #content-root and all its descendants to ignore list
             IGNORE_SELECTORS: '.settings-header, nav, script, style, noscript, header, footer, button, a, form, [aria-hidden="true"], [data-tts-ui], pre, code, [class*="code"], [class*="language-"], [class*="highlight"], .token, #thread-bottom-container, #content-root, #content-root *',
             SPEECH_RATE: 5,
+            VOICE_URI: '',
             QUEUE_LOOKAHEAD: 3,
             NAV_READ_DELAY_MS: 0,
             NAV_THROTTLE_MS: 20,
@@ -782,6 +784,29 @@
                 if (voices.length > 0) resolve(voices);
                 else this.speechSynthesis.onvoiceschanged = () => resolve(this.speechSynthesis.getVoices());
             });
+        },
+
+        getAvailableVoices() {
+            return this.speechSynthesis.getVoices().map((voice) => ({
+                name: voice.name,
+                lang: voice.lang,
+                default: Boolean(voice.default),
+                voiceURI: voice.voiceURI
+            }));
+        },
+
+        resolvePreferredVoice() {
+            const voices = this.speechSynthesis.getVoices();
+            if (!voices || voices.length === 0) return null;
+
+            if (this.CONFIG.VOICE_URI) {
+                const selected = voices.find(v => v.voiceURI === this.CONFIG.VOICE_URI);
+                if (selected) return selected;
+            }
+
+            return voices.find(v => v.name.includes('Ava') && !v.name.includes('Multilingual'))
+                || voices.find(v => v.lang && v.lang.toLowerCase().startsWith('en'))
+                || voices[0];
         },
 
         initParagraphObserver() {
@@ -1423,6 +1448,21 @@
             if (!silent) this.showNotification(`Speed ${this.CONFIG.SPEECH_RATE.toFixed(1)}x`);
         },
 
+        setVoiceUri(voiceUri, silent = false) {
+            const nextValue = typeof voiceUri === 'string' ? voiceUri : '';
+            if (this.CONFIG.VOICE_URI === nextValue) return;
+            this.CONFIG.VOICE_URI = nextValue;
+            if (silent) return;
+
+            if (!nextValue) {
+                this.showNotification('Voice auto');
+                return;
+            }
+
+            const selected = this.speechSynthesis.getVoices().find(v => v.voiceURI === nextValue);
+            this.showNotification(`Voice ${selected ? selected.name : 'updated'}`);
+        },
+
         setWordHighlightEnabled(enabled, silent = false) {
             const nextValue = Boolean(enabled);
             if (this.CONFIG.WORD_HIGHLIGHT_ENABLED === nextValue) return;
@@ -1689,9 +1729,8 @@
             const utterance = new SpeechSynthesisUtterance(text);
             utterance.rate = this.CONFIG.SPEECH_RATE;
             utterance.volume = 0.9;
-            const voices = this.speechSynthesis.getVoices();
-            const preferredVoice = voices.find(v => v.name.includes('Ava') && !v.name.includes('Multilingual')) || voices.find(v => v.lang.startsWith('en'));
-            if(preferredVoice) utterance.voice = preferredVoice;
+            const preferredVoice = this.resolvePreferredVoice();
+            if (preferredVoice) utterance.voice = preferredVoice;
 
             if (this.CONFIG.WORD_HIGHLIGHT_ENABLED) {
                 utterance.onboundary = (event) => this.highlightCurrentWord(event);
@@ -1729,8 +1768,7 @@
             const utterance = new SpeechSynthesisUtterance(para.text);
             utterance.rate = this.CONFIG.SPEECH_RATE;
             utterance.volume = 0.9;
-            const voices = this.speechSynthesis.getVoices();
-            const preferredVoice = voices.find(v => v.name.includes('Ava') && !v.name.includes('Multilingual')) || voices.find(v => v.lang.startsWith('en'));
+            const preferredVoice = this.resolvePreferredVoice();
             if (preferredVoice) utterance.voice = preferredVoice;
 
             utterance.onstart = () => this.onUtteranceStart(index);
@@ -2633,6 +2671,9 @@
             const rate = Number(settings.speechRate);
             if (Number.isFinite(rate)) TTSReader.setSpeechRate(rate, silent);
         }
+        if (typeof settings.voiceUri === 'string') {
+            TTSReader.setVoiceUri(settings.voiceUri, silent);
+        }
         if (typeof settings.wordHighlight === 'boolean') {
             TTSReader.setWordHighlightEnabled(settings.wordHighlight, silent);
         }
@@ -2850,6 +2891,12 @@
                 case 'setRate':
                     TTSReader.setSpeechRate(message.rate, true);
                     break;
+                case 'getVoices':
+                    sendResponse({
+                        voices: TTSReader.getAvailableVoices(),
+                        selectedVoiceUri: TTSReader.CONFIG.VOICE_URI
+                    });
+                    return true;
                 case 'applySettings':
                     applySettings(message.settings || {}, { silent: message.silent === true });
                     break;
@@ -2864,6 +2911,7 @@
                         },
                         settings: {
                             speechRate: TTSReader.CONFIG.SPEECH_RATE,
+                            voiceUri: TTSReader.CONFIG.VOICE_URI,
                             wordHighlight: TTSReader.CONFIG.WORD_HIGHLIGHT_ENABLED,
                             gapTrim: TTSReader.CONFIG.GAP_TRIM_ENABLED,
                             readUserMessages: TTSReader.CONFIG.READ_USER_MESSAGES,
