@@ -133,6 +133,8 @@
         paragraphObserver: null,
         paragraphsDirty: true,
         currentParagraphIndex: -1,
+        currentUtteranceStartOffset: 0,
+        queuedStartOffsets: new Map(),
         pendingNavIndex: -1,
         navKeyHeld: false,
         prewrappedParagraphs: new Map(),
@@ -173,6 +175,7 @@
         promptHistoryCursor: -1,
         promptHistoryDraft: '',
         promptHistoryDraftTooLarge: false,
+        selectionSeekDebounceId: null,
         isChatGPTPage: false,
         settingsProfile: PROFILE_CHATGPT,
         processedParagraph: { element: null, originalHTML: '', wordSpans: [], wordOffsets: [] },
@@ -1157,6 +1160,106 @@
             return isYouSaidHeading(sectionHeading);
         },
 
+        resolveParagraphIndexForNode(node) {
+            if (!node) return -1;
+            for (let i = 0; i < this.paragraphsList.length; i++) {
+                const para = this.paragraphsList[i];
+                if (!para || !para.element) continue;
+                if (para.element === node) return i;
+                if (para.element.contains(node)) return i;
+            }
+            return -1;
+        },
+
+        computeCharIndexWithinParagraphFromRange(paragraphElement, range) {
+            if (!paragraphElement || !range) return 0;
+            try {
+                const beforeRange = document.createRange();
+                beforeRange.selectNodeContents(paragraphElement);
+                beforeRange.setEnd(range.startContainer, range.startOffset);
+                const beforeText = this.cleanTextForTTS(beforeRange.toString() || '');
+                const maxIndex = Math.max(0, this.getTextFromElement(paragraphElement).length - 1);
+                const index = Math.max(0, Math.min(maxIndex, beforeText.length));
+                return Number.isFinite(index) ? index : 0;
+            } catch (_error) {
+                return 0;
+            }
+        },
+
+        getRangeFromPoint(x, y) {
+            if (typeof document.caretRangeFromPoint === 'function') {
+                return document.caretRangeFromPoint(x, y);
+            }
+            if (typeof document.caretPositionFromPoint === 'function') {
+                const pos = document.caretPositionFromPoint(x, y);
+                if (!pos || !pos.offsetNode) return null;
+                const range = document.createRange();
+                range.setStart(pos.offsetNode, pos.offset || 0);
+                range.collapse(true);
+                return range;
+            }
+            return null;
+        },
+
+        getSelectionJumpTarget(event) {
+            this.refreshParagraphsIfNeeded(false);
+            if (this.paragraphsList.length === 0) return null;
+
+            const selection = window.getSelection();
+            let range = null;
+            if (selection && selection.rangeCount > 0) {
+                range = selection.getRangeAt(0);
+            }
+
+            let startNode = range ? range.startContainer : null;
+            if (!startNode && event) {
+                const pointedRange = this.getRangeFromPoint(event.clientX, event.clientY);
+                if (pointedRange) {
+                    range = pointedRange;
+                    startNode = pointedRange.startContainer;
+                }
+            }
+            if (!startNode) return null;
+
+            const paragraphIndex = this.resolveParagraphIndexForNode(startNode);
+            if (paragraphIndex === -1) return null;
+            const paragraph = this.paragraphsList[paragraphIndex];
+            if (!paragraph || !paragraph.element) return null;
+
+            const charIndex = this.computeCharIndexWithinParagraphFromRange(paragraph.element, range);
+            return {
+                paragraphIndex,
+                charIndex
+            };
+        },
+
+        jumpReadingToSelectionTarget(target) {
+            if (!target) return false;
+            const paragraphIndex = Number.isInteger(target.paragraphIndex) ? target.paragraphIndex : -1;
+            const charIndex = Number.isFinite(target.charIndex) ? Math.max(0, Math.floor(target.charIndex)) : 0;
+            if (paragraphIndex < 0 || paragraphIndex >= this.paragraphsList.length) return false;
+
+            this.stopTTS(false);
+            this.continuousReadingActive = true;
+            this.readFromParagraph(paragraphIndex, { startCharIndex: charIndex });
+            return true;
+        },
+
+        handleSelectionSeek(event) {
+            if (!(this.ttsActive || this.continuousReadingActive || this.isPaused)) return;
+            if (!event || event.button !== 0) return;
+            if (event.target && event.target.closest && event.target.closest('[data-tts-ui]')) return;
+            if (event.target && event.target.closest && event.target.closest('input, textarea, [role="textbox"], [contenteditable=""], [contenteditable="true"]')) return;
+
+            clearTimeout(this.selectionSeekDebounceId);
+            this.selectionSeekDebounceId = setTimeout(() => {
+                this.selectionSeekDebounceId = null;
+                const target = this.getSelectionJumpTarget(event);
+                if (!target) return;
+                this.jumpReadingToSelectionTarget(target);
+            }, 50);
+        },
+
         isVisiblyReadable(element) {
             if (!element || !element.tagName || element.offsetParent === null || window.getComputedStyle(element).visibility === 'hidden' || window.getComputedStyle(element).display === 'none') {
                 return false;
@@ -1991,7 +2094,8 @@
                 this.currentWordSpan = null;
             }
 
-            const idx = this.findWordIndexByChar(event.charIndex);
+            const baseOffset = Number.isFinite(this.currentUtteranceStartOffset) ? this.currentUtteranceStartOffset : 0;
+            const idx = this.findWordIndexByChar((event.charIndex || 0) + baseOffset);
             if (idx === -1) return;
             const span = this.processedParagraph.wordSpans[idx];
             if (!span) return;
@@ -2115,13 +2219,34 @@
             const para = this.paragraphsList[index];
             if (!para || !para.element || !para.text) return;
 
-            const utterance = new SpeechSynthesisUtterance(para.text);
+            let utteranceText = para.text;
+            let startOffset = 0;
+            if (this.queuedStartOffsets.has(index)) {
+                const requestedOffset = Number(this.queuedStartOffsets.get(index));
+                this.queuedStartOffsets.delete(index);
+                if (Number.isFinite(requestedOffset)) {
+                    const safeOffset = Math.max(0, Math.min(utteranceText.length - 1, Math.floor(requestedOffset)));
+                    const sliced = utteranceText.slice(safeOffset);
+                    const leadingWhitespaceLength = (sliced.match(/^\s+/) || [''])[0].length;
+                    const normalizedOffset = safeOffset + leadingWhitespaceLength;
+                    const normalizedSlice = utteranceText.slice(normalizedOffset);
+                    if (normalizedSlice.trim().length > 0) {
+                        utteranceText = normalizedSlice;
+                        startOffset = normalizedOffset;
+                    }
+                }
+            }
+
+            if (!utteranceText || !utteranceText.trim()) return;
+
+            const utterance = new SpeechSynthesisUtterance(utteranceText);
             utterance.rate = this.CONFIG.SPEECH_RATE;
             utterance.volume = 0.9;
+            utterance.__tmxStartOffset = startOffset;
             const preferredVoice = this.resolvePreferredVoice();
             if (preferredVoice) utterance.voice = preferredVoice;
 
-            utterance.onstart = () => this.onUtteranceStart(index);
+            utterance.onstart = () => this.onUtteranceStart(index, utterance);
             if (this.CONFIG.WORD_HIGHLIGHT_ENABLED) {
                 utterance.onboundary = (event) => this.highlightCurrentWord(event);
             }
@@ -2132,20 +2257,31 @@
             this.speechSynthesis.speak(utterance);
         },
 
-        queueFromIndex(startIndex) {
+        queueFromIndex(startIndex, options = {}) {
             this.queuedParagraphs.clear();
+            this.queuedStartOffsets.clear();
             if (this.paragraphsDirty) {
                 this.refreshParagraphsIfNeeded(true);
             }
+
+            const requestedStartCharIndex = Number(options && options.startCharIndex);
+            if (Number.isFinite(requestedStartCharIndex) && requestedStartCharIndex > 0) {
+                this.queuedStartOffsets.set(startIndex, requestedStartCharIndex);
+            }
+
             const maxIndex = Math.min(this.paragraphsList.length - 1, startIndex + this.CONFIG.QUEUE_LOOKAHEAD);
             for (let i = startIndex; i <= maxIndex; i++) {
                 this.enqueueParagraph(i);
             }
         },
 
-        onUtteranceStart(index) {
+        onUtteranceStart(index, utterance = null) {
             this.ttsActive = true;
             this.isPaused = false;
+            const startOffset = utterance && Number.isFinite(utterance.__tmxStartOffset)
+                ? Number(utterance.__tmxStartOffset)
+                : 0;
+            this.currentUtteranceStartOffset = Math.max(0, startOffset);
 
             const startTime = performance.now();
             this.lastGapMs = this.lastUtteranceEndTime ? startTime - this.lastUtteranceEndTime : null;
@@ -2177,6 +2313,7 @@
 
         onUtteranceEnd(index) {
             this.ttsActive = false;
+            this.currentUtteranceStartOffset = 0;
             this.queuedParagraphs.delete(index);
             this.lastUtteranceEndTime = performance.now();
             this.clearHighlights(true);
@@ -2211,6 +2348,7 @@
                 voiceLang: utterance && utterance.voice ? utterance.voice.lang : null
             });
             this.ttsActive = false;
+            this.currentUtteranceStartOffset = 0;
             this.queuedParagraphs.delete(index);
             this.flushPendingReverts();
             this.revertParagraph();
@@ -2232,7 +2370,7 @@
             this.enqueueParagraph(nextIndex);
         },
 
-        readFromParagraph(index) {
+        readFromParagraph(index, options = {}) {
             if (!this.continuousReadingActive) {
                 this.revertParagraph();
                 return;
@@ -2243,12 +2381,14 @@
                 return;
             }
 
-            this.queueFromIndex(index);
+            this.queueFromIndex(index, options);
         },
 
         stopTTS(notify = true) {
             this.continuousReadingActive = false;
             clearTimeout(this.navigationTimeoutId);
+            clearTimeout(this.selectionSeekDebounceId);
+            this.selectionSeekDebounceId = null;
             if (this.speechSynthesis.speaking || this.speechSynthesis.pending) {
                 this.speechSynthesis.cancel();
             }
@@ -2261,6 +2401,8 @@
             this.flushPendingReverts();
             this.revertParagraph();
             this.currentParagraphIndex = -1;
+            this.currentUtteranceStartOffset = 0;
+            this.queuedStartOffsets.clear();
             this.wordHighlightActiveForCurrent = false;
             this.lastUtteranceEndTime = 0;
             this.lastGapMs = null;
@@ -2631,6 +2773,8 @@
                     this.startReadingFromPendingNav();
                 }
             });
+            document.addEventListener('mouseup', (event) => this.handleSelectionSeek(event), true);
+            document.addEventListener('dblclick', (event) => this.handleSelectionSeek(event), true);
             const interactionHandler = () => this.markUserInteraction();
             window.addEventListener('wheel', interactionHandler, { passive: true });
             window.addEventListener('touchstart', interactionHandler, { passive: true });
