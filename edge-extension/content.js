@@ -171,6 +171,7 @@
         promptHistory: [],
         promptHistoryCursor: -1,
         promptHistoryDraft: '',
+        promptHistoryDraftTooLarge: false,
         isChatGPTPage: false,
         settingsProfile: PROFILE_CHATGPT,
         processedParagraph: { element: null, originalHTML: '', wordSpans: [], wordOffsets: [] },
@@ -219,6 +220,7 @@
             IDLE_ARROW_NAVIGATION: true,
             PROMPT_HISTORY_NAV_ENABLED: true,
             PROMPT_HISTORY_MAX: 200,
+            PROMPT_HISTORY_MAX_CHARS: 6000,
             VOLUME_BOOST_ENABLED: true,
             VOLUME_BOOST_LEVEL: 1.3,
             ENTER_TO_SEND_ENABLED: true,
@@ -407,6 +409,8 @@
         addPromptToHistory(text) {
             const normalized = this.normalizePromptHistoryText(text);
             if (!normalized) return;
+            const maxChars = Math.max(500, Number(this.CONFIG.PROMPT_HISTORY_MAX_CHARS) || 6000);
+            if (normalized.length > maxChars) return;
             const last = this.promptHistory.length > 0 ? this.promptHistory[this.promptHistory.length - 1] : '';
             if (last === normalized) return;
 
@@ -417,6 +421,7 @@
             }
             this.promptHistoryCursor = -1;
             this.promptHistoryDraft = '';
+            this.promptHistoryDraftTooLarge = false;
         },
 
         extractUserMessageText(messageElement) {
@@ -437,6 +442,7 @@
             });
             this.promptHistoryCursor = -1;
             this.promptHistoryDraft = '';
+            this.promptHistoryDraftTooLarge = false;
         },
 
         initPromptHistoryObserver() {
@@ -471,6 +477,7 @@
             this.CONFIG.PROMPT_HISTORY_NAV_ENABLED = nextValue;
             this.promptHistoryCursor = -1;
             this.promptHistoryDraft = '';
+            this.promptHistoryDraftTooLarge = false;
             if (!silent) {
                 this.showNotification(`Prompt history nav ${nextValue ? 'on' : 'off'}`);
             }
@@ -493,13 +500,35 @@
             }
 
             const direction = event.key === 'ArrowUp' ? -1 : 1;
+            const maxChars = Math.max(500, Number(this.CONFIG.PROMPT_HISTORY_MAX_CHARS) || 6000);
             if (this.promptHistoryCursor === -1) {
-                this.promptHistoryDraft = this.getPromptText(promptArea);
+                const draft = this.getPromptText(promptArea);
+                if (draft.length > maxChars) {
+                    this.promptHistoryDraft = '';
+                    this.promptHistoryDraftTooLarge = true;
+                } else {
+                    this.promptHistoryDraft = draft;
+                    this.promptHistoryDraftTooLarge = false;
+                }
                 this.promptHistoryCursor = this.promptHistory.length;
             }
 
-            let nextCursor = this.promptHistoryCursor + direction;
-            nextCursor = Math.max(0, Math.min(nextCursor, this.promptHistory.length));
+            let nextCursor = this.promptHistoryCursor;
+            while (true) {
+                const candidate = nextCursor + direction;
+                if (candidate < 0 || candidate > this.promptHistory.length) break;
+                if (candidate === this.promptHistory.length) {
+                    nextCursor = candidate;
+                    break;
+                }
+
+                const candidateText = this.promptHistory[candidate] || '';
+                if (candidateText.length <= maxChars) {
+                    nextCursor = candidate;
+                    break;
+                }
+                nextCursor = candidate;
+            }
 
             if (nextCursor === this.promptHistoryCursor) {
                 return true;
@@ -507,6 +536,10 @@
 
             this.promptHistoryCursor = nextCursor;
             if (nextCursor === this.promptHistory.length) {
+                if (this.promptHistoryDraftTooLarge) {
+                    this.showNotification('Current draft too large to restore via Ctrl up/down.');
+                    return true;
+                }
                 this.setPromptText(this.promptHistoryDraft || '');
             } else {
                 this.setPromptText(this.promptHistory[nextCursor] || '');
