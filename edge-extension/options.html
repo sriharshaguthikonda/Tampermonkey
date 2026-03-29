@@ -76,6 +76,10 @@
                 <input id="readReferences" type="checkbox" />
             </div>
             <div class="field toggle">
+                <label for="chatgptTextStyling">🎨 ChatGPT emphasis styling (em/strong)</label>
+                <input id="chatgptTextStyling" type="checkbox" />
+            </div>
+            <div class="field toggle">
                 <label for="loopOnEnd">🔁 Loop to top</label>
                 <input id="loopOnEnd" type="checkbox" />
             </div>
@@ -101,6 +105,18 @@
             <div class="field toggle">
                 <label for="showDiagnostics">📊 Diagnostics panel</label>
                 <input id="showDiagnostics" type="checkbox" />
+            </div>
+            <div class="field">
+                <label for="hiddenTabPolicy">👁️ Hidden tab policy</label>
+                <select id="hiddenTabPolicy">
+                    <option value="never">Never pause</option>
+                    <option value="delay">Pause after delay</option>
+                    <option value="immediate">Pause immediately</option>
+                </select>
+            </div>
+            <div class="field">
+                <label for="autoPauseHiddenDelayMs">⏱️ Hidden pause delay (ms)</label>
+                <input id="autoPauseHiddenDelayMs" type="number" min="0" step="500" />
             </div>
             <div class="field toggle">
                 <label for="enterToSendEnabled">⌨️ Enter-to-send (double press)</label>

@@ -10,6 +10,7 @@ document.addEventListener('DOMContentLoaded', () => {
         gapTrim: true,
         readUserMessages: false,
         readReferences: false,
+        chatgptTextStyling: false,
         autoRead: false,
         loopOnEnd: true,
         autoScrollEnabled: true,
@@ -18,6 +19,8 @@ document.addEventListener('DOMContentLoaded', () => {
         showPageOverlay: true,
         overlayPosition: null,
         showDiagnostics: true,
+        hiddenTabPolicy: 'delay',
+        autoPauseHiddenDelayMs: 5000,
         volumeBoostEnabled: true,
         volumeBoostLevel: 1.3,
         enterToSendEnabled: true,
@@ -64,6 +67,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const voiceSelect = document.getElementById('voiceSelect');
     const statusDiv = document.getElementById('status');
     const progressDiv = document.getElementById('progress');
+    const lockInfoDiv = document.getElementById('lockInfo');
     const optionsBtn = document.getElementById('optionsBtn');
     const resetOverlayBtn = document.getElementById('resetOverlayBtn');
 
@@ -71,6 +75,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const gapTrimToggle = document.getElementById('gapTrimToggle');
     const readUserMessagesToggle = document.getElementById('readUserMessagesToggle');
     const readReferencesToggle = document.getElementById('readReferencesToggle');
+    const chatStyleToggle = document.getElementById('chatStyleToggle');
     const autoReadToggle = document.getElementById('autoReadToggle');
     const loopToggle = document.getElementById('loopToggle');
     const autoScrollToggle = document.getElementById('autoScrollToggle');
@@ -78,6 +83,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const promptHistoryNavToggle = document.getElementById('promptHistoryNavToggle');
     const pageOverlayToggle = document.getElementById('pageOverlayToggle');
     const diagnosticsToggle = document.getElementById('diagnosticsToggle');
+    const hiddenTabPolicySelect = document.getElementById('hiddenTabPolicySelect');
+    const autoPauseHiddenDelayInput = document.getElementById('autoPauseHiddenDelayInput');
     const volumeBoostToggle = document.getElementById('volumeBoostToggle');
     const enterToSendToggle = document.getElementById('enterToSendToggle');
     const globalPasteToggle = document.getElementById('globalPasteToggle');
@@ -191,6 +198,27 @@ document.addEventListener('DOMContentLoaded', () => {
         progressDiv.textContent = `Progress: ${progress.current}/${progress.total}`;
     }
 
+    function updateLockInfo(lock) {
+        if (!lockInfoDiv) return;
+        if (!lock) {
+            lockInfoDiv.textContent = 'Lock: free';
+            return;
+        }
+        if (activeTabId && Number.isInteger(lock.tabId) && lock.tabId === activeTabId) {
+            lockInfoDiv.textContent = 'Lock: this tab';
+            return;
+        }
+        const age = Number.isFinite(lock.ageMs) ? `${Math.round(lock.ageMs)}ms` : '--';
+        lockInfoDiv.textContent = `Lock: another tab (tab ${lock.tabId ?? '?'}, ${age})`;
+    }
+
+    function requestLockState() {
+        chrome.runtime.sendMessage({ action: 'getPlaybackLockState' }, (response) => {
+            if (chrome.runtime.lastError || !response) return;
+            updateLockInfo(response.lock || null);
+        });
+    }
+
     function formatVoiceLabel(voice) {
         const suffix = voice.default ? ' (Default)' : '';
         return `${voice.name} - ${voice.lang}${suffix}`;
@@ -251,6 +279,7 @@ document.addEventListener('DOMContentLoaded', () => {
         gapTrimToggle.checked = Boolean(settings.gapTrim);
         readUserMessagesToggle.checked = Boolean(settings.readUserMessages);
         readReferencesToggle.checked = Boolean(settings.readReferences);
+        chatStyleToggle.checked = Boolean(settings.chatgptTextStyling);
         autoReadToggle.checked = Boolean(settings.autoRead);
         loopToggle.checked = Boolean(settings.loopOnEnd);
         autoScrollToggle.checked = Boolean(settings.autoScrollEnabled);
@@ -258,6 +287,11 @@ document.addEventListener('DOMContentLoaded', () => {
         promptHistoryNavToggle.checked = Boolean(settings.promptHistoryNavEnabled);
         pageOverlayToggle.checked = Boolean(settings.showPageOverlay);
         diagnosticsToggle.checked = Boolean(settings.showDiagnostics);
+        hiddenTabPolicySelect.value = String(settings.hiddenTabPolicy || defaults.hiddenTabPolicy);
+        autoPauseHiddenDelayInput.value = Number.isFinite(Number(settings.autoPauseHiddenDelayMs))
+            ? String(Math.max(0, Math.round(Number(settings.autoPauseHiddenDelayMs))))
+            : String(defaults.autoPauseHiddenDelayMs);
+        autoPauseHiddenDelayInput.disabled = hiddenTabPolicySelect.value !== 'delay';
         volumeBoostToggle.checked = Boolean(settings.volumeBoostEnabled);
         enterToSendToggle.checked = Boolean(settings.enterToSendEnabled);
         globalPasteToggle.checked = Boolean(settings.globalPasteEnabled);
@@ -354,6 +388,9 @@ document.addEventListener('DOMContentLoaded', () => {
     readReferencesToggle.addEventListener('change', (e) => {
         persistSetting('readReferences', e.target.checked);
     });
+    chatStyleToggle.addEventListener('change', (e) => {
+        persistSetting('chatgptTextStyling', e.target.checked);
+    });
     autoReadToggle.addEventListener('change', (e) => {
         persistSetting('autoRead', e.target.checked);
     });
@@ -374,6 +411,16 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     diagnosticsToggle.addEventListener('change', (e) => {
         persistSetting('showDiagnostics', e.target.checked);
+    });
+    hiddenTabPolicySelect.addEventListener('change', (e) => {
+        autoPauseHiddenDelayInput.disabled = e.target.value !== 'delay';
+        persistSetting('hiddenTabPolicy', e.target.value || 'delay');
+    });
+    autoPauseHiddenDelayInput.addEventListener('change', (e) => {
+        const nextValue = Number(e.target.value);
+        const clamped = Number.isFinite(nextValue) ? Math.max(0, Math.round(nextValue)) : 5000;
+        e.target.value = String(clamped);
+        persistSetting('autoPauseHiddenDelayMs', clamped);
     });
     volumeBoostToggle.addEventListener('change', (e) => {
         persistSetting('volumeBoostEnabled', e.target.checked);
@@ -432,12 +479,14 @@ document.addEventListener('DOMContentLoaded', () => {
             applySettingsToUI(settings);
         });
         requestVoiceList();
+        requestLockState();
 
         const requestState = () => {
             chrome.tabs.sendMessage(activeTabId, { action: 'getState' }, (response) => {
                 if (chrome.runtime.lastError) {
                     showStatus('Open ChatGPT/local page to use this extension.');
                     startBtn.disabled = true;
+                    requestLockState();
                     return;
                 }
                 if (response && response.state) {
@@ -453,6 +502,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         requestVoiceList();
                     }
                 }
+                requestLockState();
             });
         };
 

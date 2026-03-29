@@ -12,6 +12,7 @@
         gapTrim: true,
         readUserMessages: false,
         readReferences: false,
+        chatgptTextStyling: false,
         autoRead: false,
         loopOnEnd: true,
         autoScrollEnabled: true,
@@ -20,6 +21,8 @@
         showPageOverlay: true,
         overlayPosition: null,
         showDiagnostics: true,
+        hiddenTabPolicy: 'delay',
+        autoPauseHiddenDelayMs: 5000,
         volumeBoostEnabled: true,
         volumeBoostLevel: 1.3,
         enterToSendEnabled: true,
@@ -176,6 +179,15 @@
         promptHistoryDraft: '',
         promptHistoryDraftTooLarge: false,
         selectionSeekDebounceId: null,
+        playbackOwnerId: null,
+        playbackLockOwned: false,
+        playbackLockHeartbeatId: null,
+        playbackSessionId: 0,
+        hiddenPauseTimeoutId: null,
+        hiddenSince: 0,
+        pausedForHiddenTab: false,
+        interruptedRetryAttempts: new Map(),
+        chatgptTextStyleElement: null,
         isChatGPTPage: false,
         settingsProfile: PROFILE_CHATGPT,
         processedParagraph: { element: null, originalHTML: '', wordSpans: [], wordOffsets: [] },
@@ -210,6 +222,7 @@
             READ_USER_MESSAGES: false,
             USER_MESSAGE_SELECTORS: '[data-message-author-role="user"], section[data-turn="user"], [data-turn="user"]',
             READ_REFERENCES: false,
+            CHATGPT_TEXT_STYLING: false,
             REFERENCE_SELECTORS: '[data-testid="webpage-citation-pill"], [data-testid*="citation"], .webpage-citation-pill, .citation-pill, [data-source], cite',
             PREWRAP_IDLE_TIMEOUT_MS: 250,
             DEFERRED_REVERT_IDLE_MS: 250,
@@ -240,13 +253,20 @@
             DOUBLE_CLICK_EDIT_ENABLED: true,
             AUTO_CLOSE_LIMIT_WARNING: true,
             LIMIT_WARNING_DELAY_MS: 1500,
+            PLAYBACK_LOCK_HEARTBEAT_MS: 2500,
+            HIDDEN_TAB_POLICY: 'delay',
+            AUTO_PAUSE_HIDDEN_DELAY_MS: 5000,
+            INTERRUPTED_RETRY_MAX: 1,
+            INTERRUPTED_RETRY_DELAY_MS: 250,
             HOTKEYS: { ACTIVATE: 'U', PAUSE_RESUME: 'P', NAV_NEXT: 'ArrowRight', NAV_PREV: 'ArrowLeft', STOP: 'Escape' },
             EMOJI_REGEX: /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE0F}]/ug
         },
 
         init() {
             this.settingsProfile = getCurrentProfile();
+            this.playbackOwnerId = this.generatePlaybackOwnerId();
             this.detectContext();
+            this.applyChatGPTTextStyling();
             this.waitForPageLoad();
             this.createUI();
             this.setupEventListeners();
@@ -273,6 +293,245 @@
                 this.CONFIG.WAIT_FOR_MORE_MS = 0;
                 this.CONFIG.LOOP_WAIT_MS = 0;
             }
+        },
+
+        generatePlaybackOwnerId() {
+            const randomPart = Math.random().toString(36).slice(2, 10);
+            return `tts-${Date.now()}-${randomPart}`;
+        },
+
+        advancePlaybackSession(reason = 'session-reset') {
+            this.playbackSessionId += 1;
+            this.logPlaybackGuardEvent('playback-session-advanced', {
+                reason,
+                playbackSessionId: this.playbackSessionId
+            });
+            return this.playbackSessionId;
+        },
+
+        isStaleUtterance(utterance) {
+            if (!utterance || !Number.isFinite(utterance.__tmxSessionId)) return false;
+            return utterance.__tmxSessionId !== this.playbackSessionId;
+        },
+
+        logPlaybackGuardEvent(event, details = {}) {
+            if (!this.CONFIG.SHOW_DIAGNOSTICS_PANEL) return;
+            console.debug('[TTS][Guard]', {
+                event,
+                ownerId: this.playbackOwnerId,
+                lockOwned: this.playbackLockOwned,
+                visibility: document.visibilityState,
+                url: window.location && window.location.href ? window.location.href : '',
+                ...details
+            });
+        },
+
+        sendRuntimeMessage(message, onDone) {
+            if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) {
+                onDone(null, null);
+                return;
+            }
+            chrome.runtime.sendMessage(message, (response) => {
+                const runtimeError = chrome.runtime.lastError ? chrome.runtime.lastError.message : null;
+                onDone(response, runtimeError);
+            });
+        },
+
+        requestPlaybackLock(reason, onDone) {
+            if (!this.playbackOwnerId) {
+                this.playbackOwnerId = this.generatePlaybackOwnerId();
+            }
+            if (this.playbackLockOwned) {
+                this.renewPlaybackLock(`reuse:${reason}`);
+                onDone(true);
+                return;
+            }
+
+            this.sendRuntimeMessage({
+                action: 'requestPlaybackLock',
+                ownerId: this.playbackOwnerId,
+                allowPreempt: true,
+                reason,
+                url: window.location && window.location.href ? window.location.href : ''
+            }, (response, error) => {
+                // If lock service is unavailable, fail open to avoid breaking existing playback.
+                if (error || !response || typeof response.granted === 'undefined') {
+                    this.playbackLockOwned = true;
+                    this.startPlaybackLockHeartbeat();
+                    this.logPlaybackGuardEvent('lock-fallback-granted', { reason, error });
+                    onDone(true);
+                    return;
+                }
+
+                if (response.granted) {
+                    this.playbackLockOwned = true;
+                    this.startPlaybackLockHeartbeat();
+                    this.logPlaybackGuardEvent('lock-granted', {
+                        reason,
+                        preempted: Boolean(response.preempted)
+                    });
+                    onDone(true);
+                    return;
+                }
+
+                this.playbackLockOwned = false;
+                this.stopPlaybackLockHeartbeat();
+                this.logPlaybackGuardEvent('lock-denied', {
+                    reason,
+                    activeOwnerId: response.activeOwnerId || null,
+                    activeUrl: response.activeUrl || null,
+                    activeTabId: Number.isInteger(response.activeTabId) ? response.activeTabId : null,
+                    activeWindowId: Number.isInteger(response.activeWindowId) ? response.activeWindowId : null
+                });
+                if (this.isPlaybackSessionActive()) {
+                    this.showNotification('TTS is active in another tab.');
+                }
+                onDone(false);
+            });
+        },
+
+        renewPlaybackLock(reason = 'heartbeat') {
+            if (!this.playbackLockOwned || !this.playbackOwnerId) return;
+            this.sendRuntimeMessage({
+                action: 'renewPlaybackLock',
+                ownerId: this.playbackOwnerId,
+                reason,
+                url: window.location && window.location.href ? window.location.href : ''
+            }, (response, error) => {
+                if (error) {
+                    this.logPlaybackGuardEvent('lock-renew-error', { reason, error });
+                    return;
+                }
+                if (!response || !response.granted) {
+                    this.playbackLockOwned = false;
+                    this.stopPlaybackLockHeartbeat();
+                    this.logPlaybackGuardEvent('lock-renew-lost', { reason });
+                }
+            });
+        },
+
+        releasePlaybackLock(reason = 'release') {
+            this.stopPlaybackLockHeartbeat();
+            if (!this.playbackOwnerId || !this.playbackLockOwned) {
+                this.playbackLockOwned = false;
+                return;
+            }
+
+            const ownerId = this.playbackOwnerId;
+            this.playbackLockOwned = false;
+            this.sendRuntimeMessage({
+                action: 'releasePlaybackLock',
+                ownerId,
+                reason
+            }, (_response, _error) => {});
+            this.logPlaybackGuardEvent('lock-released', { reason });
+        },
+
+        startPlaybackLockHeartbeat() {
+            this.stopPlaybackLockHeartbeat();
+            const intervalMs = Math.max(1000, Number(this.CONFIG.PLAYBACK_LOCK_HEARTBEAT_MS) || 2500);
+            this.playbackLockHeartbeatId = setInterval(() => {
+                if (!this.playbackLockOwned) {
+                    this.stopPlaybackLockHeartbeat();
+                    return;
+                }
+                if (!this.isPlaybackSessionActive()) {
+                    this.releasePlaybackLock('inactive-heartbeat-stop');
+                    return;
+                }
+                this.renewPlaybackLock('heartbeat');
+            }, intervalMs);
+        },
+
+        stopPlaybackLockHeartbeat() {
+            if (!this.playbackLockHeartbeatId) return;
+            clearInterval(this.playbackLockHeartbeatId);
+            this.playbackLockHeartbeatId = null;
+        },
+
+        handlePlaybackLockRevoked(payload = {}) {
+            const byOwnerId = payload.byOwnerId || null;
+            this.logPlaybackGuardEvent('lock-revoked', { byOwnerId });
+            if (!this.isPlaybackSessionActive()) {
+                this.playbackLockOwned = false;
+                this.stopPlaybackLockHeartbeat();
+                return;
+            }
+            this.playbackLockOwned = false;
+            this.stopPlaybackLockHeartbeat();
+            this.stopTTS(false);
+            this.showNotification('Stopped: another tab took TTS control.');
+        },
+
+        handleVisibilityPlaybackGuard() {
+            if (document.hidden) {
+                this.hiddenSince = Date.now();
+                const policy = this.normalizeHiddenTabPolicy(this.CONFIG.HIDDEN_TAB_POLICY);
+                if (policy === 'never') {
+                    this.logPlaybackGuardEvent('visibility-hidden', { policy, action: 'ignore' });
+                    return;
+                }
+                const shouldPauseLater = this.isPlaybackSessionActive() && !this.isPaused && this.speechSynthesis && this.speechSynthesis.speaking;
+                if (!shouldPauseLater) return;
+
+                if (this.hiddenPauseTimeoutId) return;
+                const configuredDelay = Math.max(0, Number(this.CONFIG.AUTO_PAUSE_HIDDEN_DELAY_MS) || 5000);
+                const delayMs = policy === 'immediate' ? 0 : configuredDelay;
+                this.logPlaybackGuardEvent('visibility-hidden', { policy, delayMs });
+
+                const pauseNow = () => {
+                    this.hiddenPauseTimeoutId = null;
+                    if (!document.hidden) return;
+                    const stillShouldPause = this.isPlaybackSessionActive() && !this.isPaused && this.speechSynthesis && this.speechSynthesis.speaking;
+                    if (!stillShouldPause) return;
+                    this.speechSynthesis.pause();
+                    this.isPaused = true;
+                    this.pausedForHiddenTab = true;
+                    this.logPlaybackGuardEvent('visibility-auto-paused', {
+                        hiddenForMs: this.hiddenSince ? Date.now() - this.hiddenSince : null
+                    });
+                };
+
+                if (delayMs === 0) {
+                    pauseNow();
+                    return;
+                }
+
+                this.hiddenPauseTimeoutId = setTimeout(pauseNow, delayMs);
+                return;
+            }
+
+            if (this.hiddenPauseTimeoutId) {
+                clearTimeout(this.hiddenPauseTimeoutId);
+                this.hiddenPauseTimeoutId = null;
+                this.logPlaybackGuardEvent('visibility-pause-cancelled', {
+                    hiddenForMs: this.hiddenSince ? Date.now() - this.hiddenSince : null
+                });
+            }
+            this.hiddenSince = 0;
+
+            if (!this.pausedForHiddenTab) return;
+            this.pausedForHiddenTab = false;
+            if (this.speechSynthesis && this.speechSynthesis.paused) {
+                this.speechSynthesis.resume();
+                this.isPaused = false;
+                this.logPlaybackGuardEvent('visibility-auto-resumed');
+            }
+        },
+
+        shouldRetryInterruptedUtterance(error, index) {
+            const details = this.describeSpeechErrorEvent(error);
+            const err = (details.error || '').toLowerCase();
+            if (err !== 'interrupted' && err !== 'canceled') return false;
+            if (!this.continuousReadingActive) return false;
+            if (document.hidden) return false;
+            if (!this.playbackLockOwned) return false;
+
+            const maxRetries = Math.max(0, Number(this.CONFIG.INTERRUPTED_RETRY_MAX) || 1);
+            const attempts = Number(this.interruptedRetryAttempts.get(index) || 0);
+            if (attempts >= maxRetries) return false;
+            this.interruptedRetryAttempts.set(index, attempts + 1);
+            return true;
         },
 
         initMediaEnhancements() {
@@ -1239,6 +1498,12 @@
             const charIndex = Number.isFinite(target.charIndex) ? Math.max(0, Math.floor(target.charIndex)) : 0;
             if (paragraphIndex < 0 || paragraphIndex >= this.paragraphsList.length) return false;
 
+            this.logPlaybackGuardEvent('selection-seek-jump', {
+                paragraphIndex,
+                charIndex,
+                currentParagraphIndex: this.currentParagraphIndex
+            });
+
             this.stopTTS(false);
             this.continuousReadingActive = true;
             this.readFromParagraph(paragraphIndex, { startCharIndex: charIndex });
@@ -1247,6 +1512,7 @@
 
         handleSelectionSeek(event) {
             if (!(this.ttsActive || this.continuousReadingActive || this.isPaused)) return;
+            if (!event || event.type !== 'dblclick') return;
             if (!event || event.button !== 0) return;
             if (event.target && event.target.closest && event.target.closest('[data-tts-ui]')) return;
             if (event.target && event.target.closest && event.target.closest('input, textarea, [role="textbox"], [contenteditable=""], [contenteditable="true"]')) return;
@@ -1256,6 +1522,7 @@
                 this.selectionSeekDebounceId = null;
                 const target = this.getSelectionJumpTarget(event);
                 if (!target) return;
+                this.logPlaybackGuardEvent('selection-seek-target', target);
                 this.jumpReadingToSelectionTarget(target);
             }, 50);
         },
@@ -1916,6 +2183,54 @@
             }
         },
 
+        applyChatGPTTextStyling() {
+            if (this.chatgptTextStyleElement && this.chatgptTextStyleElement.parentNode) {
+                this.chatgptTextStyleElement.parentNode.removeChild(this.chatgptTextStyleElement);
+            }
+            this.chatgptTextStyleElement = null;
+
+            if (!this.isChatGPTPage || !this.CONFIG.CHATGPT_TEXT_STYLING) {
+                return;
+            }
+
+            const style = document.createElement('style');
+            style.id = 'tts-chatgpt-text-styling';
+            style.setAttribute('data-tts-ui', 'true');
+            style.textContent = `
+                [data-message-author-role] .markdown em {
+                    text-decoration: none !important;
+                    font-weight: 700 !important;
+                    font-style: normal !important;
+                    color: #f7335d !important;
+                }
+                [data-message-author-role] .markdown strong {
+                    color: #1177ff !important;
+                    font-weight: 700 !important;
+                    font-style: normal !important;
+                    text-decoration: none !important;
+                }
+            `;
+            document.head.appendChild(style);
+            this.chatgptTextStyleElement = style;
+        },
+
+        setChatGPTTextStylingEnabled(enabled, silent = false) {
+            const nextValue = Boolean(enabled);
+            if (this.CONFIG.CHATGPT_TEXT_STYLING === nextValue) {
+                this.applyChatGPTTextStyling();
+                return;
+            }
+            this.CONFIG.CHATGPT_TEXT_STYLING = nextValue;
+            this.applyChatGPTTextStyling();
+            if (!silent) {
+                if (!this.isChatGPTPage && nextValue) {
+                    this.showNotification('Chat styling applies on ChatGPT pages only');
+                } else {
+                    this.showNotification(`Chat styling ${nextValue ? 'on' : 'off'}`);
+                }
+            }
+        },
+
         setLoopEnabled(enabled, silent = false) {
             const nextValue = Boolean(enabled);
             if (this.CONFIG.LOOP_ON_END === nextValue) return;
@@ -1939,6 +2254,32 @@
 
             if (!silent) {
                 this.showNotification(`Auto-scroll ${nextValue ? 'on' : 'off'}`);
+            }
+        },
+
+        normalizeHiddenTabPolicy(value) {
+            const raw = String(value || '').toLowerCase();
+            if (raw === 'never' || raw === 'immediate' || raw === 'delay') return raw;
+            return 'delay';
+        },
+
+        setHiddenTabPolicy(policy, silent = false) {
+            const nextPolicy = this.normalizeHiddenTabPolicy(policy);
+            if (this.CONFIG.HIDDEN_TAB_POLICY === nextPolicy) return;
+            this.CONFIG.HIDDEN_TAB_POLICY = nextPolicy;
+            if (!silent) {
+                this.showNotification(`Hidden tab policy: ${nextPolicy}`);
+            }
+        },
+
+        setAutoPauseHiddenDelayMs(value, silent = false) {
+            const parsed = Number(value);
+            if (!Number.isFinite(parsed)) return;
+            const nextDelay = Math.max(0, Math.round(parsed));
+            if (this.CONFIG.AUTO_PAUSE_HIDDEN_DELAY_MS === nextDelay) return;
+            this.CONFIG.AUTO_PAUSE_HIDDEN_DELAY_MS = nextDelay;
+            if (!silent) {
+                this.showNotification(`Hidden pause delay: ${nextDelay} ms`);
             }
         },
 
@@ -2138,6 +2479,17 @@
                     queueSize: this.queuedParagraphs.size,
                     paragraphsCount: this.paragraphsList.length
                 },
+                guardState: {
+                    visibility: document.visibilityState,
+                    lockOwned: this.playbackLockOwned,
+                    ownerId: this.playbackOwnerId,
+                    pausedForHiddenTab: this.pausedForHiddenTab,
+                    hiddenTabPolicy: this.CONFIG.HIDDEN_TAB_POLICY,
+                    hiddenPauseDelayMs: this.CONFIG.AUTO_PAUSE_HIDDEN_DELAY_MS,
+                    retryCountForIndex: Number.isInteger(extra.index)
+                        ? Number(this.interruptedRetryAttempts.get(extra.index) || 0)
+                        : 0
+                },
                 utterance: {
                     index: Number.isInteger(extra.index) ? extra.index : null,
                     voiceName: extra.voiceName || null,
@@ -2172,40 +2524,55 @@
                 if (onComplete) onComplete();
                 return;
             }
+            this.requestPlaybackLock('start-noncontinuous', (granted) => {
+                if (!granted) return;
 
-            this.ttsActive = true;
-            this.isPaused = false;
-            const utterance = new SpeechSynthesisUtterance(text);
-            utterance.rate = this.CONFIG.SPEECH_RATE;
-            utterance.volume = 0.9;
-            const preferredVoice = this.resolvePreferredVoice();
-            if (preferredVoice) utterance.voice = preferredVoice;
+                this.ttsActive = true;
+                this.isPaused = false;
+                const utterance = new SpeechSynthesisUtterance(text);
+                utterance.__tmxSessionId = this.playbackSessionId;
+                utterance.rate = this.CONFIG.SPEECH_RATE;
+                utterance.volume = 0.9;
+                const preferredVoice = this.resolvePreferredVoice();
+                if (preferredVoice) utterance.voice = preferredVoice;
 
-            if (this.CONFIG.WORD_HIGHLIGHT_ENABLED) {
-                utterance.onboundary = (event) => this.highlightCurrentWord(event);
-            }
-
-            utterance.onend = () => {
-                this.ttsActive = false;
-                if (onComplete && this.continuousReadingActive) {
-                    onComplete();
-                } else {
-                    this.stopTTS(false);
+                if (this.CONFIG.WORD_HIGHLIGHT_ENABLED) {
+                    utterance.onboundary = (event) => {
+                        if (this.isStaleUtterance(utterance)) return;
+                        this.highlightCurrentWord(event);
+                    };
                 }
-            };
-            utterance.onerror = (e) => {
-                this.logSpeechSynthesisError('triggerTTS', e, {
-                    text,
-                    rate: utterance.rate,
-                    voiceName: utterance.voice ? utterance.voice.name : null,
-                    voiceLang: utterance.voice ? utterance.voice.lang : null
-                });
-                this.ttsActive = false;
-                this.revertParagraph();
-                if (onComplete && this.continuousReadingActive) onComplete();
-            };
 
-            this.speechSynthesis.speak(utterance);
+                utterance.onend = () => {
+                    if (this.isStaleUtterance(utterance)) {
+                        this.logPlaybackGuardEvent('stale-utterance-ignored', { phase: 'triggerTTS.onend' });
+                        return;
+                    }
+                    this.ttsActive = false;
+                    if (onComplete && this.continuousReadingActive) {
+                        onComplete();
+                    } else {
+                        this.stopTTS(false);
+                    }
+                };
+                utterance.onerror = (e) => {
+                    if (this.isStaleUtterance(utterance)) {
+                        this.logPlaybackGuardEvent('stale-utterance-ignored', { phase: 'triggerTTS.onerror' });
+                        return;
+                    }
+                    this.logSpeechSynthesisError('triggerTTS', e, {
+                        text,
+                        rate: utterance.rate,
+                        voiceName: utterance.voice ? utterance.voice.name : null,
+                        voiceLang: utterance.voice ? utterance.voice.lang : null
+                    });
+                    this.ttsActive = false;
+                    this.revertParagraph();
+                    if (onComplete && this.continuousReadingActive) onComplete();
+                };
+
+                this.speechSynthesis.speak(utterance);
+            });
         },
 
         enqueueParagraph(index) {
@@ -2243,14 +2610,18 @@
             utterance.rate = this.CONFIG.SPEECH_RATE;
             utterance.volume = 0.9;
             utterance.__tmxStartOffset = startOffset;
+            utterance.__tmxSessionId = this.playbackSessionId;
             const preferredVoice = this.resolvePreferredVoice();
             if (preferredVoice) utterance.voice = preferredVoice;
 
             utterance.onstart = () => this.onUtteranceStart(index, utterance);
             if (this.CONFIG.WORD_HIGHLIGHT_ENABLED) {
-                utterance.onboundary = (event) => this.highlightCurrentWord(event);
+                utterance.onboundary = (event) => {
+                    if (this.isStaleUtterance(utterance)) return;
+                    this.highlightCurrentWord(event);
+                };
             }
-            utterance.onend = () => this.onUtteranceEnd(index);
+            utterance.onend = () => this.onUtteranceEnd(index, utterance);
             utterance.onerror = (e) => this.onUtteranceError(index, e, utterance);
 
             this.queuedParagraphs.add(index);
@@ -2269,6 +2640,13 @@
                 this.queuedStartOffsets.set(startIndex, requestedStartCharIndex);
             }
 
+            this.logPlaybackGuardEvent('queue-from-index', {
+                playbackSessionId: this.playbackSessionId,
+                startIndex,
+                startCharIndex: Number.isFinite(requestedStartCharIndex) ? requestedStartCharIndex : null,
+                lookahead: this.CONFIG.QUEUE_LOOKAHEAD
+            });
+
             const maxIndex = Math.min(this.paragraphsList.length - 1, startIndex + this.CONFIG.QUEUE_LOOKAHEAD);
             for (let i = startIndex; i <= maxIndex; i++) {
                 this.enqueueParagraph(i);
@@ -2276,12 +2654,22 @@
         },
 
         onUtteranceStart(index, utterance = null) {
+            if (this.isStaleUtterance(utterance)) {
+                this.logPlaybackGuardEvent('stale-utterance-ignored', {
+                    phase: 'queued.onstart',
+                    index,
+                    utteranceSessionId: utterance ? utterance.__tmxSessionId : null
+                });
+                return;
+            }
             this.ttsActive = true;
             this.isPaused = false;
+            this.pausedForHiddenTab = false;
             const startOffset = utterance && Number.isFinite(utterance.__tmxStartOffset)
                 ? Number(utterance.__tmxStartOffset)
                 : 0;
             this.currentUtteranceStartOffset = Math.max(0, startOffset);
+            this.interruptedRetryAttempts.delete(index);
 
             const startTime = performance.now();
             this.lastGapMs = this.lastUtteranceEndTime ? startTime - this.lastUtteranceEndTime : null;
@@ -2311,7 +2699,15 @@
             this.prewarmNextUtterance(index);
         },
 
-        onUtteranceEnd(index) {
+        onUtteranceEnd(index, utterance = null) {
+            if (this.isStaleUtterance(utterance)) {
+                this.logPlaybackGuardEvent('stale-utterance-ignored', {
+                    phase: 'queued.onend',
+                    index,
+                    utteranceSessionId: utterance ? utterance.__tmxSessionId : null
+                });
+                return;
+            }
             this.ttsActive = false;
             this.currentUtteranceStartOffset = 0;
             this.queuedParagraphs.delete(index);
@@ -2340,6 +2736,14 @@
         },
 
         onUtteranceError(index, error, utterance = null) {
+            if (this.isStaleUtterance(utterance)) {
+                this.logPlaybackGuardEvent('stale-utterance-ignored', {
+                    phase: 'queued.onerror',
+                    index,
+                    utteranceSessionId: utterance ? utterance.__tmxSessionId : null
+                });
+                return;
+            }
             this.logSpeechSynthesisError('queuedParagraph', error, {
                 index,
                 text: utterance && typeof utterance.text === 'string' ? utterance.text : null,
@@ -2347,6 +2751,18 @@
                 voiceName: utterance && utterance.voice ? utterance.voice.name : null,
                 voiceLang: utterance && utterance.voice ? utterance.voice.lang : null
             });
+
+            if (this.shouldRetryInterruptedUtterance(error, index)) {
+                const retryDelay = Math.max(50, Number(this.CONFIG.INTERRUPTED_RETRY_DELAY_MS) || 250);
+                this.logPlaybackGuardEvent('interrupted-retry', { index, retryDelay });
+                this.queuedParagraphs.delete(index);
+                setTimeout(() => {
+                    if (!this.continuousReadingActive) return;
+                    this.enqueueParagraph(index);
+                }, retryDelay);
+                return;
+            }
+
             this.ttsActive = false;
             this.currentUtteranceStartOffset = 0;
             this.queuedParagraphs.delete(index);
@@ -2375,20 +2791,41 @@
                 this.revertParagraph();
                 return;
             }
+            this.requestPlaybackLock(`readFromParagraph:${index}`, (granted) => {
+                if (!granted) {
+                    this.continuousReadingActive = false;
+                    this.ttsActive = false;
+                    return;
+                }
 
-            if (index < 0 || index >= this.paragraphsList.length) {
-                this.stopTTS(false);
-                return;
-            }
+                this.logPlaybackGuardEvent('read-from-paragraph', {
+                    playbackSessionId: this.playbackSessionId,
+                    index,
+                    hasStartChar: Number.isFinite(Number(options && options.startCharIndex))
+                });
 
-            this.queueFromIndex(index, options);
+                if (index < 0 || index >= this.paragraphsList.length) {
+                    this.stopTTS(false);
+                    return;
+                }
+
+                this.queueFromIndex(index, options);
+            });
         },
 
         stopTTS(notify = true) {
+            this.advancePlaybackSession('stopTTS');
+            this.ttsActive = false;
+            this.isPaused = false;
+            this.isNavigating = false;
             this.continuousReadingActive = false;
+            this.pendingNavIndex = -1;
+            this.navKeyHeld = false;
             clearTimeout(this.navigationTimeoutId);
             clearTimeout(this.selectionSeekDebounceId);
+            clearTimeout(this.hiddenPauseTimeoutId);
             this.selectionSeekDebounceId = null;
+            this.hiddenPauseTimeoutId = null;
             if (this.speechSynthesis.speaking || this.speechSynthesis.pending) {
                 this.speechSynthesis.cancel();
             }
@@ -2403,10 +2840,13 @@
             this.currentParagraphIndex = -1;
             this.currentUtteranceStartOffset = 0;
             this.queuedStartOffsets.clear();
+            this.interruptedRetryAttempts.clear();
             this.wordHighlightActiveForCurrent = false;
             this.lastUtteranceEndTime = 0;
             this.lastGapMs = null;
             this.lastWrapMs = null;
+            this.hiddenSince = 0;
+            this.pausedForHiddenTab = false;
 
             // Stop the pointer arrow loop and hide the arrow
             if (this.pointerLoopId) {
@@ -2416,6 +2856,7 @@
             this.hidePointerArrow();
             this.stopAutoScroll();
             this.updateProgressPanel(true);
+            this.releasePlaybackLock('stop');
 
             if (notify) this.showNotification('All TTS stopped');
             return true;
@@ -2443,8 +2884,33 @@
             }
         },
 
+        isPlaybackSessionActive() {
+            const synth = this.speechSynthesis;
+            const synthBusy = Boolean(synth && (synth.speaking || synth.pending || synth.paused));
+            return synthBusy ||
+                this.ttsActive ||
+                this.continuousReadingActive ||
+                this.waitingForMoreContent ||
+                this.isPaused ||
+                this.queuedParagraphs.size > 0;
+        },
+
+        clearStalePlaybackFlagsIfIdle() {
+            const synth = this.speechSynthesis;
+            const synthBusy = Boolean(synth && (synth.speaking || synth.pending || synth.paused));
+            if (synthBusy || this.continuousReadingActive || this.waitingForMoreContent || this.queuedParagraphs.size > 0) {
+                return false;
+            }
+            const hadStaleFlags = this.ttsActive || this.isPaused;
+            if (hadStaleFlags) {
+                this.ttsActive = false;
+                this.isPaused = false;
+            }
+            return hadStaleFlags;
+        },
+
         shouldHandleNavigationHotkeys() {
-            return this.ttsActive || this.continuousReadingActive || this.waitingForMoreContent || this.isPaused;
+            return this.isPlaybackSessionActive();
         },
 
         getNavigationJumpStep(multiplier = 1) {
@@ -2744,7 +3210,8 @@
 
                 if (shiftOnly && key.toUpperCase() === KEY.ACTIVATE) {
                     e.preventDefault();
-                    if (this.ttsActive) { this.stopTTS(); return; }
+                    this.clearStalePlaybackFlagsIfIdle();
+                    if (this.isPlaybackSessionActive()) { this.stopTTS(); return; }
                     document.body.style.cursor = 'crosshair';
                     this.showNotification('Click where you want to start reading');
 
@@ -2773,7 +3240,6 @@
                     this.startReadingFromPendingNav();
                 }
             });
-            document.addEventListener('mouseup', (event) => this.handleSelectionSeek(event), true);
             document.addEventListener('dblclick', (event) => this.handleSelectionSeek(event), true);
             const interactionHandler = () => this.markUserInteraction();
             window.addEventListener('wheel', interactionHandler, { passive: true });
@@ -2787,7 +3253,15 @@
                 this.resizeNavigationTrailLayer();
                 this.renderNavigationTrail(performance.now());
             });
-            window.addEventListener('beforeunload', () => this.stopTTS(false));
+            document.addEventListener('visibilitychange', () => this.handleVisibilityPlaybackGuard(), { passive: true });
+            window.addEventListener('pagehide', () => {
+                this.logPlaybackGuardEvent('pagehide');
+                this.stopTTS(false);
+            });
+            window.addEventListener('beforeunload', () => {
+                this.logPlaybackGuardEvent('beforeunload');
+                this.stopTTS(false);
+            });
         },
 
         // --- UI AND POINTER LOGIC ---
@@ -2876,6 +3350,7 @@
                 <label for="tts-gap-trim-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-gap-trim-toggle" ${this.CONFIG.GAP_TRIM_ENABLED ? 'checked' : ''} style="margin:0;">✂️ Gap trim</label>
                 <label for="tts-read-user-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-read-user-toggle" ${this.CONFIG.READ_USER_MESSAGES ? 'checked' : ''} style="margin:0;">👤 Read user msgs</label>
                 <label for="tts-read-refs-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-read-refs-toggle" ${this.CONFIG.READ_REFERENCES ? 'checked' : ''} style="margin:0;">🔗 Read refs</label>
+                <label for="tts-chat-style-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-chat-style-toggle" ${this.CONFIG.CHATGPT_TEXT_STYLING ? 'checked' : ''} style="margin:0;">🎨 Chat style</label>
                 <label for="tts-auto-read-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-auto-read-toggle" ${this.CONFIG.AUTO_READ_NEW_MESSAGES ? 'checked' : ''} style="margin:0;">🤖 Auto-read new</label>
                 <label for="tts-loop-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-loop-toggle" ${this.CONFIG.LOOP_ON_END ? 'checked' : ''} style="margin:0;">🔁 Loop to top</label>
                 <label for="tts-autoscroll-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-autoscroll-toggle" ${this.CONFIG.AUTO_SCROLL_ENABLED ? 'checked' : ''} style="margin:0;">📜 Auto-scroll</label>
@@ -2910,6 +3385,11 @@
                 this.setReadReferencesEnabled(e.target.checked);
             });
             readRefsToggle.addEventListener('mousedown', e => e.stopPropagation());
+            const chatStyleToggle = document.getElementById('tts-chat-style-toggle');
+            chatStyleToggle.addEventListener('change', e => {
+                this.setChatGPTTextStylingEnabled(e.target.checked);
+            });
+            chatStyleToggle.addEventListener('mousedown', e => e.stopPropagation());
             const autoReadToggle = document.getElementById('tts-auto-read-toggle');
             autoReadToggle.addEventListener('change', e => {
                 this.setAutoReadEnabled(e.target.checked);
@@ -3191,6 +3671,9 @@
         if (typeof settings.readReferences === 'boolean') {
             TTSReader.setReadReferencesEnabled(settings.readReferences, silent);
         }
+        if (typeof settings.chatgptTextStyling === 'boolean') {
+            TTSReader.setChatGPTTextStylingEnabled(settings.chatgptTextStyling, silent);
+        }
         if (typeof settings.loopOnEnd === 'boolean') {
             TTSReader.setLoopEnabled(settings.loopOnEnd, silent);
         }
@@ -3257,6 +3740,13 @@
                 TTSReader.diagnosticsPanel.remove();
                 TTSReader.diagnosticsPanel = null;
             }
+        }
+        if (typeof settings.hiddenTabPolicy === 'string') {
+            TTSReader.setHiddenTabPolicy(settings.hiddenTabPolicy, silent);
+        }
+        if (typeof settings.autoPauseHiddenDelayMs !== 'undefined') {
+            const next = Number(settings.autoPauseHiddenDelayMs);
+            if (Number.isFinite(next)) TTSReader.setAutoPauseHiddenDelayMs(next, silent);
         }
 
         if (typeof settings.queueLookahead !== 'undefined') {
@@ -3402,6 +3892,9 @@
                         selectedVoiceUri: TTSReader.CONFIG.VOICE_URI
                     });
                     return true;
+                case 'ttsLockRevoked':
+                    TTSReader.handlePlaybackLockRevoked(message || {});
+                    break;
                 case 'applySettings':
                     applySettings(message.settings || {}, { silent: message.silent === true });
                     break;
@@ -3421,6 +3914,7 @@
                             gapTrim: TTSReader.CONFIG.GAP_TRIM_ENABLED,
                             readUserMessages: TTSReader.CONFIG.READ_USER_MESSAGES,
                             readReferences: TTSReader.CONFIG.READ_REFERENCES,
+                            chatgptTextStyling: TTSReader.CONFIG.CHATGPT_TEXT_STYLING,
                             autoRead: TTSReader.CONFIG.AUTO_READ_NEW_MESSAGES,
                             loopOnEnd: TTSReader.CONFIG.LOOP_ON_END,
                             autoScrollEnabled: TTSReader.CONFIG.AUTO_SCROLL_ENABLED,
@@ -3429,6 +3923,8 @@
                             showPageOverlay: TTSReader.CONFIG.SHOW_PAGE_OVERLAY,
                             overlayPosition: TTSReader.CONFIG.OVERLAY_POSITION,
                             showDiagnostics: TTSReader.CONFIG.SHOW_DIAGNOSTICS_PANEL,
+                            hiddenTabPolicy: TTSReader.CONFIG.HIDDEN_TAB_POLICY,
+                            autoPauseHiddenDelayMs: TTSReader.CONFIG.AUTO_PAUSE_HIDDEN_DELAY_MS,
                             volumeBoostEnabled: TTSReader.CONFIG.VOLUME_BOOST_ENABLED,
                             volumeBoostLevel: TTSReader.CONFIG.VOLUME_BOOST_LEVEL,
                             enterToSendEnabled: TTSReader.CONFIG.ENTER_TO_SEND_ENABLED,

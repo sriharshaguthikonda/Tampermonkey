@@ -10,6 +10,7 @@ document.addEventListener('DOMContentLoaded', () => {
         gapTrim: true,
         readUserMessages: false,
         readReferences: false,
+        chatgptTextStyling: false,
         autoRead: false,
         loopOnEnd: true,
         autoScrollEnabled: true,
@@ -18,6 +19,8 @@ document.addEventListener('DOMContentLoaded', () => {
         showPageOverlay: true,
         overlayPosition: null,
         showDiagnostics: true,
+        hiddenTabPolicy: 'delay',
+        autoPauseHiddenDelayMs: 5000,
         volumeBoostEnabled: true,
         volumeBoostLevel: 1.3,
         enterToSendEnabled: true,
@@ -73,6 +76,7 @@ document.addEventListener('DOMContentLoaded', () => {
         volumeBoostLevelValue: document.getElementById('volumeBoostLevelValue'),
         readUserMessages: document.getElementById('readUserMessages'),
         readReferences: document.getElementById('readReferences'),
+        chatgptTextStyling: document.getElementById('chatgptTextStyling'),
         autoRead: document.getElementById('autoRead'),
         loopOnEnd: document.getElementById('loopOnEnd'),
         autoScrollEnabled: document.getElementById('autoScrollEnabled'),
@@ -80,6 +84,8 @@ document.addEventListener('DOMContentLoaded', () => {
         promptHistoryNavEnabled: document.getElementById('promptHistoryNavEnabled'),
         showPageOverlay: document.getElementById('showPageOverlay'),
         showDiagnostics: document.getElementById('showDiagnostics'),
+        hiddenTabPolicy: document.getElementById('hiddenTabPolicy'),
+        autoPauseHiddenDelayMs: document.getElementById('autoPauseHiddenDelayMs'),
         enterToSendEnabled: document.getElementById('enterToSendEnabled'),
         globalPasteEnabled: document.getElementById('globalPasteEnabled'),
         regularPasteEnabled: document.getElementById('regularPasteEnabled'),
@@ -125,7 +131,8 @@ document.addEventListener('DOMContentLoaded', () => {
         'loopWaitMs',
         'autoReadCooldownMs',
         'autoReadStableMs',
-        'autoReadMinParagraphs'
+        'autoReadMinParagraphs',
+        'autoPauseHiddenDelayMs'
     ];
 
     let availableVoices = [];
@@ -136,6 +143,7 @@ document.addEventListener('DOMContentLoaded', () => {
         'volumeBoostEnabled',
         'readUserMessages',
         'readReferences',
+        'chatgptTextStyling',
         'autoRead',
         'loopOnEnd',
         'autoScrollEnabled',
@@ -256,6 +264,10 @@ document.addEventListener('DOMContentLoaded', () => {
         toggleFields.forEach((key) => {
             if (elements[key]) elements[key].checked = Boolean(merged[key]);
         });
+        if (elements.hiddenTabPolicy) {
+            elements.hiddenTabPolicy.value = String(merged.hiddenTabPolicy || 'delay');
+            elements.autoPauseHiddenDelayMs.disabled = elements.hiddenTabPolicy.value !== 'delay';
+        }
 
         numberFields.forEach((key) => {
             if (key === 'speechRate' || key === 'volumeBoostLevel') return;
@@ -269,6 +281,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         settings.speechRate = coerceNumber(elements.speechRate, defaults.speechRate);
         settings.voiceUri = elements.voiceUri.value || '';
+        settings.hiddenTabPolicy = String(elements.hiddenTabPolicy.value || defaults.hiddenTabPolicy || 'delay');
 
         toggleFields.forEach((key) => {
             settings[key] = Boolean(elements[key].checked);
@@ -352,6 +365,12 @@ document.addEventListener('DOMContentLoaded', () => {
             scheduleSave();
         });
     });
+    if (elements.hiddenTabPolicy) {
+        elements.hiddenTabPolicy.addEventListener('change', () => {
+            elements.autoPauseHiddenDelayMs.disabled = elements.hiddenTabPolicy.value !== 'delay';
+            scheduleSave();
+        });
+    }
 
     numberFields.forEach((key) => {
         if (key === 'speechRate' || key === 'volumeBoostLevel') return;

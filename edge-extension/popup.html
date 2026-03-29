@@ -317,6 +317,10 @@
                 <input type="checkbox" id="readReferencesToggle">
             </label>
             <label class="toggle-item">
+                <span class="toggle-label"><span aria-hidden="true">🎨</span>Chat style</span>
+                <input type="checkbox" id="chatStyleToggle">
+            </label>
+            <label class="toggle-item">
                 <span class="toggle-label"><span aria-hidden="true">🤖</span>Auto-read new</span>
                 <input type="checkbox" id="autoReadToggle">
             </label>
@@ -344,6 +348,18 @@
                 <span class="toggle-label"><span aria-hidden="true">📊</span>Diagnostics</span>
                 <input type="checkbox" id="diagnosticsToggle">
             </label>
+            <div class="toggle-item" style="align-items:flex-start; flex-direction:column; gap:6px;">
+                <span class="toggle-label"><span aria-hidden="true">👁️</span>Hidden tab policy</span>
+                <select id="hiddenTabPolicySelect" class="popup-select">
+                    <option value="never">Never pause</option>
+                    <option value="delay">Pause after delay</option>
+                    <option value="immediate">Pause immediately</option>
+                </select>
+            </div>
+            <div class="toggle-item" style="align-items:flex-start; flex-direction:column; gap:6px;">
+                <span class="toggle-label"><span aria-hidden="true">⏱️</span>Hidden pause delay (ms)</span>
+                <input id="autoPauseHiddenDelayInput" type="number" min="0" step="500" class="popup-select">
+            </div>
             <div class="toggle-section-title">ChatGPT Tools</div>
             <label class="toggle-item">
                 <span class="toggle-label"><span aria-hidden="true">🔊</span>Volume boost</span>
@@ -398,6 +414,7 @@
 
         <div id="status" class="status"></div>
         <div id="progress" class="status" style="display:block; background-color: transparent; color: var(--popup-muted); padding: 0;"></div>
+        <div id="lockInfo" class="status" style="display:block; background-color: transparent; color: var(--popup-muted); padding: 0;"></div>
     </div>
 
     <div class="footer" style="display:flex; flex-direction:column; gap:6px;">
