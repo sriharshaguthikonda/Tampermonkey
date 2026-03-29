@@ -1055,7 +1055,12 @@
         },
 
         stopTTS(notify = true) {
+            this.ttsActive = false;
+            this.isPaused = false;
+            this.isNavigating = false;
             this.continuousReadingActive = false;
+            this.pendingNavIndex = -1;
+            this.navKeyHeld = false;
             clearTimeout(this.navigationTimeoutId);
             if (this.speechSynthesis.speaking || this.speechSynthesis.pending) {
                 this.speechSynthesis.cancel();
@@ -1109,8 +1114,33 @@
             }
         },
 
+        isPlaybackSessionActive() {
+            const synth = this.speechSynthesis;
+            const synthBusy = Boolean(synth && (synth.speaking || synth.pending || synth.paused));
+            return synthBusy ||
+                this.ttsActive ||
+                this.continuousReadingActive ||
+                this.waitingForMoreContent ||
+                this.isPaused ||
+                this.queuedParagraphs.size > 0;
+        },
+
+        clearStalePlaybackFlagsIfIdle() {
+            const synth = this.speechSynthesis;
+            const synthBusy = Boolean(synth && (synth.speaking || synth.pending || synth.paused));
+            if (synthBusy || this.continuousReadingActive || this.waitingForMoreContent || this.queuedParagraphs.size > 0) {
+                return false;
+            }
+            const hadStaleFlags = this.ttsActive || this.isPaused;
+            if (hadStaleFlags) {
+                this.ttsActive = false;
+                this.isPaused = false;
+            }
+            return hadStaleFlags;
+        },
+
         shouldHandleNavigationHotkeys() {
-            return this.ttsActive || this.continuousReadingActive || this.waitingForMoreContent || this.isPaused;
+            return this.isPlaybackSessionActive();
         },
 
         navigate(direction, options = {}) {
@@ -1263,7 +1293,8 @@
 
                 if (shiftOnly && key.toUpperCase() === KEY.ACTIVATE) {
                     e.preventDefault();
-                    if (this.ttsActive) { this.stopTTS(); return; }
+                    this.clearStalePlaybackFlagsIfIdle();
+                    if (this.isPlaybackSessionActive()) { this.stopTTS(); return; }
                     document.body.style.cursor = 'crosshair';
                     this.showNotification('Click where you want to start reading');
 
