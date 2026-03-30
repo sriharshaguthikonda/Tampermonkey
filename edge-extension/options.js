@@ -1,5 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
     const SETTINGS_STORAGE_KEY = 'settingsByProfile';
+    const OPTIONS_PROFILE_HINT_KEY = 'optionsPreferredProfile';
     const PROFILE_CHATGPT = 'chatgpt';
     const PROFILE_LOCAL = 'local';
 
@@ -172,6 +173,10 @@ document.addEventListener('DOMContentLoaded', () => {
         return PROFILE_DEFAULT_SETTINGS[profile] || PROFILE_DEFAULT_SETTINGS[PROFILE_CHATGPT];
     }
 
+    function normalizeProfile(profile) {
+        return profile === PROFILE_LOCAL ? PROFILE_LOCAL : PROFILE_CHATGPT;
+    }
+
     function pickLegacySettings(items) {
         const legacy = {};
         for (const key of Object.keys(BASE_DEFAULT_SETTINGS)) {
@@ -332,6 +337,13 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    function flushPendingSave() {
+        if (!saveTimer) return;
+        clearTimeout(saveTimer);
+        saveTimer = null;
+        saveSettings();
+    }
+
     function scheduleSave() {
         if (saveTimer) clearTimeout(saveTimer);
         saveTimer = setTimeout(() => {
@@ -341,7 +353,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     elements.settingsProfile.addEventListener('change', () => {
-        currentProfile = elements.settingsProfile.value === PROFILE_LOCAL ? PROFILE_LOCAL : PROFILE_CHATGPT;
+        flushPendingSave();
+        currentProfile = normalizeProfile(elements.settingsProfile.value);
+        chrome.storage.local.set({ [OPTIONS_PROFILE_HINT_KEY]: currentProfile });
         loadProfile(currentProfile);
     });
 
@@ -392,8 +406,23 @@ document.addEventListener('DOMContentLoaded', () => {
         saveSettings();
     });
 
-    currentProfile = PROFILE_CHATGPT;
-    elements.settingsProfile.value = currentProfile;
+    function initializeProfileAndLoad() {
+        chrome.storage.local.get({ [OPTIONS_PROFILE_HINT_KEY]: PROFILE_CHATGPT }, (items) => {
+            currentProfile = normalizeProfile(items[OPTIONS_PROFILE_HINT_KEY]);
+            elements.settingsProfile.value = currentProfile;
+            loadProfile(currentProfile);
+        });
+    }
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') {
+            flushPendingSave();
+        }
+    });
+    window.addEventListener('beforeunload', () => {
+        flushPendingSave();
+    });
+
     const hydrateVoices = () => {
         const voices = getVoicesFromBrowser();
         if (!voices.length) return;
@@ -406,5 +435,5 @@ document.addEventListener('DOMContentLoaded', () => {
             loadProfile(currentProfile);
         };
     }
-    loadProfile(currentProfile);
+    initializeProfileAndLoad();
 });

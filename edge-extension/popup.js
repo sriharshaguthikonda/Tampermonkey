@@ -1,5 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
     const SETTINGS_STORAGE_KEY = 'settingsByProfile';
+    const OPTIONS_PROFILE_HINT_KEY = 'optionsPreferredProfile';
     const PROFILE_CHATGPT = 'chatgpt';
     const PROFILE_LOCAL = 'local';
 
@@ -462,7 +463,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     optionsBtn.addEventListener('click', () => {
-        chrome.runtime.openOptionsPage();
+        chrome.storage.local.set({ [OPTIONS_PROFILE_HINT_KEY]: activeProfile }, () => {
+            chrome.runtime.openOptionsPage();
+        });
     });
 
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
