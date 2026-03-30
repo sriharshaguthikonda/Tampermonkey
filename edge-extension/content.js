@@ -138,6 +138,8 @@
         currentParagraphIndex: -1,
         currentUtteranceStartOffset: 0,
         queuedStartOffsets: new Map(),
+        chunkedParagraphState: new Map(),
+        chunkContinuationTimeoutId: null,
         pendingNavIndex: -1,
         navKeyHeld: false,
         prewrappedParagraphs: new Map(),
@@ -200,6 +202,8 @@
             VOICE_URI: '',
             QUEUE_LOOKAHEAD: 3,
             MAX_SYNTH_BACKLOG: 1,
+            SPEECH_CHUNK_MAX_CHARS: 220,
+            SPEECH_CHUNK_GAP_MS: 40,
             NAV_READ_DELAY_MS: 0,
             NAV_THROTTLE_MS: 20,
             NAV_FOCUS_HOLD_MS: 800,
@@ -2595,6 +2599,68 @@
             }
         },
 
+        splitSpeechChunk(text, startOffset = 0) {
+            const source = typeof text === 'string' ? text.trim() : '';
+            if (!source) {
+                return { chunkText: '', remainderText: '', nextStartOffset: startOffset };
+            }
+
+            const maxChars = Math.max(80, Number(this.CONFIG.SPEECH_CHUNK_MAX_CHARS) || 220);
+            if (source.length <= maxChars) {
+                return {
+                    chunkText: source,
+                    remainderText: '',
+                    nextStartOffset: startOffset + source.length + 1
+                };
+            }
+
+            let splitAt = source.lastIndexOf(' ', maxChars);
+            if (splitAt < Math.floor(maxChars * 0.6)) {
+                splitAt = maxChars;
+            }
+
+            const chunkText = source.slice(0, splitAt).trim();
+            const remainderText = source.slice(splitAt).trim();
+            return {
+                chunkText,
+                remainderText,
+                nextStartOffset: startOffset + chunkText.length + 1
+            };
+        },
+
+        getChunkedSpeechForIndex(index, baseText, baseStartOffset = 0) {
+            const pendingChunk = this.chunkedParagraphState.get(index);
+            let sourceText = baseText;
+            let sourceOffset = baseStartOffset;
+
+            if (pendingChunk && typeof pendingChunk.text === 'string' && pendingChunk.text.trim()) {
+                sourceText = pendingChunk.text;
+                sourceOffset = Number.isFinite(pendingChunk.startOffset)
+                    ? pendingChunk.startOffset
+                    : sourceOffset;
+            }
+
+            const split = this.splitSpeechChunk(sourceText, sourceOffset);
+            if (!split.chunkText) {
+                this.chunkedParagraphState.delete(index);
+                return { utteranceText: '', startOffset: sourceOffset };
+            }
+
+            if (split.remainderText) {
+                this.chunkedParagraphState.set(index, {
+                    text: split.remainderText,
+                    startOffset: split.nextStartOffset
+                });
+            } else {
+                this.chunkedParagraphState.delete(index);
+            }
+
+            return {
+                utteranceText: split.chunkText,
+                startOffset: sourceOffset
+            };
+        },
+
         enqueueParagraph(index) {
             if (!this.continuousReadingActive) return;
             if (this.paragraphsDirty) {
@@ -2638,6 +2704,11 @@
 
             if (!utteranceText || !utteranceText.trim()) return;
 
+            const chunked = this.getChunkedSpeechForIndex(index, utteranceText, startOffset);
+            utteranceText = chunked.utteranceText;
+            startOffset = chunked.startOffset;
+            if (!utteranceText || !utteranceText.trim()) return;
+
             const utterance = new SpeechSynthesisUtterance(utteranceText);
             utterance.rate = this.CONFIG.SPEECH_RATE;
             utterance.volume = this.getSpeechVolume();
@@ -2664,6 +2735,9 @@
             this.cancelActiveSpeechQueue('queue-from-index');
             this.queuedParagraphs.clear();
             this.queuedStartOffsets.clear();
+            this.chunkedParagraphState.clear();
+            clearTimeout(this.chunkContinuationTimeoutId);
+            this.chunkContinuationTimeoutId = null;
             if (this.paragraphsDirty) {
                 this.refreshParagraphsIfNeeded(true);
             }
@@ -2750,6 +2824,17 @@
 
             if (!this.continuousReadingActive) return;
 
+            if (this.chunkedParagraphState.has(index)) {
+                const gapMs = Math.max(0, Number(this.CONFIG.SPEECH_CHUNK_GAP_MS) || 0);
+                clearTimeout(this.chunkContinuationTimeoutId);
+                this.chunkContinuationTimeoutId = setTimeout(() => {
+                    this.chunkContinuationTimeoutId = null;
+                    if (!this.continuousReadingActive) return;
+                    this.enqueueParagraph(index);
+                }, gapMs);
+                return;
+            }
+
             const refreshedIndex = this.refreshParagraphIndex(index);
             const lastIndex = this.paragraphsList.length - 1;
             if (refreshedIndex >= lastIndex) {
@@ -2804,6 +2889,7 @@
             this.ttsActive = false;
             this.currentUtteranceStartOffset = 0;
             this.queuedParagraphs.delete(index);
+            this.chunkedParagraphState.delete(index);
             this.flushPendingReverts();
             this.revertParagraph();
             if (!this.continuousReadingActive) return;
@@ -2864,6 +2950,8 @@
             clearTimeout(this.hiddenPauseTimeoutId);
             this.selectionSeekDebounceId = null;
             this.hiddenPauseTimeoutId = null;
+            clearTimeout(this.chunkContinuationTimeoutId);
+            this.chunkContinuationTimeoutId = null;
             if (this.speechSynthesis.speaking || this.speechSynthesis.pending) {
                 this.speechSynthesis.cancel();
             }
@@ -2878,6 +2966,7 @@
             this.currentParagraphIndex = -1;
             this.currentUtteranceStartOffset = 0;
             this.queuedStartOffsets.clear();
+            this.chunkedParagraphState.clear();
             this.interruptedRetryAttempts.clear();
             this.wordHighlightActiveForCurrent = false;
             this.lastUtteranceEndTime = 0;
