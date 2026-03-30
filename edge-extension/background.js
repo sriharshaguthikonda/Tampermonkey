@@ -8,7 +8,7 @@ const PLAYBACK_LOCK_STALE_MS = 8000;
 let playbackLockState = null;
 
 const BASE_DEFAULT_SETTINGS = {
-    speechRate: 5,
+    speechRate: 1.5,
     wordHighlight: true,
     gapTrim: true,
     readUserMessages: false,
