@@ -1065,12 +1065,19 @@
         setVolumeBoostLevel(level, silent = false) {
             const parsed = Number(level);
             if (!Number.isFinite(parsed)) return;
-            const clamped = Math.max(1, Math.min(2, parsed));
+            const clamped = Math.max(0.1, Math.min(2, parsed));
             this.CONFIG.VOLUME_BOOST_LEVEL = clamped;
             this.updateVolumeBoostForTrackedMedia();
             if (!silent) {
                 this.showNotification(`Volume boost ${clamped.toFixed(1)}x`);
             }
+        },
+
+        getSpeechVolume() {
+            if (!this.CONFIG.VOLUME_BOOST_ENABLED) return 0.9;
+            const level = Number(this.CONFIG.VOLUME_BOOST_LEVEL);
+            if (!Number.isFinite(level)) return 0.9;
+            return Math.max(0.1, Math.min(1, level));
         },
 
         setEnterToSendEnabled(enabled, silent = false) {
@@ -2532,7 +2539,7 @@
                 const utterance = new SpeechSynthesisUtterance(text);
                 utterance.__tmxSessionId = this.playbackSessionId;
                 utterance.rate = this.CONFIG.SPEECH_RATE;
-                utterance.volume = 0.9;
+                utterance.volume = this.getSpeechVolume();
                 const preferredVoice = this.resolvePreferredVoice();
                 if (preferredVoice) utterance.voice = preferredVoice;
 
@@ -2608,7 +2615,7 @@
 
             const utterance = new SpeechSynthesisUtterance(utteranceText);
             utterance.rate = this.CONFIG.SPEECH_RATE;
-            utterance.volume = 0.9;
+            utterance.volume = this.getSpeechVolume();
             utterance.__tmxStartOffset = startOffset;
             utterance.__tmxSessionId = this.playbackSessionId;
             const preferredVoice = this.resolvePreferredVoice();
