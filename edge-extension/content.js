@@ -204,6 +204,7 @@
             MAX_SYNTH_BACKLOG: 1,
             SPEECH_CHUNK_MAX_CHARS: 220,
             SPEECH_CHUNK_GAP_MS: 40,
+            UNSTABLE_VOICE_RATE_CAP: 1.6,
             NAV_READ_DELAY_MS: 0,
             NAV_THROTTLE_MS: 20,
             NAV_FOCUS_HOLD_MS: 800,
@@ -1308,18 +1309,43 @@
             }));
         },
 
+        isLikelyUnstableVoice(voice) {
+            if (!voice) return false;
+            const name = (voice.name || '').toLowerCase();
+            if (!name) return false;
+            if (/zira|david|mark|hazel|susan|desktop/.test(name)) return true;
+            if (name.includes('microsoft') && !name.includes('natural') && !name.includes('neural')) return true;
+            return false;
+        },
+
         resolvePreferredVoice() {
             const voices = this.speechSynthesis.getVoices();
             if (!voices || voices.length === 0) return null;
 
             if (this.CONFIG.VOICE_URI) {
                 const selected = voices.find(v => v.voiceURI === this.CONFIG.VOICE_URI);
-                if (selected) return selected;
+                if (selected && !this.isLikelyUnstableVoice(selected)) return selected;
             }
 
-            return voices.find(v => v.name.includes('Ava') && !v.name.includes('Multilingual'))
+            return voices.find(v => /natural|neural/i.test(v.name))
+                || voices.find(v => v.name.includes('Ava') && !v.name.includes('Multilingual'))
+                || voices.find(v => v.lang && v.lang.toLowerCase().startsWith('en') && !this.isLikelyUnstableVoice(v))
                 || voices.find(v => v.lang && v.lang.toLowerCase().startsWith('en'))
                 || voices[0];
+        },
+
+        getSafeSpeechRate(preferredVoice = null) {
+            const configuredRate = Number(this.CONFIG.SPEECH_RATE);
+            if (!Number.isFinite(configuredRate)) return 1;
+            const cap = Math.max(0.5, Number(this.CONFIG.UNSTABLE_VOICE_RATE_CAP) || 1.6);
+            if (configuredRate <= cap) return configuredRate;
+            if (!this.isLikelyUnstableVoice(preferredVoice)) return configuredRate;
+            this.logPlaybackGuardEvent('rate-capped', {
+                configuredRate,
+                cappedRate: cap,
+                voiceName: preferredVoice ? preferredVoice.name : null
+            });
+            return cap;
         },
 
         initParagraphObserver() {
@@ -2543,10 +2569,10 @@
                 this.isPaused = false;
                 const utterance = new SpeechSynthesisUtterance(text);
                 utterance.__tmxSessionId = this.playbackSessionId;
-                utterance.rate = this.CONFIG.SPEECH_RATE;
-                utterance.volume = this.getSpeechVolume();
                 const preferredVoice = this.resolvePreferredVoice();
                 if (preferredVoice) utterance.voice = preferredVoice;
+                utterance.rate = this.getSafeSpeechRate(preferredVoice);
+                utterance.volume = this.getSpeechVolume();
 
                 if (this.CONFIG.WORD_HIGHLIGHT_ENABLED) {
                     utterance.onboundary = (event) => {
@@ -2710,12 +2736,12 @@
             if (!utteranceText || !utteranceText.trim()) return;
 
             const utterance = new SpeechSynthesisUtterance(utteranceText);
-            utterance.rate = this.CONFIG.SPEECH_RATE;
+            const preferredVoice = this.resolvePreferredVoice();
+            if (preferredVoice) utterance.voice = preferredVoice;
+            utterance.rate = this.getSafeSpeechRate(preferredVoice);
             utterance.volume = this.getSpeechVolume();
             utterance.__tmxStartOffset = startOffset;
             utterance.__tmxSessionId = this.playbackSessionId;
-            const preferredVoice = this.resolvePreferredVoice();
-            if (preferredVoice) utterance.voice = preferredVoice;
 
             utterance.onstart = () => this.onUtteranceStart(index, utterance);
             if (this.CONFIG.WORD_HIGHLIGHT_ENABLED) {
