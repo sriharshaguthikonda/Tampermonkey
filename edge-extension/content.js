@@ -199,6 +199,7 @@
             SPEECH_RATE: 5,
             VOICE_URI: '',
             QUEUE_LOOKAHEAD: 3,
+            MAX_SYNTH_BACKLOG: 1,
             NAV_READ_DELAY_MS: 0,
             NAV_THROTTLE_MS: 20,
             NAV_FOCUS_HOLD_MS: 800,
@@ -2582,6 +2583,18 @@
             });
         },
 
+        cancelActiveSpeechQueue(reason = 'queue-reset') {
+            if (this.speechSynthesis.speaking || this.speechSynthesis.pending) {
+                this.logPlaybackGuardEvent('speech-queue-cancel', {
+                    reason,
+                    speaking: Boolean(this.speechSynthesis.speaking),
+                    pending: Boolean(this.speechSynthesis.pending),
+                    queuedParagraphs: this.queuedParagraphs.size
+                });
+                this.speechSynthesis.cancel();
+            }
+        },
+
         enqueueParagraph(index) {
             if (!this.continuousReadingActive) return;
             if (this.paragraphsDirty) {
@@ -2592,6 +2605,18 @@
 
             const para = this.paragraphsList[index];
             if (!para || !para.element || !para.text) return;
+
+            const maxBacklog = Math.max(0, Number(this.CONFIG.MAX_SYNTH_BACKLOG) || 0);
+            const bufferedAhead = this.queuedParagraphs.size;
+            const synthBusy = Boolean(this.speechSynthesis.speaking || this.speechSynthesis.pending);
+            if (synthBusy && bufferedAhead > maxBacklog) {
+                this.logPlaybackGuardEvent('backlog-guard-skip', {
+                    index,
+                    bufferedAhead,
+                    maxBacklog
+                });
+                return;
+            }
 
             let utteranceText = para.text;
             let startOffset = 0;
@@ -2636,6 +2661,7 @@
         },
 
         queueFromIndex(startIndex, options = {}) {
+            this.cancelActiveSpeechQueue('queue-from-index');
             this.queuedParagraphs.clear();
             this.queuedStartOffsets.clear();
             if (this.paragraphsDirty) {
@@ -2739,6 +2765,11 @@
                 const nextIndex = refreshedIndex + 1;
                 this.waitForMoreParagraphs(nextIndex);
                 return;
+            }
+
+            if (this.queuedParagraphs.size === 0) {
+                const nextIndex = refreshedIndex + 1;
+                this.enqueueParagraph(nextIndex);
             }
         },
 
