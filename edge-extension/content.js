@@ -13,7 +13,7 @@
         readUserMessages: false,
         readReferences: false,
         chatgptTextStyling: false,
-        serverPrecacheMode: false,
+        serverPrecacheMode: true,
         serverBaseUrl: 'http://127.0.0.1:7860',
         autoRead: false,
         loopOnEnd: true,
@@ -27,7 +27,7 @@
         autoPauseHiddenDelayMs: 5000,
         volumeBoostEnabled: true,
         volumeBoostLevel: 1.3,
-        lowGapMode: false,
+        lowGapMode: true,
         enterToSendEnabled: true,
         globalPasteEnabled: true,
         regularPasteEnabled: true,
@@ -39,7 +39,7 @@
         doubleClickEditEnabled: true,
         autoCloseLimitWarning: true,
         limitWarningDelay: 1500,
-        queueLookahead: 3,
+        queueLookahead: 5,
         navFocusHoldMs: 800,
         navKeyupReadDelayMs: 150,
         navThrottleMs: 20,
@@ -187,10 +187,15 @@
         serverVoices: [],
         serverVoicesFetchedAt: 0,
         serverVoicesFetchPromise: null,
-        serverAudioElement: null,
+        serverAudioContext: null,
+        serverAudioGainNode: null,
+        serverCurrentSource: null,
         serverPlaybackState: null,
         serverSentenceAudioCache: new Map(),
         serverSentenceAudioInflight: new Map(),
+        serverSentenceRequestIds: new Map(),
+        serverPreparedAudioElements: new Map(),
+        serverWordHighlightTimers: [],
         playbackOwnerId: null,
         playbackLockOwned: false,
         playbackLockHeartbeatId: null,
@@ -257,11 +262,16 @@
             PROMPT_HISTORY_MAX_CHARS: 6000,
             VOLUME_BOOST_ENABLED: true,
             VOLUME_BOOST_LEVEL: 1.3,
-            LOW_GAP_MODE: false,
-            SERVER_PRECACHE_MODE: false,
+            LOW_GAP_MODE: true,
+            SERVER_PRECACHE_MODE: true,
             SERVER_BASE_URL: 'http://127.0.0.1:7860',
+            SERVER_PRECACHE_WORD_BUDGET: 100,
+            SERVER_PRECACHE_MAX_SENTENCES: 8,
+            SERVER_HANDOFF_WAIT_MS: 120,
             SERVER_TTS_SAMPLE_RATE: 24000,
             SERVER_TTS_FORMAT: 'pcm_24k_16bit',
+            SERVER_TTS_MIN_SPEED: 0.5,
+            SERVER_TTS_MAX_SPEED: 2.0,
             ENTER_TO_SEND_ENABLED: true,
             ENTER_TO_SEND_DOUBLE_PRESS_MS: 300,
             GLOBAL_PASTE_ENABLED: true,
@@ -493,7 +503,7 @@
                     return;
                 }
                 const synthSpeaking = Boolean(this.speechSynthesis && this.speechSynthesis.speaking);
-                const serverSpeaking = Boolean(this.serverAudioElement && !this.serverAudioElement.paused);
+                const serverSpeaking = this.isServerAudioPlaying();
                 const shouldPauseLater = this.isPlaybackSessionActive() && !this.isPaused && (synthSpeaking || serverSpeaking);
                 if (!shouldPauseLater) return;
 
@@ -506,11 +516,12 @@
                     this.hiddenPauseTimeoutId = null;
                     if (!document.hidden) return;
                     const synthStillSpeaking = Boolean(this.speechSynthesis && this.speechSynthesis.speaking);
-                    const serverStillSpeaking = Boolean(this.serverAudioElement && !this.serverAudioElement.paused);
+                    const serverStillSpeaking = this.isServerAudioPlaying();
                     const stillShouldPause = this.isPlaybackSessionActive() && !this.isPaused && (synthStillSpeaking || serverStillSpeaking);
                     if (!stillShouldPause) return;
-                    if (serverStillSpeaking && this.serverAudioElement) {
-                        this.serverAudioElement.pause();
+                    if (serverStillSpeaking) {
+                        this.pauseServerAudioPlayback().catch(() => {});
+                        this.clearServerWordHighlightTimers();
                     } else if (synthStillSpeaking && this.speechSynthesis) {
                         this.speechSynthesis.pause();
                     }
@@ -541,8 +552,8 @@
 
             if (!this.pausedForHiddenTab) return;
             this.pausedForHiddenTab = false;
-            if (this.serverAudioElement && this.serverAudioElement.paused) {
-                this.serverAudioElement.play().catch(() => {});
+            if (this.isServerAudioPaused()) {
+                this.resumeServerAudioPlayback().catch(() => {});
                 this.isPaused = false;
                 this.logPlaybackGuardEvent('visibility-auto-resumed');
                 return;
@@ -1092,6 +1103,9 @@
                 this.handleMediaElements();
             }
             this.updateVolumeBoostForTrackedMedia();
+            if (this.serverAudioGainNode) {
+                this.serverAudioGainNode.gain.value = this.getSpeechVolume();
+            }
             if (!silent) {
                 this.showNotification(`Volume boost ${this.CONFIG.VOLUME_BOOST_ENABLED ? 'on' : 'off'}`);
             }
@@ -1103,6 +1117,9 @@
             const clamped = Math.max(0.1, Math.min(2, parsed));
             this.CONFIG.VOLUME_BOOST_LEVEL = clamped;
             this.updateVolumeBoostForTrackedMedia();
+            if (this.serverAudioGainNode) {
+                this.serverAudioGainNode.gain.value = this.getSpeechVolume();
+            }
             if (!silent) {
                 this.showNotification(`Volume boost ${clamped.toFixed(1)}x`);
             }
@@ -1133,6 +1150,76 @@
             return Math.max(0.1, Math.min(1, level));
         },
 
+        ensureServerAudioGraph() {
+            const AudioCtx = window.AudioContext || window.webkitAudioContext;
+            if (!AudioCtx) return null;
+            if (!this.serverAudioContext || this.serverAudioContext.state === 'closed') {
+                this.serverAudioContext = new AudioCtx({ latencyHint: 'interactive' });
+                this.serverAudioGainNode = this.serverAudioContext.createGain();
+                this.serverAudioGainNode.connect(this.serverAudioContext.destination);
+            }
+            if (!this.serverAudioGainNode) {
+                this.serverAudioGainNode = this.serverAudioContext.createGain();
+                this.serverAudioGainNode.connect(this.serverAudioContext.destination);
+            }
+            this.serverAudioGainNode.gain.value = this.getSpeechVolume();
+            return this.serverAudioContext;
+        },
+
+        isServerAudioPlaybackAvailable() {
+            return Boolean(this.serverAudioContext && this.serverCurrentSource);
+        },
+
+        isServerAudioPlaying() {
+            return Boolean(
+                this.serverAudioContext &&
+                this.serverCurrentSource &&
+                this.serverAudioContext.state === 'running'
+            );
+        },
+
+        isServerAudioPaused() {
+            return Boolean(
+                this.serverAudioContext &&
+                this.serverCurrentSource &&
+                this.serverAudioContext.state === 'suspended'
+            );
+        },
+
+        stopCurrentServerSource() {
+            if (!this.serverCurrentSource) return;
+            try {
+                this.serverCurrentSource.onended = null;
+                this.serverCurrentSource.stop();
+                this.serverCurrentSource.disconnect();
+            } catch (_error) {
+                // Ignore races where source already ended.
+            }
+            this.serverCurrentSource = null;
+        },
+
+        async pauseServerAudioPlayback() {
+            if (!this.serverAudioContext) return false;
+            if (this.serverAudioContext.state !== 'running') return false;
+            try {
+                await this.serverAudioContext.suspend();
+                return true;
+            } catch (_error) {
+                return false;
+            }
+        },
+
+        async resumeServerAudioPlayback() {
+            if (!this.serverAudioContext) return false;
+            if (this.serverAudioContext.state === 'running') return true;
+            try {
+                await this.serverAudioContext.resume();
+                return this.serverAudioContext.state === 'running';
+            } catch (_error) {
+                return false;
+            }
+        },
+
         getMaxSynthBacklog() {
             const configured = Math.max(0, Number(this.CONFIG.MAX_SYNTH_BACKLOG) || 0);
             if (!this.CONFIG.LOW_GAP_MODE) return configured;
@@ -1153,6 +1240,24 @@
         getEffectiveQueueLookahead() {
             const configured = Math.max(0, Math.round(Number(this.CONFIG.QUEUE_LOOKAHEAD) || 0));
             return configured;
+        },
+
+        getServerPrecacheWordBudget() {
+            const configured = Math.max(10, Math.round(Number(this.CONFIG.SERVER_PRECACHE_WORD_BUDGET) || 100));
+            if (!this.CONFIG.LOW_GAP_MODE) return configured;
+            return Math.max(configured, 220);
+        },
+
+        getServerPrecacheMaxSentences() {
+            const configured = Math.max(1, Math.round(Number(this.CONFIG.SERVER_PRECACHE_MAX_SENTENCES) || 8));
+            if (!this.CONFIG.LOW_GAP_MODE) return configured;
+            return Math.max(configured, 14);
+        },
+
+        getServerHandoffWaitMs() {
+            const configured = Math.max(0, Math.round(Number(this.CONFIG.SERVER_HANDOFF_WAIT_MS) || 120));
+            if (!this.CONFIG.LOW_GAP_MODE) return configured;
+            return Math.max(configured, 220);
         },
 
         setEnterToSendEnabled(enabled, silent = false) {
@@ -1752,6 +1857,7 @@
                 el.classList.remove(...selectors.map(s => s.substring(1)));
             });
             this.currentWordSpan = null;
+            this.clearServerWordHighlightTimers();
         },
 
         revertParagraph() {
@@ -2637,6 +2743,63 @@
             this.currentWordSpan = span;
         },
 
+        clearServerWordHighlightTimers() {
+            if (!Array.isArray(this.serverWordHighlightTimers) || this.serverWordHighlightTimers.length === 0) return;
+            while (this.serverWordHighlightTimers.length > 0) {
+                const timerId = this.serverWordHighlightTimers.pop();
+                clearTimeout(timerId);
+            }
+        },
+
+        highlightWordByCharIndex(charIndex) {
+            if (!this.CONFIG.WORD_HIGHLIGHT_ENABLED || !this.wordHighlightActiveForCurrent) return;
+            if (this.currentWordSpan) {
+                this.currentWordSpan.classList.remove('tts-current-word');
+                this.currentWordSpan = null;
+            }
+            const idx = this.findWordIndexByChar(charIndex);
+            if (idx === -1) return;
+            const span = this.processedParagraph.wordSpans[idx];
+            if (!span) return;
+            span.classList.add('tts-current-word');
+            this.currentWordSpan = span;
+        },
+
+        scheduleServerWordHighlights(sentenceText, sentenceStartOffset, durationMs) {
+            this.clearServerWordHighlightTimers();
+            if (!this.CONFIG.WORD_HIGHLIGHT_ENABLED || !this.wordHighlightActiveForCurrent) return;
+            if (!this.processedParagraph || !Array.isArray(this.processedParagraph.wordSpans) || this.processedParagraph.wordSpans.length === 0) return;
+            const text = typeof sentenceText === 'string' ? sentenceText : '';
+            if (!text.trim()) return;
+
+            const words = [];
+            const regex = /\S+/g;
+            let match;
+            while ((match = regex.exec(text)) !== null) {
+                words.push({ charOffset: match.index });
+            }
+            if (words.length === 0) return;
+
+            const measuredMs = Number(durationMs);
+            const fallbackMs = Math.max(250, words.length * 180);
+            const totalMs = Number.isFinite(measuredMs) && measuredMs > 0 ? measuredMs : fallbackMs;
+            const totalChars = Math.max(1, text.length);
+            const baseOffset = Number.isFinite(Number(sentenceStartOffset)) ? Math.max(0, Math.floor(Number(sentenceStartOffset))) : 0;
+            const sessionId = this.playbackSessionId;
+
+            for (const word of words) {
+                const ratio = Math.max(0, Math.min(1, word.charOffset / totalChars));
+                const delay = Math.max(0, Math.floor(totalMs * ratio));
+                const globalCharIndex = baseOffset + word.charOffset;
+                const timerId = setTimeout(() => {
+                    if (sessionId !== this.playbackSessionId) return;
+                    if (!this.continuousReadingActive || this.isPaused) return;
+                    this.highlightWordByCharIndex(globalCharIndex);
+                }, delay);
+                this.serverWordHighlightTimers.push(timerId);
+            }
+        },
+
         describeSpeechErrorEvent(event) {
             if (!event) return {};
             return {
@@ -2873,6 +3036,31 @@
             return result;
         },
 
+        countWords(text) {
+            const source = typeof text === 'string' ? text : '';
+            const words = source.match(/\S+/g);
+            return words ? words.length : 0;
+        },
+
+        generateServerRequestId(state, sentenceIndex) {
+            const paragraphIndex = state && Number.isFinite(Number(state.paragraphIndex))
+                ? Number(state.paragraphIndex)
+                : -1;
+            const sessionId = state && Number.isFinite(Number(state.playbackSessionId))
+                ? Number(state.playbackSessionId)
+                : this.playbackSessionId;
+            const randomPart = Math.random().toString(36).slice(2, 8);
+            return `srv-${sessionId}-${paragraphIndex}-${sentenceIndex}-${Date.now()}-${randomPart}`;
+        },
+
+        getSafeServerSpeed() {
+            const configured = Number(this.CONFIG.SPEECH_RATE);
+            const min = Math.max(0.1, Number(this.CONFIG.SERVER_TTS_MIN_SPEED) || 0.5);
+            const max = Math.max(min, Number(this.CONFIG.SERVER_TTS_MAX_SPEED) || 2.0);
+            if (!Number.isFinite(configured)) return 1.0;
+            return Math.max(min, Math.min(max, configured));
+        },
+
         buildServerSentencePlan(paragraphText, startOffset = 0) {
             const safeStart = Math.max(0, Math.floor(Number(startOffset) || 0));
             const source = typeof paragraphText === 'string' ? paragraphText : '';
@@ -2880,7 +3068,8 @@
             const sentences = this.splitTextIntoSentences(sliced);
             return sentences.map((sentence) => ({
                 text: sentence.text,
-                startOffset: safeStart + sentence.startOffset
+                startOffset: safeStart + sentence.startOffset,
+                wordCount: this.countWords(sentence.text)
             }));
         },
 
@@ -2888,8 +3077,29 @@
             return `${state.playbackSessionId}:${state.paragraphIndex}:${sentenceIndex}`;
         },
 
+        cleanupPreparedServerAudioElements() {
+            if (!this.serverPreparedAudioElements || this.serverPreparedAudioElements.size === 0) return;
+            this.serverPreparedAudioElements.clear();
+        },
+
+        _evictCacheForSession(sessionId) {
+            for (const [key, payload] of this.serverSentenceAudioCache.entries()) {
+                // Key format: `${sessionId}:${paragraphIndex}:${sentenceIndex}` 
+                if (key.startsWith(`${sessionId}:`)) {
+                    if (payload && payload.wavUrl) {
+                        URL.revokeObjectURL(payload.wavUrl);
+                    }
+                    this.serverSentenceAudioCache.delete(key);
+                }
+            }
+            this.serverSentenceAudioInflight.clear();
+        },
+
         clearServerSentenceCache() {
-            for (const payload of this.serverSentenceAudioCache.values()) {
+            // Only revoke URLs, don't wipe entries for the NEXT paragraph
+            // that were prefetched under a valid future session.
+            // Full wipe only happens on stopTTS via _evictCacheForSession.
+            for (const [key, payload] of this.serverSentenceAudioCache.entries()) {
                 if (payload && payload.wavUrl) {
                     URL.revokeObjectURL(payload.wavUrl);
                 }
@@ -2899,15 +3109,20 @@
         },
 
         stopServerAudioPlayback() {
-            if (!this.serverAudioElement) return;
+            this.clearServerWordHighlightTimers();
+            this.logPlaybackGuardEvent('server-audio-stop', {
+                hasContext: Boolean(this.serverAudioContext),
+                hasSource: Boolean(this.serverCurrentSource)
+            });
+            this.stopCurrentServerSource();
+            if (!this.serverAudioContext) return;
             try {
-                this.serverAudioElement.pause();
-                this.serverAudioElement.src = '';
-                this.serverAudioElement.load();
+                this.serverAudioContext.close();
             } catch (_error) {
-                // Ignore cleanup errors when the element is already detached.
+                // Ignore cleanup errors when the context is already closed.
             }
-            this.serverAudioElement = null;
+            this.serverAudioContext = null;
+            this.serverAudioGainNode = null;
         },
 
         base64ToUint8Array(base64) {
@@ -2919,41 +3134,23 @@
             return bytes;
         },
 
-        createWavUrlFromPcm(pcmBytes, sampleRate) {
+        createServerAudioBufferFromPcm(pcmBytes, sampleRate) {
+            const context = this.ensureServerAudioGraph();
+            if (!context || !pcmBytes || pcmBytes.length === 0) return null;
             const safeSampleRate = Number.isFinite(Number(sampleRate))
                 ? Math.max(8000, Math.round(Number(sampleRate)))
                 : this.CONFIG.SERVER_TTS_SAMPLE_RATE;
-            const channels = 1;
-            const bitsPerSample = 16;
-            const blockAlign = channels * (bitsPerSample / 8);
-            const byteRate = safeSampleRate * blockAlign;
-            const dataSize = pcmBytes.length;
-            const buffer = new ArrayBuffer(44 + dataSize);
-            const view = new DataView(buffer);
-            const writeString = (offset, value) => {
-                for (let i = 0; i < value.length; i++) {
-                    view.setUint8(offset + i, value.charCodeAt(i));
-                }
-            };
-            writeString(0, 'RIFF');
-            view.setUint32(4, 36 + dataSize, true);
-            writeString(8, 'WAVE');
-            writeString(12, 'fmt ');
-            view.setUint32(16, 16, true);
-            view.setUint16(20, 1, true);
-            view.setUint16(22, channels, true);
-            view.setUint32(24, safeSampleRate, true);
-            view.setUint32(28, byteRate, true);
-            view.setUint16(32, blockAlign, true);
-            view.setUint16(34, bitsPerSample, true);
-            writeString(36, 'data');
-            view.setUint32(40, dataSize, true);
-            new Uint8Array(buffer, 44).set(pcmBytes);
-            const blob = new Blob([buffer], { type: 'audio/wav' });
-            return URL.createObjectURL(blob);
+            const sampleCount = Math.floor(pcmBytes.length / 2);
+            const audioBuffer = context.createBuffer(1, sampleCount, safeSampleRate);
+            const channel = audioBuffer.getChannelData(0);
+            const view = new DataView(pcmBytes.buffer, pcmBytes.byteOffset, pcmBytes.byteLength);
+            for (let i = 0; i < sampleCount; i++) {
+                channel[i] = view.getInt16(i * 2, true) / 32768;
+            }
+            return audioBuffer;
         },
 
-        async fetchServerSentenceAudio(state, sentenceIndex) {
+        async fetchServerSentenceAudio(state, sentenceIndex, requestId = '') {
             const sentence = state.sentences[sentenceIndex];
             if (!sentence || !sentence.text) {
                 throw new Error('Missing sentence');
@@ -2963,28 +3160,48 @@
                 throw new Error('No server voice selected');
             }
 
-            const speedRaw = Number(this.CONFIG.SPEECH_RATE);
-            const safeSpeed = Number.isFinite(speedRaw) ? Math.max(0.25, Math.min(4, speedRaw)) : 2.0;
+            const safeSpeed = this.getSafeServerSpeed();
+            const normalizedRequestId = (typeof requestId === 'string' && requestId.trim())
+                ? requestId.trim()
+                : this.generateServerRequestId(state, sentenceIndex);
             const response = await this.sendRuntimeMessageAsync({
                 action: 'synthesizeServerTts',
                 baseUrl: this.normalizeServerBaseUrl(this.CONFIG.SERVER_BASE_URL),
                 text: sentence.text,
                 voiceId: selectedVoiceId,
-                speed: safeSpeed
+                speed: safeSpeed,
+                requestId: normalizedRequestId,
+                debug: this.CONFIG.SHOW_DIAGNOSTICS_PANEL
             });
+            const key = this.getServerSentenceCacheKey(state, sentenceIndex);
+            const activeRequestId = this.serverSentenceRequestIds.get(key);
+            if (activeRequestId && activeRequestId !== normalizedRequestId) {
+                throw new Error('Stale server request');
+            }
             if (!response || response.ok !== true || typeof response.pcmBase64 !== 'string') {
                 const error = response && response.error ? response.error : 'Server synthesis failed';
                 throw new Error(error);
             }
 
+            if (response && response.timing) {
+                this.logPlaybackGuardEvent('server-sentence-timing', {
+                    paragraphIndex: state.paragraphIndex,
+                    sentenceIndex,
+                    requestId: normalizedRequestId,
+                    timing: response.timing
+                });
+            }
+
             const pcmBytes = this.base64ToUint8Array(response.pcmBase64);
-            const wavUrl = this.createWavUrlFromPcm(pcmBytes, response.sampleRate);
             if (state.playbackSessionId !== this.playbackSessionId) {
-                URL.revokeObjectURL(wavUrl);
                 throw new Error('Stale server audio');
             }
+            const audioBuffer = this.createServerAudioBufferFromPcm(pcmBytes, response.sampleRate);
+            if (!audioBuffer) {
+                throw new Error('Failed to create server audio buffer');
+            }
             return {
-                wavUrl,
+                audioBuffer,
                 sampleRate: response.sampleRate,
                 audioLength: response.audioLength
             };
@@ -2993,36 +3210,166 @@
         async getOrFetchServerSentenceAudio(state, sentenceIndex) {
             const key = this.getServerSentenceCacheKey(state, sentenceIndex);
             if (this.serverSentenceAudioCache.has(key)) {
+                this.logPlaybackGuardEvent('server-cache-hit', {
+                    paragraphIndex: state.paragraphIndex,
+                    sentenceIndex,
+                    cacheSize: this.serverSentenceAudioCache.size
+                });
                 return this.serverSentenceAudioCache.get(key);
             }
             if (this.serverSentenceAudioInflight.has(key)) {
+                this.logPlaybackGuardEvent('server-inflight-hit', {
+                    paragraphIndex: state.paragraphIndex,
+                    sentenceIndex,
+                    inflightSize: this.serverSentenceAudioInflight.size
+                });
                 return this.serverSentenceAudioInflight.get(key);
             }
-            const fetchPromise = this.fetchServerSentenceAudio(state, sentenceIndex)
+            const requestId = this.generateServerRequestId(state, sentenceIndex);
+            this.serverSentenceRequestIds.set(key, requestId);
+            const startedAt = performance.now();
+            this.logPlaybackGuardEvent('server-fetch-start', {
+                paragraphIndex: state.paragraphIndex,
+                sentenceIndex,
+                requestId,
+                inflightSize: this.serverSentenceAudioInflight.size + 1
+            });
+            const fetchPromise = this.fetchServerSentenceAudio(state, sentenceIndex, requestId)
                 .then((payload) => {
                     this.serverSentenceAudioInflight.delete(key);
+                    this.serverSentenceRequestIds.delete(key);
                     this.serverSentenceAudioCache.set(key, payload);
+                    this.logPlaybackGuardEvent('server-fetch-complete', {
+                        paragraphIndex: state.paragraphIndex,
+                        sentenceIndex,
+                        requestId,
+                        elapsedMs: Math.max(0, Math.round(performance.now() - startedAt)),
+                        cacheSize: this.serverSentenceAudioCache.size
+                    });
                     return payload;
                 })
                 .catch((error) => {
                     this.serverSentenceAudioInflight.delete(key);
+                    this.serverSentenceRequestIds.delete(key);
+                    this.logPlaybackGuardEvent('server-fetch-failed', {
+                        paragraphIndex: state.paragraphIndex,
+                        sentenceIndex,
+                        requestId,
+                        elapsedMs: Math.max(0, Math.round(performance.now() - startedAt)),
+                        error: String(error && error.message ? error.message : error)
+                    });
                     throw error;
                 });
             this.serverSentenceAudioInflight.set(key, fetchPromise);
             return fetchPromise;
         },
 
+        createPreparedServerAudioElement(payload) {
+            return {
+                audioBuffer: payload.audioBuffer,
+                payload
+            };
+        },
+
+        async getOrPrepareServerSentenceAudioElement(state, sentenceIndex) {
+            const key = this.getServerSentenceCacheKey(state, sentenceIndex);
+            if (this.serverPreparedAudioElements.has(key)) {
+                this.logPlaybackGuardEvent('server-prepared-hit', {
+                    paragraphIndex: state.paragraphIndex,
+                    sentenceIndex,
+                    preparedSize: this.serverPreparedAudioElements.size
+                });
+                return this.serverPreparedAudioElements.get(key);
+            }
+            const prepareStartedAt = performance.now();
+            const payload = await this.getOrFetchServerSentenceAudio(state, sentenceIndex);
+            if (state.playbackSessionId !== this.playbackSessionId) {
+                throw new Error('Stale server prepared audio');
+            }
+            const prepared = this.createPreparedServerAudioElement(payload);
+            this.serverPreparedAudioElements.set(key, prepared);
+            this.logPlaybackGuardEvent('server-prepared-store', {
+                paragraphIndex: state.paragraphIndex,
+                sentenceIndex,
+                preparedSize: this.serverPreparedAudioElements.size,
+                elapsedMs: Math.max(0, Math.round(performance.now() - prepareStartedAt))
+            });
+            return prepared;
+        },
+
         primeNextServerSentence(state, currentSentenceIndex) {
             if (!this.CONFIG.SERVER_PRECACHE_MODE) return;
+            if (!state || state.playbackSessionId !== this.playbackSessionId) return;
+            const wordBudget = this.getServerPrecacheWordBudget();
+            const maxSentences = this.getServerPrecacheMaxSentences();
+
+            let plannedWords = 0;
+            let plannedSentences = 0;
+            this.logPlaybackGuardEvent('server-precache-prime-start', {
+                paragraphIndex: state.paragraphIndex,
+                currentSentenceIndex,
+                wordBudget,
+                maxSentences
+            });
+            for (let nextIndex = currentSentenceIndex + 1; nextIndex < state.sentences.length; nextIndex++) {
+                const sentence = state.sentences[nextIndex];
+                if (!sentence || !sentence.text) continue;
+
+                const sentenceWords = Math.max(1, Number(sentence.wordCount) || this.countWords(sentence.text));
+                plannedWords += sentenceWords;
+                plannedSentences += 1;
+
+                this.getOrPrepareServerSentenceAudioElement(state, nextIndex).catch((error) => {
+                    this.logPlaybackGuardEvent('server-precache-failed', {
+                        paragraphIndex: state.paragraphIndex,
+                        sentenceIndex: nextIndex,
+                        error: String(error && error.message ? error.message : error)
+                    });
+                });
+
+                if (plannedWords >= wordBudget || plannedSentences >= maxSentences) {
+                    break;
+                }
+            }
+            this.logPlaybackGuardEvent('server-precache-prime-finish', {
+                paragraphIndex: state.paragraphIndex,
+                currentSentenceIndex,
+                plannedWords,
+                plannedSentences
+            });
+        },
+
+        async waitForNextServerSentenceReady(state, currentSentenceIndex) {
+            if (!this.CONFIG.SERVER_PRECACHE_MODE) return;
             const nextIndex = currentSentenceIndex + 1;
-            if (nextIndex >= state.sentences.length) return;
-            this.getOrFetchServerSentenceAudio(state, nextIndex).catch((error) => {
-                this.logPlaybackGuardEvent('server-precache-failed', {
+            if (!state || nextIndex >= state.sentences.length) return;
+            const waitMs = this.getServerHandoffWaitMs();
+            if (waitMs <= 0) return;
+            const startedAt = performance.now();
+            try {
+                const nextReadyPromise = this.getOrPrepareServerSentenceAudioElement(state, nextIndex);
+                let resolvedBy = 'timeout';
+                await Promise.race([
+                    nextReadyPromise.then(() => {
+                        resolvedBy = 'ready';
+                    }),
+                    new Promise((resolve) => setTimeout(resolve, waitMs))
+                ]);
+                this.logPlaybackGuardEvent('server-next-wait-finish', {
+                    paragraphIndex: state.paragraphIndex,
+                    currentSentenceIndex,
+                    nextIndex,
+                    waitMs,
+                    resolvedBy,
+                    elapsedMs: Math.max(0, Math.round(performance.now() - startedAt))
+                });
+            } catch (error) {
+                this.logPlaybackGuardEvent('server-next-wait-error', {
                     paragraphIndex: state.paragraphIndex,
                     sentenceIndex: nextIndex,
                     error: String(error && error.message ? error.message : error)
                 });
-            });
+            }
         },
 
         async playServerSentence(state, sentenceIndex) {
@@ -3043,10 +3390,19 @@
             const startTime = performance.now();
             this.lastGapMs = this.lastUtteranceEndTime ? startTime - this.lastUtteranceEndTime : null;
             this.updateDiagnosticsPanel();
+            this.logPlaybackGuardEvent('server-sentence-play-start', {
+                paragraphIndex: state.paragraphIndex,
+                sentenceIndex,
+                gapMs: this.lastGapMs
+            });
 
-            let payload;
+            let prepared;
+            // Queue current sentence first, then enqueue lookahead.
+            // This keeps FIFO server queues in correct playback order.
+            const currentSentencePromise = this.getOrPrepareServerSentenceAudioElement(state, sentenceIndex);
+            this.primeNextServerSentence(state, sentenceIndex);
             try {
-                payload = await this.getOrFetchServerSentenceAudio(state, sentenceIndex);
+                prepared = await currentSentencePromise;
             } catch (error) {
                 this.logPlaybackGuardEvent('server-sentence-fetch-error', {
                     paragraphIndex: state.paragraphIndex,
@@ -3060,55 +3416,172 @@
                 return;
             }
 
+            // Refresh the precache window once the current sentence payload is ready.
+            this.primeNextServerSentence(state, sentenceIndex);
+            if (sentenceIndex === 0) {
+                await this.waitForNextServerSentenceReady(state, sentenceIndex);
+            }
+
             if (state.playbackSessionId !== this.playbackSessionId || !this.continuousReadingActive) return;
 
-            this.stopServerAudioPlayback();
-            const audio = new Audio(payload.wavUrl);
-            audio.preload = 'auto';
-            this.serverAudioElement = audio;
-            this.primeNextServerSentence(state, sentenceIndex);
-
-            audio.onended = () => {
-                if (state.playbackSessionId !== this.playbackSessionId) return;
-                this.serverAudioElement = null;
-                this.ttsActive = false;
-                this.currentUtteranceStartOffset = 0;
-                this.lastUtteranceEndTime = performance.now();
-                this.playServerSentence(state, sentenceIndex + 1);
-            };
-            audio.onerror = () => {
-                if (state.playbackSessionId !== this.playbackSessionId) return;
-                this.logPlaybackGuardEvent('server-audio-play-error', {
+            const sentenceKey = this.getServerSentenceCacheKey(state, sentenceIndex);
+            this.serverPreparedAudioElements.delete(sentenceKey);
+            this.stopCurrentServerSource();
+            const payload = prepared && prepared.payload ? prepared.payload : null;
+            const audioBuffer = prepared && prepared.audioBuffer
+                ? prepared.audioBuffer
+                : payload && payload.audioBuffer
+                    ? payload.audioBuffer
+                    : null;
+            
+            const readyAt = performance.now();
+            const fetchLatencyMs = Math.max(0, Math.round(readyAt - startTime));
+            if (this.CONFIG.SHOW_DIAGNOSTICS_PANEL) {
+                console.debug('[TTS][Timing] Sentence ready to play', {
+                    paragraphIndex: state.paragraphIndex,
+                    sentenceIndex,
+                    fetchLatencyMs,
+                    // If fetchLatencyMs is near 0, data was cached (prefetch worked)
+                    servedFromCache: fetchLatencyMs < 20,
+                    sessionId: state.playbackSessionId
+                });
+            }
+            
+            // PATCH: prefetch next sentences immediately when payload arrives,
+            // don't wait for audio processing - this eliminates decode latency delays
+            const next1 = sentenceIndex + 1;
+            const next2 = sentenceIndex + 2;
+            if (next1 < state.sentences.length) {
+                this.getOrFetchServerSentenceAudio(state, next1).catch(() => {});
+            }
+            if (next2 < state.sentences.length) {
+                this.getOrFetchServerSentenceAudio(state, next2).catch(() => {});
+            }
+            
+            if (!payload || !audioBuffer) {
+                this.logPlaybackGuardEvent('server-sentence-payload-missing', {
                     paragraphIndex: state.paragraphIndex,
                     sentenceIndex
                 });
-                this.serverAudioElement = null;
+                this.ttsActive = false;
+                this.currentUtteranceStartOffset = 0;
+                this.lastUtteranceEndTime = performance.now();
+                this.playServerSentence(state, sentenceIndex + 1);
+                return;
+            }
+
+            const context = this.ensureServerAudioGraph();
+            if (!context || !this.serverAudioGainNode) {
+                this.logPlaybackGuardEvent('server-audio-context-missing', {
+                    paragraphIndex: state.paragraphIndex,
+                    sentenceIndex
+                });
+                this.ttsActive = false;
+                this.currentUtteranceStartOffset = 0;
+                this.lastUtteranceEndTime = performance.now();
+                this.playServerSentence(state, sentenceIndex + 1);
+                return;
+            }
+
+            const source = context.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(this.serverAudioGainNode);
+            this.serverCurrentSource = source;
+
+            const sampleRate = Number(payload && payload.sampleRate);
+            const audioLength = Number(payload && payload.audioLength);
+            const durationMs = (Number.isFinite(sampleRate) && sampleRate > 0 && Number.isFinite(audioLength) && audioLength > 0)
+                ? (audioLength / (sampleRate * 2)) * 1000
+                : (Number.isFinite(audioBuffer.duration) ? audioBuffer.duration * 1000 : 0);
+            this.scheduleServerWordHighlights(sentence.text, sentence.startOffset, durationMs);
+
+            source.onended = () => {
+                if (state.playbackSessionId !== this.playbackSessionId) return;
+                if (this.serverCurrentSource === source) {
+                    this.serverCurrentSource = null;
+                }
+                this.logPlaybackGuardEvent('server-sentence-source-ended', {
+                    paragraphIndex: state.paragraphIndex,
+                    sentenceIndex
+                });
                 this.ttsActive = false;
                 this.currentUtteranceStartOffset = 0;
                 this.lastUtteranceEndTime = performance.now();
                 this.playServerSentence(state, sentenceIndex + 1);
             };
 
-            audio.play().catch((error) => {
-                if (state.playbackSessionId !== this.playbackSessionId) return;
-                this.logPlaybackGuardEvent('server-audio-play-rejected', {
-                    paragraphIndex: state.paragraphIndex,
-                    sentenceIndex,
-                    error: String(error && error.message ? error.message : error)
+            this.resumeServerAudioPlayback()
+                .then(() => {
+                    if (state.playbackSessionId !== this.playbackSessionId || !this.continuousReadingActive) {
+                        this.stopCurrentServerSource();
+                        return;
+                    }
+                    const handoffMs = Math.max(0, Math.round(performance.now() - startTime));
+                    this.logPlaybackGuardEvent('server-sentence-source-start', {
+                        paragraphIndex: state.paragraphIndex,
+                        sentenceIndex,
+                        handoffMs
+                    });
+                    
+                    // PROACTIVE FETCHING: Start audio immediately
+                    // FIX: source.start() returns void, NOT a Promise.
+                    // Do NOT chain .then()/.catch() on it.
+                    // Gap measurement goes here, before start():
+                    if (this.CONFIG.SHOW_DIAGNOSTICS_PANEL) {
+                        const playStartedAt = performance.now();
+                        const gapMs = this.lastUtteranceEndTime
+                            ? Math.max(0, Math.round(playStartedAt - this.lastUtteranceEndTime))
+                            : null;
+                        console.debug('[TTS][Gap] Sentence gap measured', {
+                            paragraphIndex: state.paragraphIndex,
+                            sentenceIndex,
+                            gapMs,
+                            audible: gapMs !== null && gapMs > 200,
+                            servedFromCache: fetchLatencyMs < 20
+                        });
+                    }
+
+                    try {
+                        source.start(0);
+                    } catch (startError) {
+                        // source may have already been stopped (stale session race)
+                        if (state.playbackSessionId !== this.playbackSessionId) return;
+                        this.logPlaybackGuardEvent('server-audio-start-error', {
+                            paragraphIndex: state.paragraphIndex,
+                            sentenceIndex,
+                            error: String(startError && startError.message ? startError.message : startError)
+                        });
+                        if (this.serverCurrentSource === source) {
+                            this.serverCurrentSource = null;
+                        }
+                        this.ttsActive = false;
+                        this.currentUtteranceStartOffset = 0;
+                        this.lastUtteranceEndTime = performance.now();
+                        this.playServerSentence(state, sentenceIndex + 1);
+                    }
+                })
+                .catch((resumeError) => {
+                    if (state.playbackSessionId !== this.playbackSessionId) return;
+                    this.logPlaybackGuardEvent('server-audio-resume-error', {
+                        paragraphIndex: state.paragraphIndex,
+                        sentenceIndex,
+                        error: String(resumeError && resumeError.message ? resumeError.message : resumeError)
+                    });
+                    if (this.serverCurrentSource === source) {
+                        this.serverCurrentSource = null;
+                    }
+                    this.ttsActive = false;
+                    this.currentUtteranceStartOffset = 0;
+                    this.lastUtteranceEndTime = performance.now();
+                    this.playServerSentence(state, sentenceIndex + 1);
                 });
-                this.serverAudioElement = null;
-                this.ttsActive = false;
-                this.currentUtteranceStartOffset = 0;
-                this.lastUtteranceEndTime = performance.now();
-                this.playServerSentence(state, sentenceIndex + 1);
-            });
         },
 
         startServerPlaybackFromParagraph(index, options = {}) {
             if (!this.continuousReadingActive) return;
 
             this.stopServerAudioPlayback();
-            this.clearServerSentenceCache();
+            // REMOVED: this.clearServerSentenceCache() — Fix 1
             this.cancelActiveSpeechQueue('server-voice-start');
             this.queuedParagraphs.clear();
             this.queuedStartOffsets.clear();
@@ -3142,7 +3615,14 @@
 
             this.currentParagraphIndex = index;
             this.lastSpokenElement = para.element;
-            this.wordHighlightActiveForCurrent = false;
+            this.wordHighlightActiveForCurrent = this.shouldHighlightWordsForElement(para.element);
+            const wrapStart = performance.now();
+            const textToRead = this.prepareParagraphForReading(para.element);
+            this.lastWrapMs = performance.now() - wrapStart;
+            this.updateDiagnosticsPanel();
+            if (!textToRead) {
+                this.wordHighlightActiveForCurrent = false;
+            }
             this.clearHighlights(true);
             para.element.classList.add('tts-current-sentence');
             this.updateProgressPanel();
@@ -3157,7 +3637,32 @@
                 sentenceIndex: 0
             };
             this.serverPlaybackState = state;
-            this.playServerSentence(state, 0);
+            
+            // PREFETCH: Start playback when sentence 0 is ready, prefetch others in background
+            if (this.CONFIG.SERVER_PRECACHE_MODE && sentences.length > 1) {
+                // Fire prefetch for sentences 1 and 2 in background — don't await them
+                for (let i = 1; i < Math.min(3, sentences.length); i++) {
+                    this.getOrPrepareServerSentenceAudioElement(state, i).catch(() => {});
+                }
+            }
+
+            // Start playback immediately when sentence 0 is ready —
+            // don't wait for any other sentences
+            this.getOrPrepareServerSentenceAudioElement(state, 0)
+                .then(() => {
+                    if (state.playbackSessionId === this.playbackSessionId && this.continuousReadingActive) {
+                        this.playServerSentence(state, 0);
+                    }
+                })
+                .catch(() => {
+                    // Sentence 0 fetch failed — try playing anyway (playServerSentence handles errors)
+                    if (state.playbackSessionId === this.playbackSessionId && this.continuousReadingActive) {
+                        this.playServerSentence(state, 0);
+                    }
+                });
+
+            // Prefetch next paragraph's sentences in background while current plays
+            this._prefetchNextParagraphSentences(index, state.playbackSessionId);
         },
 
         onServerParagraphComplete(state) {
@@ -3188,6 +3693,42 @@
             this.startServerPlaybackFromParagraph(refreshedIndex + 1, {});
         },
 
+        _prefetchNextParagraphSentences(currentIndex, sessionId) {
+            const nextIndex = currentIndex + 1;
+            if (nextIndex >= this.paragraphsList.length) return;
+            const nextPara = this.paragraphsList[nextIndex];
+            if (!nextPara || !nextPara.text) return;
+            const sentences = this.buildServerSentencePlan(nextPara.text, 0);
+            if (!sentences.length) return;
+
+            // Build a dummy state just for cache key generation
+            const nextState = {
+                playbackSessionId: sessionId,
+                paragraphIndex: nextIndex,
+                sentences,
+                sentenceIndex: 0
+            };
+
+            // Stagger prefetch requests by 150ms each to avoid hammering GPU
+            // Sentence 0 starts immediately, sentence 1 after 150ms, etc.
+            const maxPrefetch = Math.min(3, sentences.length);
+            for (let i = 0; i < maxPrefetch; i++) {
+                setTimeout(() => {
+                    if (this.playbackSessionId !== sessionId) return; // stale, abort
+                    this.getOrFetchServerSentenceAudio(nextState, i).catch(() => {});
+                }, i * 150);
+            }
+
+            if (this.CONFIG.SHOW_DIAGNOSTICS_PANEL) {
+                console.debug('[TTS][Prefetch] Cross-paragraph prefetch scheduled', {
+                    currentIndex,
+                    nextIndex,
+                    sentenceCount: maxPrefetch,
+                    sessionId
+                });
+            }
+        },
+
         async playServerSingleUtterance(text, onComplete = null) {
             const selectedVoiceId = this.getSelectedServerVoiceId();
             if (!selectedVoiceId) {
@@ -3201,8 +3742,11 @@
             this.ttsActive = true;
             this.isPaused = false;
 
-            const speedRaw = Number(this.CONFIG.SPEECH_RATE);
-            const safeSpeed = Number.isFinite(speedRaw) ? Math.max(0.25, Math.min(4, speedRaw)) : 2.0;
+            const safeSpeed = this.getSafeServerSpeed();
+            const requestId = this.generateServerRequestId({
+                playbackSessionId: this.playbackSessionId,
+                paragraphIndex: this.currentParagraphIndex
+            }, 0);
             let response;
             try {
                 response = await this.sendRuntimeMessageAsync({
@@ -3210,7 +3754,9 @@
                     baseUrl: this.normalizeServerBaseUrl(this.CONFIG.SERVER_BASE_URL),
                     text,
                     voiceId: selectedVoiceId,
-                    speed: safeSpeed
+                    speed: safeSpeed,
+                    requestId,
+                    debug: this.CONFIG.SHOW_DIAGNOSTICS_PANEL
                 });
             } catch (error) {
                 this.logPlaybackGuardEvent('server-single-fetch-failed', {
@@ -3219,6 +3765,13 @@
                 this.ttsActive = false;
                 if (onComplete) onComplete();
                 return;
+            }
+
+            if (response && response.timing) {
+                this.logPlaybackGuardEvent('server-single-timing', {
+                    requestId,
+                    timing: response.timing
+                });
             }
 
             if (!response || response.ok !== true || typeof response.pcmBase64 !== 'string') {
@@ -3231,20 +3784,28 @@
             }
 
             const pcmBytes = this.base64ToUint8Array(response.pcmBase64);
-            const wavUrl = this.createWavUrlFromPcm(pcmBytes, response.sampleRate);
             const sessionId = this.playbackSessionId;
             if (sessionId !== this.playbackSessionId) {
-                URL.revokeObjectURL(wavUrl);
+                return;
+            }
+            const audioBuffer = this.createServerAudioBufferFromPcm(pcmBytes, response.sampleRate);
+            const context = this.ensureServerAudioGraph();
+            if (!context || !this.serverAudioGainNode || !audioBuffer) {
+                this.ttsActive = false;
+                if (onComplete) onComplete();
                 return;
             }
 
-            const audio = new Audio(wavUrl);
-            audio.preload = 'auto';
-            this.serverAudioElement = audio;
-            audio.onended = () => {
-                URL.revokeObjectURL(wavUrl);
+            this.stopCurrentServerSource();
+            const source = context.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(this.serverAudioGainNode);
+            this.serverCurrentSource = source;
+            source.onended = () => {
                 if (sessionId !== this.playbackSessionId) return;
-                this.serverAudioElement = null;
+                if (this.serverCurrentSource === source) {
+                    this.serverCurrentSource = null;
+                }
                 this.ttsActive = false;
                 if (onComplete && this.continuousReadingActive) {
                     onComplete();
@@ -3252,20 +3813,20 @@
                     this.stopTTS(false);
                 }
             };
-            audio.onerror = () => {
-                URL.revokeObjectURL(wavUrl);
-                if (sessionId !== this.playbackSessionId) return;
-                this.serverAudioElement = null;
-                this.ttsActive = false;
-                if (onComplete && this.continuousReadingActive) onComplete();
-            };
-            audio.play().catch(() => {
-                URL.revokeObjectURL(wavUrl);
-                if (sessionId !== this.playbackSessionId) return;
-                this.serverAudioElement = null;
-                this.ttsActive = false;
-                if (onComplete && this.continuousReadingActive) onComplete();
-            });
+
+            this.resumeServerAudioPlayback()
+                .then(() => {
+                    if (sessionId !== this.playbackSessionId) return;
+                    source.start(0);
+                })
+                .catch(() => {
+                    if (sessionId !== this.playbackSessionId) return;
+                    if (this.serverCurrentSource === source) {
+                        this.serverCurrentSource = null;
+                    }
+                    this.ttsActive = false;
+                    if (onComplete && this.continuousReadingActive) onComplete();
+                });
         },
 
         enqueueParagraph(index) {
@@ -3423,8 +3984,10 @@
             if (this.pointerLoopId) cancelAnimationFrame(this.pointerLoopId);
             this.updatePointerArrow();
             this.prewrapNextParagraph(index);
-            if (!this.chunkedParagraphState.has(index)) {
-                this.prewarmNextUtterance(index);
+            
+            // KEY BEHAVIORAL FIX: Fill entire lookahead window immediately when paragraph starts
+            if (this.continuousReadingActive && !this.chunkedParagraphState.has(index)) {
+                this.fillLookaheadWindow(index);
             }
         },
 
@@ -3545,6 +4108,25 @@
             this.enqueueParagraph(nextIndex);
         },
 
+        fillLookaheadWindow(currentIndex) {
+            if (!this.continuousReadingActive) return;
+            if (this.chunkedParagraphState.has(currentIndex)) return;
+            
+            // Clear existing queue and refill entire lookahead window
+            this.queuedParagraphs.clear();
+            this.queuedStartOffsets.clear();
+            if (this.paragraphsDirty) {
+                this.refreshParagraphsIfNeeded(true);
+            }
+            
+            // Fill from current index + 1 through the full lookahead window
+            const effectiveLookahead = this.getEffectiveQueueLookahead();
+            const maxIndex = Math.min(this.paragraphsList.length - 1, currentIndex + effectiveLookahead);
+            for (let i = currentIndex + 1; i <= maxIndex; i++) {
+                this.enqueueParagraph(i);
+            }
+        },
+
         readFromParagraph(index, options = {}) {
             if (!this.continuousReadingActive) {
                 this.revertParagraph();
@@ -3569,7 +4151,7 @@
                 }
 
                 if (this.isServerVoiceSelected()) {
-                    this.advancePlaybackSession('server-voice-read-from-paragraph');
+                    // REMOVED: this.advancePlaybackSession('server-voice-read-from-paragraph') — Fix 2
                     this.startServerPlaybackFromParagraph(index, options);
                     return;
                 }
@@ -3595,7 +4177,7 @@
             this.chunkContinuationTimeoutId = null;
             this.stopServerAudioPlayback();
             this.serverPlaybackState = null;
-            this.clearServerSentenceCache();
+            this._evictCacheForSession(this.playbackSessionId);
             if (this.speechSynthesis.speaking || this.speechSynthesis.pending) {
                 this.speechSynthesis.cancel();
             }
@@ -3643,17 +4225,22 @@
 
         // ... (pauseResumeTTS, navigate, startReadingOnClick, setupEventListeners are unchanged) ...
         pauseResumeTTS() {
-            if (this.serverAudioElement) {
+            if (this.isServerAudioPlaybackAvailable()) {
                 if (this.isPaused) {
-                    this.serverAudioElement.play().catch(() => {});
-                    this.isPaused = false;
-                    this.ttsActive = true;
-                    this.showNotification('Resumed');
+                    this.resumeServerAudioPlayback().then((resumed) => {
+                        if (!resumed) return;
+                        this.isPaused = false;
+                        this.ttsActive = true;
+                        this.showNotification('Resumed');
+                    }).catch(() => {});
                 } else {
-                    this.serverAudioElement.pause();
-                    this.isPaused = true;
-                    this.ttsActive = false;
-                    this.showNotification('Paused');
+                    this.pauseServerAudioPlayback().then((paused) => {
+                        if (!paused) return;
+                        this.isPaused = true;
+                        this.ttsActive = false;
+                        this.clearServerWordHighlightTimers();
+                        this.showNotification('Paused');
+                    }).catch(() => {});
                 }
                 return;
             }
@@ -3672,7 +4259,7 @@
         isPlaybackSessionActive() {
             const synth = this.speechSynthesis;
             const synthBusy = Boolean(synth && (synth.speaking || synth.pending || synth.paused));
-            const serverBusy = Boolean(this.serverAudioElement && !this.serverAudioElement.paused);
+            const serverBusy = this.isServerAudioPlaying() || this.isServerAudioPaused();
             return synthBusy ||
                 serverBusy ||
                 this.ttsActive ||
@@ -3685,7 +4272,7 @@
         clearStalePlaybackFlagsIfIdle() {
             const synth = this.speechSynthesis;
             const synthBusy = Boolean(synth && (synth.speaking || synth.pending || synth.paused));
-            const serverBusy = Boolean(this.serverAudioElement && !this.serverAudioElement.paused);
+            const serverBusy = this.isServerAudioPlaying() || this.isServerAudioPaused();
             if (synthBusy || serverBusy || this.continuousReadingActive || this.waitingForMoreContent || this.queuedParagraphs.size > 0) {
                 return false;
             }
@@ -4765,4 +5352,3 @@
     }
 
 })();
-
