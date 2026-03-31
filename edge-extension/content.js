@@ -25,6 +25,7 @@
         autoPauseHiddenDelayMs: 5000,
         volumeBoostEnabled: true,
         volumeBoostLevel: 1.3,
+        lowGapMode: false,
         enterToSendEnabled: true,
         globalPasteEnabled: true,
         regularPasteEnabled: true,
@@ -247,6 +248,7 @@
             PROMPT_HISTORY_MAX_CHARS: 6000,
             VOLUME_BOOST_ENABLED: true,
             VOLUME_BOOST_LEVEL: 1.3,
+            LOW_GAP_MODE: false,
             ENTER_TO_SEND_ENABLED: true,
             ENTER_TO_SEND_DOUBLE_PRESS_MS: 300,
             GLOBAL_PASTE_ENABLED: true,
@@ -1079,11 +1081,37 @@
             }
         },
 
+        setLowGapMode(enabled, silent = false) {
+            const nextValue = Boolean(enabled);
+            if (this.CONFIG.LOW_GAP_MODE === nextValue) return;
+            this.CONFIG.LOW_GAP_MODE = nextValue;
+            if (!silent) {
+                this.showNotification(`Low-gap mode ${nextValue ? 'on' : 'off'}`);
+            }
+        },
+
         getSpeechVolume() {
             if (!this.CONFIG.VOLUME_BOOST_ENABLED) return 0.9;
             const level = Number(this.CONFIG.VOLUME_BOOST_LEVEL);
             if (!Number.isFinite(level)) return 0.9;
             return Math.max(0.1, Math.min(1, level));
+        },
+
+        getMaxSynthBacklog() {
+            const configured = Math.max(0, Number(this.CONFIG.MAX_SYNTH_BACKLOG) || 0);
+            if (!this.CONFIG.LOW_GAP_MODE) return configured;
+            return Math.max(configured, 2);
+        },
+
+        getSpeechChunkMaxChars() {
+            const configured = Math.max(80, Number(this.CONFIG.SPEECH_CHUNK_MAX_CHARS) || 220);
+            if (!this.CONFIG.LOW_GAP_MODE) return configured;
+            return Math.max(configured, 320);
+        },
+
+        getSpeechChunkGapMs() {
+            if (this.CONFIG.LOW_GAP_MODE) return 0;
+            return Math.max(0, Number(this.CONFIG.SPEECH_CHUNK_GAP_MS) || 0);
         },
 
         setEnterToSendEnabled(enabled, silent = false) {
@@ -2631,7 +2659,7 @@
                 return { chunkText: '', remainderText: '', nextStartOffset: startOffset };
             }
 
-            const maxChars = Math.max(80, Number(this.CONFIG.SPEECH_CHUNK_MAX_CHARS) || 220);
+            const maxChars = this.getSpeechChunkMaxChars();
             if (source.length <= maxChars) {
                 return {
                     chunkText: source,
@@ -2698,7 +2726,7 @@
             const para = this.paragraphsList[index];
             if (!para || !para.element || !para.text) return;
 
-            const maxBacklog = Math.max(0, Number(this.CONFIG.MAX_SYNTH_BACKLOG) || 0);
+            const maxBacklog = this.getMaxSynthBacklog();
             const bufferedAhead = this.queuedParagraphs.size;
             const synthBusy = Boolean(this.speechSynthesis.speaking || this.speechSynthesis.pending);
             if (synthBusy && bufferedAhead > maxBacklog) {
@@ -2851,7 +2879,7 @@
             if (!this.continuousReadingActive) return;
 
             if (this.chunkedParagraphState.has(index)) {
-                const gapMs = Math.max(0, Number(this.CONFIG.SPEECH_CHUNK_GAP_MS) || 0);
+                const gapMs = this.getSpeechChunkGapMs();
                 clearTimeout(this.chunkContinuationTimeoutId);
                 this.chunkContinuationTimeoutId = setTimeout(() => {
                     this.chunkContinuationTimeoutId = null;
@@ -3504,6 +3532,7 @@
                 <label for="tts-read-user-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-read-user-toggle" ${this.CONFIG.READ_USER_MESSAGES ? 'checked' : ''} style="margin:0;">👤 Read user msgs</label>
                 <label for="tts-read-refs-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-read-refs-toggle" ${this.CONFIG.READ_REFERENCES ? 'checked' : ''} style="margin:0;">🔗 Read refs</label>
                 <label for="tts-chat-style-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-chat-style-toggle" ${this.CONFIG.CHATGPT_TEXT_STYLING ? 'checked' : ''} style="margin:0;">🎨 Chat style</label>
+                <label for="tts-low-gap-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-low-gap-toggle" ${this.CONFIG.LOW_GAP_MODE ? 'checked' : ''} style="margin:0;">⚡ Low-gap mode</label>
                 <label for="tts-auto-read-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-auto-read-toggle" ${this.CONFIG.AUTO_READ_NEW_MESSAGES ? 'checked' : ''} style="margin:0;">🤖 Auto-read new</label>
                 <label for="tts-loop-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-loop-toggle" ${this.CONFIG.LOOP_ON_END ? 'checked' : ''} style="margin:0;">🔁 Loop to top</label>
                 <label for="tts-autoscroll-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-autoscroll-toggle" ${this.CONFIG.AUTO_SCROLL_ENABLED ? 'checked' : ''} style="margin:0;">📜 Auto-scroll</label>
@@ -3543,6 +3572,12 @@
                 this.setChatGPTTextStylingEnabled(e.target.checked);
             });
             chatStyleToggle.addEventListener('mousedown', e => e.stopPropagation());
+            const lowGapToggle = document.getElementById('tts-low-gap-toggle');
+            lowGapToggle.addEventListener('change', e => {
+                this.setLowGapMode(e.target.checked);
+                persistProfileSetting(this.settingsProfile, 'lowGapMode', this.CONFIG.LOW_GAP_MODE);
+            });
+            lowGapToggle.addEventListener('mousedown', e => e.stopPropagation());
             const autoReadToggle = document.getElementById('tts-auto-read-toggle');
             autoReadToggle.addEventListener('change', e => {
                 this.setAutoReadEnabled(e.target.checked);
@@ -3827,6 +3862,9 @@
         if (typeof settings.chatgptTextStyling === 'boolean') {
             TTSReader.setChatGPTTextStylingEnabled(settings.chatgptTextStyling, silent);
         }
+        if (typeof settings.lowGapMode === 'boolean') {
+            TTSReader.setLowGapMode(settings.lowGapMode, silent);
+        }
         if (typeof settings.loopOnEnd === 'boolean') {
             TTSReader.setLoopEnabled(settings.loopOnEnd, silent);
         }
@@ -4068,6 +4106,7 @@
                             readUserMessages: TTSReader.CONFIG.READ_USER_MESSAGES,
                             readReferences: TTSReader.CONFIG.READ_REFERENCES,
                             chatgptTextStyling: TTSReader.CONFIG.CHATGPT_TEXT_STYLING,
+                            lowGapMode: TTSReader.CONFIG.LOW_GAP_MODE,
                             autoRead: TTSReader.CONFIG.AUTO_READ_NEW_MESSAGES,
                             loopOnEnd: TTSReader.CONFIG.LOOP_ON_END,
                             autoScrollEnabled: TTSReader.CONFIG.AUTO_SCROLL_ENABLED,

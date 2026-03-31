@@ -12,6 +12,7 @@ document.addEventListener('DOMContentLoaded', () => {
         readUserMessages: false,
         readReferences: false,
         chatgptTextStyling: false,
+        lowGapMode: false,
         autoRead: false,
         loopOnEnd: true,
         autoScrollEnabled: true,
@@ -77,6 +78,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const readUserMessagesToggle = document.getElementById('readUserMessagesToggle');
     const readReferencesToggle = document.getElementById('readReferencesToggle');
     const chatStyleToggle = document.getElementById('chatStyleToggle');
+    const lowGapToggle = document.getElementById('lowGapToggle');
     const autoReadToggle = document.getElementById('autoReadToggle');
     const loopToggle = document.getElementById('loopToggle');
     const autoScrollToggle = document.getElementById('autoScrollToggle');
@@ -281,6 +283,7 @@ document.addEventListener('DOMContentLoaded', () => {
         readUserMessagesToggle.checked = Boolean(settings.readUserMessages);
         readReferencesToggle.checked = Boolean(settings.readReferences);
         chatStyleToggle.checked = Boolean(settings.chatgptTextStyling);
+        lowGapToggle.checked = Boolean(settings.lowGapMode);
         autoReadToggle.checked = Boolean(settings.autoRead);
         loopToggle.checked = Boolean(settings.loopOnEnd);
         autoScrollToggle.checked = Boolean(settings.autoScrollEnabled);
@@ -391,6 +394,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     chatStyleToggle.addEventListener('change', (e) => {
         persistSetting('chatgptTextStyling', e.target.checked);
+    });
+    lowGapToggle.addEventListener('change', (e) => {
+        persistSetting('lowGapMode', e.target.checked);
     });
     autoReadToggle.addEventListener('change', (e) => {
         persistSetting('autoRead', e.target.checked);

@@ -14,6 +14,7 @@ const BASE_DEFAULT_SETTINGS = {
     readUserMessages: false,
     readReferences: false,
     chatgptTextStyling: false,
+    lowGapMode: false,
     autoRead: false,
     loopOnEnd: true,
     autoScrollEnabled: true,
