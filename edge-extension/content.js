@@ -271,10 +271,10 @@
             SERVER_PRECACHE_MAX_SENTENCES: 8,
             SERVER_HANDOFF_WAIT_MS: 120,
             SERVER_TTS_SAMPLE_RATE: 24000,
-            SERVER_TTS_FORMAT: 'pcm_24k_16bit',
+            SERVER_TTS_DEFAULT_BASE_URL: 'http://127.0.0.1:7860',
+            TEXT_PREPROCESS_CHARS: '',  // Characters to strip from content before TTS
             SERVER_TTS_MIN_SPEED: 0.5,
             SERVER_TTS_MAX_SPEED: 2.0,
-            ENTER_TO_SEND_ENABLED: true,
             ENTER_TO_SEND_DOUBLE_PRESS_MS: 300,
             GLOBAL_PASTE_ENABLED: true,
             REGULAR_PASTE_ENABLED: true,
@@ -3153,6 +3153,21 @@
             return Math.max(min, Math.min(max, configured));
         },
 
+        applyTextPreprocessing(text) {
+            if (!text || typeof text !== 'string') return text;
+            if (!this.CONFIG.TEXT_PREPROCESS_CHARS) return text;
+            
+            let processedText = text;
+            const charsToRemove = this.CONFIG.TEXT_PREPROCESS_CHARS.split('');
+            
+            for (const char of charsToRemove) {
+                const regex = new RegExp(char.replace(/[.*+?^${}]/g, '\\$&'), 'g');
+                processedText = processedText.replace(regex, '');
+            }
+            
+            return processedText.trim();
+        },
+
         buildServerSentencePlan(paragraphText, startOffset = 0) {
             const safeStart = Math.max(0, Math.floor(Number(startOffset) || 0));
             const source = typeof paragraphText === 'string' ? paragraphText : '';
@@ -3260,7 +3275,7 @@
             const response = await this.sendRuntimeMessageAsync({
                 action: 'synthesizeServerTts',
                 baseUrl: this.normalizeServerBaseUrl(this.CONFIG.SERVER_BASE_URL),
-                text: sentence.text,
+                text: this.applyTextPreprocessing(sentence.text),
                 voiceId: selectedVoiceId,
                 speed: safeSpeed,
                 requestId: normalizedRequestId,
@@ -5414,6 +5429,14 @@
                     break;
                 case 'applySettings':
                     applySettings(message.settings || {}, { silent: message.silent === true });
+                    break;
+                case 'setTextPreprocess':
+                    if (message.chars) {
+                        TTSReader.CONFIG.TEXT_PREPROCESS_CHARS = message.chars;
+                        TTSReader.logPlaybackGuardEvent('text-preprocess-updated', {
+                            chars: message.chars
+                        });
+                    }
                     break;
                 case 'getState':
                     TTSReader.refreshParagraphsIfNeeded(false);
