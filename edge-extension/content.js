@@ -191,6 +191,8 @@
         serverAudioGainNode: null,
         serverCurrentSource: null,
         serverPlaybackState: null,
+        scheduledNextSource: null,      // Look-ahead: pre-scheduled next audio source
+        serverPlaybackStartTime: 0,     // Look-ahead: when current playback started (context time)
         serverSentenceAudioCache: new Map(),
         serverSentenceAudioInflight: new Map(),
         serverSentenceRequestIds: new Map(),
@@ -1196,6 +1198,95 @@
                 // Ignore races where source already ended.
             }
             this.serverCurrentSource = null;
+        },
+
+        cancelScheduledNext() {
+            if (!this.scheduledNextSource) return;
+            try {
+                this.scheduledNextSource.onended = null;
+                this.scheduledNextSource.stop();
+                this.scheduledNextSource.disconnect();
+            } catch (_error) {
+                // Ignore races where source already played or stopped.
+            }
+            this.scheduledNextSource = null;
+        },
+
+        async scheduleNextSentence(state, nextIndex, currentBufferDuration) {
+            // Look-ahead scheduling: schedule next sentence to start exactly when current ends
+            if (!this.serverAudioContext) return;
+            if (state.playbackSessionId !== this.playbackSessionId) return;
+            if (nextIndex >= state.sentences.length) return;
+
+            const context = this.serverAudioContext;
+            const nextStartTime = this.serverPlaybackStartTime + currentBufferDuration;
+
+            // Fetch and prepare next sentence audio
+            let prepared;
+            try {
+                prepared = await this.getOrPrepareServerSentenceAudioElement(state, nextIndex);
+            } catch (error) {
+                this.logPlaybackGuardEvent('lookahead-fetch-error', {
+                    paragraphIndex: state.paragraphIndex,
+                    sentenceIndex: nextIndex,
+                    error: String(error && error.message ? error.message : error)
+                });
+                return;
+            }
+
+            if (state.playbackSessionId !== this.playbackSessionId) return;
+            if (!prepared || !prepared.audioBuffer) return;
+
+            const audioBuffer = prepared.audioBuffer;
+            const payload = prepared.payload || null;
+
+            // Create source for next sentence
+            const nextSource = context.createBufferSource();
+            nextSource.buffer = audioBuffer;
+            nextSource.connect(this.serverAudioGainNode);
+
+            // Schedule to start exactly when current ends
+            try {
+                nextSource.start(nextStartTime);
+                this.scheduledNextSource = nextSource;
+
+                this.logPlaybackGuardEvent('lookahead-scheduled', {
+                    paragraphIndex: state.paragraphIndex,
+                    sentenceIndex: nextIndex,
+                    nextStartTime,
+                    currentTime: context.currentTime,
+                    bufferDuration: audioBuffer.duration
+                });
+
+                // Set up onended for cleanup and triggering the one after
+                nextSource.onended = () => {
+                    if (state.playbackSessionId !== this.playbackSessionId) return;
+                    if (this.scheduledNextSource === nextSource) {
+                        this.scheduledNextSource = null;
+                    }
+                    // Continue the chain
+                    this.playServerSentence(state, nextIndex + 1);
+                };
+
+                // Schedule word highlights for next sentence
+                const sampleRate = Number(payload && payload.sampleRate);
+                const audioLength = Number(payload && payload.audioLength);
+                const durationMs = (Number.isFinite(sampleRate) && sampleRate > 0 && Number.isFinite(audioLength) && audioLength > 0)
+                    ? (audioLength / (sampleRate * 2)) * 1000
+                    : (Number.isFinite(audioBuffer.duration) ? audioBuffer.duration * 1000 : 0);
+
+                const nextSentence = state.sentences[nextIndex];
+                // Offset highlights by the time until next starts
+                const timeUntilNext = Math.max(0, (nextStartTime - context.currentTime) * 1000);
+                this.scheduleServerWordHighlights(nextSentence.text, nextSentence.startOffset, durationMs, timeUntilNext);
+
+            } catch (startError) {
+                this.logPlaybackGuardEvent('lookahead-start-error', {
+                    paragraphIndex: state.paragraphIndex,
+                    sentenceIndex: nextIndex,
+                    error: String(startError && startError.message ? startError.message : startError)
+                });
+            }
         },
 
         async pauseServerAudioPlayback() {
@@ -2765,7 +2856,7 @@
             this.currentWordSpan = span;
         },
 
-        scheduleServerWordHighlights(sentenceText, sentenceStartOffset, durationMs) {
+        scheduleServerWordHighlights(sentenceText, sentenceStartOffset, durationMs, offsetMs = 0) {
             this.clearServerWordHighlightTimers();
             if (!this.CONFIG.WORD_HIGHLIGHT_ENABLED || !this.wordHighlightActiveForCurrent) return;
             if (!this.processedParagraph || !Array.isArray(this.processedParagraph.wordSpans) || this.processedParagraph.wordSpans.length === 0) return;
@@ -2786,10 +2877,11 @@
             const totalChars = Math.max(1, text.length);
             const baseOffset = Number.isFinite(Number(sentenceStartOffset)) ? Math.max(0, Math.floor(Number(sentenceStartOffset))) : 0;
             const sessionId = this.playbackSessionId;
+            const startDelay = Number.isFinite(Number(offsetMs)) ? Math.max(0, Math.floor(Number(offsetMs))) : 0;
 
             for (const word of words) {
                 const ratio = Math.max(0, Math.min(1, word.charOffset / totalChars));
-                const delay = Math.max(0, Math.floor(totalMs * ratio));
+                const delay = startDelay + Math.max(0, Math.floor(totalMs * ratio));
                 const globalCharIndex = baseOffset + word.charOffset;
                 const timerId = setTimeout(() => {
                     if (sessionId !== this.playbackSessionId) return;
@@ -3115,6 +3207,7 @@
                 hasSource: Boolean(this.serverCurrentSource)
             });
             this.stopCurrentServerSource();
+            this.cancelScheduledNext();  // Cancel any look-ahead scheduled source
             if (!this.serverAudioContext) return;
             try {
                 this.serverAudioContext.close();
@@ -3427,6 +3520,7 @@
             const sentenceKey = this.getServerSentenceCacheKey(state, sentenceIndex);
             this.serverPreparedAudioElements.delete(sentenceKey);
             this.stopCurrentServerSource();
+            this.cancelScheduledNext();  // Cancel any previously scheduled next sentence
             const payload = prepared && prepared.payload ? prepared.payload : null;
             const audioBuffer = prepared && prepared.audioBuffer
                 ? prepared.audioBuffer
@@ -3496,6 +3590,8 @@
             this.scheduleServerWordHighlights(sentence.text, sentence.startOffset, durationMs);
 
             source.onended = () => {
+                // Look-ahead scheduling: onended is now just for cleanup
+                // The next sentence is already scheduled via scheduleNextSentence
                 if (state.playbackSessionId !== this.playbackSessionId) return;
                 if (this.serverCurrentSource === source) {
                     this.serverCurrentSource = null;
@@ -3507,13 +3603,24 @@
                 this.ttsActive = false;
                 this.currentUtteranceStartOffset = 0;
                 this.lastUtteranceEndTime = performance.now();
-                this.playServerSentence(state, sentenceIndex + 1);
+                // Note: next sentence is already scheduled, no need to call playServerSentence here
+                // If scheduledNextSource is null (last sentence), handle paragraph completion
+                if (!this.scheduledNextSource) {
+                    // Check if there are more sentences - if not, paragraph is complete
+                    if (sentenceIndex + 1 >= state.sentences.length) {
+                        this.onServerParagraphComplete(state);
+                    } else {
+                        // Fallback: schedule didn't work, try reactive approach
+                        this.playServerSentence(state, sentenceIndex + 1);
+                    }
+                }
             };
 
             this.resumeServerAudioPlayback()
                 .then(() => {
                     if (state.playbackSessionId !== this.playbackSessionId || !this.continuousReadingActive) {
                         this.stopCurrentServerSource();
+                        this.cancelScheduledNext();  // Cancel any scheduled next sentence
                         return;
                     }
                     const handoffMs = Math.max(0, Math.round(performance.now() - startTime));
@@ -3523,6 +3630,9 @@
                         handoffMs
                     });
                     
+                    // Look-ahead scheduling: track when playback starts
+                    this.serverPlaybackStartTime = this.serverAudioContext.currentTime;
+
                     // PROACTIVE FETCHING: Start audio immediately
                     // FIX: source.start() returns void, NOT a Promise.
                     // Do NOT chain .then()/.catch() on it.
@@ -3543,6 +3653,12 @@
 
                     try {
                         source.start(0);
+
+                        // Look-ahead scheduling: schedule next sentence during playback
+                        const nextIndex = sentenceIndex + 1;
+                        if (nextIndex < state.sentences.length) {
+                            this.scheduleNextSentence(state, nextIndex, audioBuffer.duration);
+                        }
                     } catch (startError) {
                         // source may have already been stopped (stale session race)
                         if (state.playbackSessionId !== this.playbackSessionId) return;
@@ -3797,6 +3913,7 @@
             }
 
             this.stopCurrentServerSource();
+            this.cancelScheduledNext();  // Cancel any scheduled next sentence
             const source = context.createBufferSource();
             source.buffer = audioBuffer;
             source.connect(this.serverAudioGainNode);
