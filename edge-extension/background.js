@@ -4,8 +4,100 @@ const SETTINGS_STORAGE_KEY = 'settingsByProfile';
 const PROFILE_CHATGPT = 'chatgpt';
 const PROFILE_LOCAL = 'local';
 const PLAYBACK_LOCK_STALE_MS = 8000;
+const SERVER_TTS_DEFAULT_BASE_URL = 'http://127.0.0.1:7860';
 
 let playbackLockState = null;
+
+function normalizeServerBaseUrl(rawUrl) {
+    const input = typeof rawUrl === 'string' && rawUrl.trim()
+        ? rawUrl.trim()
+        : SERVER_TTS_DEFAULT_BASE_URL;
+    try {
+        const parsed = new URL(input);
+        const host = (parsed.hostname || '').toLowerCase();
+        const isLocal = host === '127.0.0.1' || host === 'localhost';
+        if (!isLocal) return SERVER_TTS_DEFAULT_BASE_URL;
+        const protocol = parsed.protocol === 'https:' ? 'https:' : 'http:';
+        const port = parsed.port ? `:${parsed.port}` : '';
+        return `${protocol}//${host}${port}`;
+    } catch (_error) {
+        return SERVER_TTS_DEFAULT_BASE_URL;
+    }
+}
+
+function bytesToBase64(bytes) {
+    let binary = '';
+    const chunkSize = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunkSize) {
+        const chunk = bytes.subarray(i, i + chunkSize);
+        binary += String.fromCharCode(...chunk);
+    }
+    return btoa(binary);
+}
+
+async function fetchServerVoices(baseUrl) {
+    const endpoint = `${normalizeServerBaseUrl(baseUrl)}/v1/voices`;
+    const response = await fetch(endpoint, { method: 'GET' });
+    if (!response.ok) {
+        throw new Error(`Server voices request failed (${response.status})`);
+    }
+    const voices = await response.json();
+    if (!Array.isArray(voices)) return [];
+    return voices.map((voice) => {
+        const id = typeof voice.id === 'string' ? voice.id : '';
+        const name = typeof voice.name === 'string' && voice.name.trim()
+            ? voice.name.trim()
+            : id || 'Server Voice';
+        return {
+            id,
+            name,
+            lang: typeof voice.language === 'string' ? voice.language : 'en',
+            default: false,
+            source: 'server',
+            voiceURI: `server:${id}`
+        };
+    }).filter((voice) => Boolean(voice.id));
+}
+
+async function synthesizeServerTts(request) {
+    const baseUrl = normalizeServerBaseUrl(request && request.baseUrl);
+    const text = typeof request?.text === 'string' ? request.text : '';
+    const voiceId = typeof request?.voiceId === 'string' ? request.voiceId : null;
+    const speedRaw = Number(request?.speed);
+    const speed = Number.isFinite(speedRaw) ? Math.max(0.25, Math.min(4, speedRaw)) : 2.0;
+    const format = 'pcm_24k_16bit';
+
+    const response = await fetch(`${baseUrl}/v1/tts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            text,
+            voice: voiceId || null,
+            speed,
+            format
+        })
+    });
+    if (!response.ok) {
+        throw new Error(`Server synthesis failed (${response.status})`);
+    }
+
+    const pcmBuffer = await response.arrayBuffer();
+    const pcmBytes = new Uint8Array(pcmBuffer);
+    const sampleRateHeader = response.headers.get('X-Audio-Sample-Rate');
+    const sampleRate = Number.isFinite(Number(sampleRateHeader))
+        ? Math.max(8000, Math.round(Number(sampleRateHeader)))
+        : 24000;
+    const audioLengthHeader = response.headers.get('X-Audio-Length');
+    const audioLength = Number.isFinite(Number(audioLengthHeader))
+        ? Math.max(0, Math.round(Number(audioLengthHeader)))
+        : pcmBytes.length;
+
+    return {
+        pcmBase64: bytesToBase64(pcmBytes),
+        sampleRate,
+        audioLength
+    };
+}
 
 const BASE_DEFAULT_SETTINGS = {
     speechRate: 1.5,
@@ -15,6 +107,7 @@ const BASE_DEFAULT_SETTINGS = {
     readReferences: false,
     chatgptTextStyling: false,
     lowGapMode: false,
+    serverPrecacheMode: false,
     autoRead: false,
     loopOnEnd: true,
     autoScrollEnabled: true,
@@ -302,6 +395,35 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             lock: getPlaybackLockSnapshot()
         });
         return false;
+    }
+
+    if (request.action === 'getServerVoices') {
+        fetchServerVoices(request.baseUrl)
+            .then((voices) => {
+                sendResponse({ ok: true, voices });
+            })
+            .catch((error) => {
+                sendResponse({
+                    ok: false,
+                    error: error instanceof Error ? error.message : String(error || 'Unknown server error'),
+                    voices: []
+                });
+            });
+        return true;
+    }
+
+    if (request.action === 'synthesizeServerTts') {
+        synthesizeServerTts(request)
+            .then((payload) => {
+                sendResponse({ ok: true, ...payload });
+            })
+            .catch((error) => {
+                sendResponse({
+                    ok: false,
+                    error: error instanceof Error ? error.message : String(error || 'Unknown server error')
+                });
+            });
+        return true;
     }
 
     return false;

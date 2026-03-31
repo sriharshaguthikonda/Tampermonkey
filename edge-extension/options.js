@@ -13,6 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
         readReferences: false,
         chatgptTextStyling: false,
         lowGapMode: false,
+        serverPrecacheMode: false,
         autoRead: false,
         loopOnEnd: true,
         autoScrollEnabled: true,
@@ -80,6 +81,7 @@ document.addEventListener('DOMContentLoaded', () => {
         readReferences: document.getElementById('readReferences'),
         chatgptTextStyling: document.getElementById('chatgptTextStyling'),
         lowGapMode: document.getElementById('lowGapMode'),
+        serverPrecacheMode: document.getElementById('serverPrecacheMode'),
         autoRead: document.getElementById('autoRead'),
         loopOnEnd: document.getElementById('loopOnEnd'),
         autoScrollEnabled: document.getElementById('autoScrollEnabled'),
@@ -148,6 +150,7 @@ document.addEventListener('DOMContentLoaded', () => {
         'readReferences',
         'chatgptTextStyling',
         'lowGapMode',
+        'serverPrecacheMode',
         'autoRead',
         'loopOnEnd',
         'autoScrollEnabled',
@@ -202,7 +205,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function formatVoiceLabel(voice) {
         const suffix = voice.default ? ' (Default)' : '';
-        return `${voice.name} - ${voice.lang}${suffix}`;
+        const sourceSuffix = voice && voice.source === 'server' ? ' [Server]' : '';
+        return `${voice.name} - ${voice.lang}${suffix}${sourceSuffix}`;
     }
 
     function getVoicesFromBrowser() {
@@ -213,8 +217,23 @@ document.addEventListener('DOMContentLoaded', () => {
             name: voice.name,
             lang: voice.lang,
             default: Boolean(voice.default),
-            voiceURI: voice.voiceURI
+            voiceURI: voice.voiceURI,
+            source: 'browser'
         }));
+    }
+
+    function getServerVoices(callback) {
+        if (typeof chrome === 'undefined' || !chrome.runtime || !chrome.runtime.sendMessage) {
+            callback([]);
+            return;
+        }
+        chrome.runtime.sendMessage({ action: 'getServerVoices' }, (response) => {
+            if (chrome.runtime.lastError || !response || !Array.isArray(response.voices)) {
+                callback([]);
+                return;
+            }
+            callback(response.voices);
+        });
     }
 
     function updateVoiceSelect(voices, selectedVoiceUri = '') {
@@ -427,9 +446,12 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     const hydrateVoices = () => {
-        const voices = getVoicesFromBrowser();
-        if (!voices.length) return;
-        updateVoiceSelect(voices, elements.voiceUri.value || '');
+        const browserVoices = getVoicesFromBrowser();
+        getServerVoices((serverVoices) => {
+            const mergedVoices = [...browserVoices, ...(Array.isArray(serverVoices) ? serverVoices : [])];
+            if (!mergedVoices.length) return;
+            updateVoiceSelect(mergedVoices, elements.voiceUri.value || '');
+        });
     };
     hydrateVoices();
     if (window.speechSynthesis) {

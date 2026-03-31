@@ -13,6 +13,7 @@ document.addEventListener('DOMContentLoaded', () => {
         readReferences: false,
         chatgptTextStyling: false,
         lowGapMode: false,
+        serverPrecacheMode: false,
         autoRead: false,
         loopOnEnd: true,
         autoScrollEnabled: true,
@@ -79,6 +80,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const readReferencesToggle = document.getElementById('readReferencesToggle');
     const chatStyleToggle = document.getElementById('chatStyleToggle');
     const lowGapToggle = document.getElementById('lowGapToggle');
+    const serverPrecacheToggle = document.getElementById('serverPrecacheToggle');
     const autoReadToggle = document.getElementById('autoReadToggle');
     const loopToggle = document.getElementById('loopToggle');
     const autoScrollToggle = document.getElementById('autoScrollToggle');
@@ -224,7 +226,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function formatVoiceLabel(voice) {
         const suffix = voice.default ? ' (Default)' : '';
-        return `${voice.name} - ${voice.lang}${suffix}`;
+        const sourceSuffix = voice && voice.source === 'server' ? ' [Server]' : '';
+        return `${voice.name} - ${voice.lang}${suffix}${sourceSuffix}`;
     }
 
     function updateVoiceSelect(voices, selectedVoiceUri = '') {
@@ -284,6 +287,7 @@ document.addEventListener('DOMContentLoaded', () => {
         readReferencesToggle.checked = Boolean(settings.readReferences);
         chatStyleToggle.checked = Boolean(settings.chatgptTextStyling);
         lowGapToggle.checked = Boolean(settings.lowGapMode);
+        serverPrecacheToggle.checked = Boolean(settings.serverPrecacheMode);
         autoReadToggle.checked = Boolean(settings.autoRead);
         loopToggle.checked = Boolean(settings.loopOnEnd);
         autoScrollToggle.checked = Boolean(settings.autoScrollEnabled);
@@ -397,6 +401,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     lowGapToggle.addEventListener('change', (e) => {
         persistSetting('lowGapMode', e.target.checked);
+    });
+    serverPrecacheToggle.addEventListener('change', (e) => {
+        persistSetting('serverPrecacheMode', e.target.checked);
     });
     autoReadToggle.addEventListener('change', (e) => {
         persistSetting('autoRead', e.target.checked);

@@ -13,6 +13,8 @@
         readUserMessages: false,
         readReferences: false,
         chatgptTextStyling: false,
+        serverPrecacheMode: false,
+        serverBaseUrl: 'http://127.0.0.1:7860',
         autoRead: false,
         loopOnEnd: true,
         autoScrollEnabled: true,
@@ -182,6 +184,13 @@
         promptHistoryDraft: '',
         promptHistoryDraftTooLarge: false,
         selectionSeekDebounceId: null,
+        serverVoices: [],
+        serverVoicesFetchedAt: 0,
+        serverVoicesFetchPromise: null,
+        serverAudioElement: null,
+        serverPlaybackState: null,
+        serverSentenceAudioCache: new Map(),
+        serverSentenceAudioInflight: new Map(),
         playbackOwnerId: null,
         playbackLockOwned: false,
         playbackLockHeartbeatId: null,
@@ -249,6 +258,10 @@
             VOLUME_BOOST_ENABLED: true,
             VOLUME_BOOST_LEVEL: 1.3,
             LOW_GAP_MODE: false,
+            SERVER_PRECACHE_MODE: false,
+            SERVER_BASE_URL: 'http://127.0.0.1:7860',
+            SERVER_TTS_SAMPLE_RATE: 24000,
+            SERVER_TTS_FORMAT: 'pcm_24k_16bit',
             ENTER_TO_SEND_ENABLED: true,
             ENTER_TO_SEND_DOUBLE_PRESS_MS: 300,
             GLOBAL_PASTE_ENABLED: true,
@@ -479,7 +492,9 @@
                     this.logPlaybackGuardEvent('visibility-hidden', { policy, action: 'ignore' });
                     return;
                 }
-                const shouldPauseLater = this.isPlaybackSessionActive() && !this.isPaused && this.speechSynthesis && this.speechSynthesis.speaking;
+                const synthSpeaking = Boolean(this.speechSynthesis && this.speechSynthesis.speaking);
+                const serverSpeaking = Boolean(this.serverAudioElement && !this.serverAudioElement.paused);
+                const shouldPauseLater = this.isPlaybackSessionActive() && !this.isPaused && (synthSpeaking || serverSpeaking);
                 if (!shouldPauseLater) return;
 
                 if (this.hiddenPauseTimeoutId) return;
@@ -490,9 +505,15 @@
                 const pauseNow = () => {
                     this.hiddenPauseTimeoutId = null;
                     if (!document.hidden) return;
-                    const stillShouldPause = this.isPlaybackSessionActive() && !this.isPaused && this.speechSynthesis && this.speechSynthesis.speaking;
+                    const synthStillSpeaking = Boolean(this.speechSynthesis && this.speechSynthesis.speaking);
+                    const serverStillSpeaking = Boolean(this.serverAudioElement && !this.serverAudioElement.paused);
+                    const stillShouldPause = this.isPlaybackSessionActive() && !this.isPaused && (synthStillSpeaking || serverStillSpeaking);
                     if (!stillShouldPause) return;
-                    this.speechSynthesis.pause();
+                    if (serverStillSpeaking && this.serverAudioElement) {
+                        this.serverAudioElement.pause();
+                    } else if (synthStillSpeaking && this.speechSynthesis) {
+                        this.speechSynthesis.pause();
+                    }
                     this.isPaused = true;
                     this.pausedForHiddenTab = true;
                     this.logPlaybackGuardEvent('visibility-auto-paused', {
@@ -520,6 +541,12 @@
 
             if (!this.pausedForHiddenTab) return;
             this.pausedForHiddenTab = false;
+            if (this.serverAudioElement && this.serverAudioElement.paused) {
+                this.serverAudioElement.play().catch(() => {});
+                this.isPaused = false;
+                this.logPlaybackGuardEvent('visibility-auto-resumed');
+                return;
+            }
             if (this.speechSynthesis && this.speechSynthesis.paused) {
                 this.speechSynthesis.resume();
                 this.isPaused = false;
@@ -1090,6 +1117,15 @@
             }
         },
 
+        setServerPrecacheMode(enabled, silent = false) {
+            const nextValue = Boolean(enabled);
+            if (this.CONFIG.SERVER_PRECACHE_MODE === nextValue) return;
+            this.CONFIG.SERVER_PRECACHE_MODE = nextValue;
+            if (!silent) {
+                this.showNotification(`Server precache ${nextValue ? 'on' : 'off'}`);
+            }
+        },
+
         getSpeechVolume() {
             if (!this.CONFIG.VOLUME_BOOST_ENABLED) return 0.9;
             const level = Number(this.CONFIG.VOLUME_BOOST_LEVEL);
@@ -1112,6 +1148,11 @@
         getSpeechChunkGapMs() {
             if (this.CONFIG.LOW_GAP_MODE) return 0;
             return Math.max(0, Number(this.CONFIG.SPEECH_CHUNK_GAP_MS) || 0);
+        },
+
+        getEffectiveQueueLookahead() {
+            const configured = Math.max(0, Math.round(Number(this.CONFIG.QUEUE_LOOKAHEAD) || 0));
+            return configured;
         },
 
         setEnterToSendEnabled(enabled, silent = false) {
@@ -1328,13 +1369,92 @@
             });
         },
 
+        normalizeServerBaseUrl(rawUrl) {
+            const input = (typeof rawUrl === 'string' && rawUrl.trim())
+                ? rawUrl.trim()
+                : this.CONFIG.SERVER_BASE_URL;
+            try {
+                const parsed = new URL(input);
+                const host = (parsed.hostname || '').toLowerCase();
+                if (host !== '127.0.0.1' && host !== 'localhost') {
+                    return 'http://127.0.0.1:7860';
+                }
+                const protocol = parsed.protocol === 'https:' ? 'https:' : 'http:';
+                const port = parsed.port ? `:${parsed.port}` : '';
+                return `${protocol}//${host}${port}`;
+            } catch (_error) {
+                return 'http://127.0.0.1:7860';
+            }
+        },
+
+        isServerVoiceUri(voiceUri) {
+            return typeof voiceUri === 'string' && voiceUri.startsWith('server:');
+        },
+
+        getSelectedServerVoiceId() {
+            if (!this.isServerVoiceUri(this.CONFIG.VOICE_URI)) return '';
+            const voiceId = this.CONFIG.VOICE_URI.slice('server:'.length);
+            return typeof voiceId === 'string' ? voiceId.trim() : '';
+        },
+
+        isServerVoiceSelected() {
+            return Boolean(this.getSelectedServerVoiceId());
+        },
+
+        sendRuntimeMessageAsync(message) {
+            return new Promise((resolve, reject) => {
+                this.sendRuntimeMessage(message, (response, error) => {
+                    if (error) {
+                        reject(new Error(error));
+                        return;
+                    }
+                    resolve(response);
+                });
+            });
+        },
+
+        async fetchServerVoices(force = false) {
+            const now = Date.now();
+            if (!force && this.serverVoices.length > 0 && (now - this.serverVoicesFetchedAt) < 30000) {
+                return this.serverVoices;
+            }
+            if (this.serverVoicesFetchPromise) {
+                return this.serverVoicesFetchPromise;
+            }
+
+            const baseUrl = this.normalizeServerBaseUrl(this.CONFIG.SERVER_BASE_URL);
+            this.serverVoicesFetchPromise = this.sendRuntimeMessageAsync({
+                action: 'getServerVoices',
+                baseUrl
+            }).then((response) => {
+                const voices = response && Array.isArray(response.voices) ? response.voices : [];
+                this.serverVoices = voices;
+                this.serverVoicesFetchedAt = Date.now();
+                return this.serverVoices;
+            }).catch((error) => {
+                this.logPlaybackGuardEvent('server-voices-fetch-failed', {
+                    error: error ? String(error.message || error) : 'unknown'
+                });
+                this.serverVoices = [];
+                this.serverVoicesFetchedAt = Date.now();
+                return [];
+            }).finally(() => {
+                this.serverVoicesFetchPromise = null;
+            });
+
+            return this.serverVoicesFetchPromise;
+        },
+
         getAvailableVoices() {
-            return this.speechSynthesis.getVoices().map((voice) => ({
+            const browserVoices = this.speechSynthesis.getVoices().map((voice) => ({
                 name: voice.name,
                 lang: voice.lang,
                 default: Boolean(voice.default),
-                voiceURI: voice.voiceURI
+                voiceURI: voice.voiceURI,
+                source: 'browser'
             }));
+            const serverVoices = Array.isArray(this.serverVoices) ? this.serverVoices : [];
+            return [...browserVoices, ...serverVoices];
         },
 
         isLikelyUnstableVoice(voice) {
@@ -1347,6 +1467,7 @@
         },
 
         resolvePreferredVoice() {
+            if (this.isServerVoiceSelected()) return null;
             const voices = this.speechSynthesis.getVoices();
             if (!voices || voices.length === 0) return null;
 
@@ -2176,6 +2297,12 @@
                 return;
             }
 
+            if (this.isServerVoiceUri(nextValue)) {
+                const selectedServer = (this.serverVoices || []).find(v => v.voiceURI === nextValue);
+                this.showNotification(`Voice ${selectedServer ? selectedServer.name : nextValue.slice('server:'.length)} (server)`);
+                return;
+            }
+
             const selected = this.speechSynthesis.getVoices().find(v => v.voiceURI === nextValue);
             this.showNotification(`Voice ${selected ? selected.name : 'updated'}`);
         },
@@ -2593,6 +2720,11 @@
             this.requestPlaybackLock('start-noncontinuous', (granted) => {
                 if (!granted) return;
 
+                if (this.isServerVoiceSelected()) {
+                    this.playServerSingleUtterance(text, onComplete);
+                    return;
+                }
+
                 this.ttsActive = true;
                 this.isPaused = false;
                 const utterance = new SpeechSynthesisUtterance(text);
@@ -2715,6 +2847,427 @@
             };
         },
 
+        splitTextIntoSentences(text) {
+            const source = typeof text === 'string' ? text : '';
+            if (!source.trim()) return [];
+            const regex = /[^.!?]+[.!?]*/g;
+            const result = [];
+            let match;
+            while ((match = regex.exec(source)) !== null) {
+                const original = match[0];
+                const trimmed = original.trim();
+                if (!trimmed) continue;
+                const leadingWs = original.length - original.trimStart().length;
+                const startOffset = match.index + leadingWs;
+                result.push({
+                    text: trimmed,
+                    startOffset
+                });
+            }
+            if (result.length === 0) {
+                result.push({
+                    text: source.trim(),
+                    startOffset: 0
+                });
+            }
+            return result;
+        },
+
+        buildServerSentencePlan(paragraphText, startOffset = 0) {
+            const safeStart = Math.max(0, Math.floor(Number(startOffset) || 0));
+            const source = typeof paragraphText === 'string' ? paragraphText : '';
+            const sliced = source.slice(safeStart);
+            const sentences = this.splitTextIntoSentences(sliced);
+            return sentences.map((sentence) => ({
+                text: sentence.text,
+                startOffset: safeStart + sentence.startOffset
+            }));
+        },
+
+        getServerSentenceCacheKey(state, sentenceIndex) {
+            return `${state.playbackSessionId}:${state.paragraphIndex}:${sentenceIndex}`;
+        },
+
+        clearServerSentenceCache() {
+            for (const payload of this.serverSentenceAudioCache.values()) {
+                if (payload && payload.wavUrl) {
+                    URL.revokeObjectURL(payload.wavUrl);
+                }
+            }
+            this.serverSentenceAudioCache.clear();
+            this.serverSentenceAudioInflight.clear();
+        },
+
+        stopServerAudioPlayback() {
+            if (!this.serverAudioElement) return;
+            try {
+                this.serverAudioElement.pause();
+                this.serverAudioElement.src = '';
+                this.serverAudioElement.load();
+            } catch (_error) {
+                // Ignore cleanup errors when the element is already detached.
+            }
+            this.serverAudioElement = null;
+        },
+
+        base64ToUint8Array(base64) {
+            const binary = atob(base64 || '');
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i++) {
+                bytes[i] = binary.charCodeAt(i);
+            }
+            return bytes;
+        },
+
+        createWavUrlFromPcm(pcmBytes, sampleRate) {
+            const safeSampleRate = Number.isFinite(Number(sampleRate))
+                ? Math.max(8000, Math.round(Number(sampleRate)))
+                : this.CONFIG.SERVER_TTS_SAMPLE_RATE;
+            const channels = 1;
+            const bitsPerSample = 16;
+            const blockAlign = channels * (bitsPerSample / 8);
+            const byteRate = safeSampleRate * blockAlign;
+            const dataSize = pcmBytes.length;
+            const buffer = new ArrayBuffer(44 + dataSize);
+            const view = new DataView(buffer);
+            const writeString = (offset, value) => {
+                for (let i = 0; i < value.length; i++) {
+                    view.setUint8(offset + i, value.charCodeAt(i));
+                }
+            };
+            writeString(0, 'RIFF');
+            view.setUint32(4, 36 + dataSize, true);
+            writeString(8, 'WAVE');
+            writeString(12, 'fmt ');
+            view.setUint32(16, 16, true);
+            view.setUint16(20, 1, true);
+            view.setUint16(22, channels, true);
+            view.setUint32(24, safeSampleRate, true);
+            view.setUint32(28, byteRate, true);
+            view.setUint16(32, blockAlign, true);
+            view.setUint16(34, bitsPerSample, true);
+            writeString(36, 'data');
+            view.setUint32(40, dataSize, true);
+            new Uint8Array(buffer, 44).set(pcmBytes);
+            const blob = new Blob([buffer], { type: 'audio/wav' });
+            return URL.createObjectURL(blob);
+        },
+
+        async fetchServerSentenceAudio(state, sentenceIndex) {
+            const sentence = state.sentences[sentenceIndex];
+            if (!sentence || !sentence.text) {
+                throw new Error('Missing sentence');
+            }
+            const selectedVoiceId = this.getSelectedServerVoiceId();
+            if (!selectedVoiceId) {
+                throw new Error('No server voice selected');
+            }
+
+            const speedRaw = Number(this.CONFIG.SPEECH_RATE);
+            const safeSpeed = Number.isFinite(speedRaw) ? Math.max(0.25, Math.min(4, speedRaw)) : 2.0;
+            const response = await this.sendRuntimeMessageAsync({
+                action: 'synthesizeServerTts',
+                baseUrl: this.normalizeServerBaseUrl(this.CONFIG.SERVER_BASE_URL),
+                text: sentence.text,
+                voiceId: selectedVoiceId,
+                speed: safeSpeed
+            });
+            if (!response || response.ok !== true || typeof response.pcmBase64 !== 'string') {
+                const error = response && response.error ? response.error : 'Server synthesis failed';
+                throw new Error(error);
+            }
+
+            const pcmBytes = this.base64ToUint8Array(response.pcmBase64);
+            const wavUrl = this.createWavUrlFromPcm(pcmBytes, response.sampleRate);
+            if (state.playbackSessionId !== this.playbackSessionId) {
+                URL.revokeObjectURL(wavUrl);
+                throw new Error('Stale server audio');
+            }
+            return {
+                wavUrl,
+                sampleRate: response.sampleRate,
+                audioLength: response.audioLength
+            };
+        },
+
+        async getOrFetchServerSentenceAudio(state, sentenceIndex) {
+            const key = this.getServerSentenceCacheKey(state, sentenceIndex);
+            if (this.serverSentenceAudioCache.has(key)) {
+                return this.serverSentenceAudioCache.get(key);
+            }
+            if (this.serverSentenceAudioInflight.has(key)) {
+                return this.serverSentenceAudioInflight.get(key);
+            }
+            const fetchPromise = this.fetchServerSentenceAudio(state, sentenceIndex)
+                .then((payload) => {
+                    this.serverSentenceAudioInflight.delete(key);
+                    this.serverSentenceAudioCache.set(key, payload);
+                    return payload;
+                })
+                .catch((error) => {
+                    this.serverSentenceAudioInflight.delete(key);
+                    throw error;
+                });
+            this.serverSentenceAudioInflight.set(key, fetchPromise);
+            return fetchPromise;
+        },
+
+        primeNextServerSentence(state, currentSentenceIndex) {
+            if (!this.CONFIG.SERVER_PRECACHE_MODE) return;
+            const nextIndex = currentSentenceIndex + 1;
+            if (nextIndex >= state.sentences.length) return;
+            this.getOrFetchServerSentenceAudio(state, nextIndex).catch((error) => {
+                this.logPlaybackGuardEvent('server-precache-failed', {
+                    paragraphIndex: state.paragraphIndex,
+                    sentenceIndex: nextIndex,
+                    error: String(error && error.message ? error.message : error)
+                });
+            });
+        },
+
+        async playServerSentence(state, sentenceIndex) {
+            if (!this.continuousReadingActive) return;
+            if (state.playbackSessionId !== this.playbackSessionId) return;
+            if (sentenceIndex >= state.sentences.length) {
+                this.onServerParagraphComplete(state);
+                return;
+            }
+
+            state.sentenceIndex = sentenceIndex;
+            const sentence = state.sentences[sentenceIndex];
+            this.currentUtteranceStartOffset = sentence.startOffset;
+            this.ttsActive = true;
+            this.isPaused = false;
+            this.pausedForHiddenTab = false;
+
+            const startTime = performance.now();
+            this.lastGapMs = this.lastUtteranceEndTime ? startTime - this.lastUtteranceEndTime : null;
+            this.updateDiagnosticsPanel();
+
+            let payload;
+            try {
+                payload = await this.getOrFetchServerSentenceAudio(state, sentenceIndex);
+            } catch (error) {
+                this.logPlaybackGuardEvent('server-sentence-fetch-error', {
+                    paragraphIndex: state.paragraphIndex,
+                    sentenceIndex,
+                    error: String(error && error.message ? error.message : error)
+                });
+                this.ttsActive = false;
+                this.currentUtteranceStartOffset = 0;
+                this.lastUtteranceEndTime = performance.now();
+                this.playServerSentence(state, sentenceIndex + 1);
+                return;
+            }
+
+            if (state.playbackSessionId !== this.playbackSessionId || !this.continuousReadingActive) return;
+
+            this.stopServerAudioPlayback();
+            const audio = new Audio(payload.wavUrl);
+            audio.preload = 'auto';
+            this.serverAudioElement = audio;
+            this.primeNextServerSentence(state, sentenceIndex);
+
+            audio.onended = () => {
+                if (state.playbackSessionId !== this.playbackSessionId) return;
+                this.serverAudioElement = null;
+                this.ttsActive = false;
+                this.currentUtteranceStartOffset = 0;
+                this.lastUtteranceEndTime = performance.now();
+                this.playServerSentence(state, sentenceIndex + 1);
+            };
+            audio.onerror = () => {
+                if (state.playbackSessionId !== this.playbackSessionId) return;
+                this.logPlaybackGuardEvent('server-audio-play-error', {
+                    paragraphIndex: state.paragraphIndex,
+                    sentenceIndex
+                });
+                this.serverAudioElement = null;
+                this.ttsActive = false;
+                this.currentUtteranceStartOffset = 0;
+                this.lastUtteranceEndTime = performance.now();
+                this.playServerSentence(state, sentenceIndex + 1);
+            };
+
+            audio.play().catch((error) => {
+                if (state.playbackSessionId !== this.playbackSessionId) return;
+                this.logPlaybackGuardEvent('server-audio-play-rejected', {
+                    paragraphIndex: state.paragraphIndex,
+                    sentenceIndex,
+                    error: String(error && error.message ? error.message : error)
+                });
+                this.serverAudioElement = null;
+                this.ttsActive = false;
+                this.currentUtteranceStartOffset = 0;
+                this.lastUtteranceEndTime = performance.now();
+                this.playServerSentence(state, sentenceIndex + 1);
+            });
+        },
+
+        startServerPlaybackFromParagraph(index, options = {}) {
+            if (!this.continuousReadingActive) return;
+
+            this.stopServerAudioPlayback();
+            this.clearServerSentenceCache();
+            this.cancelActiveSpeechQueue('server-voice-start');
+            this.queuedParagraphs.clear();
+            this.queuedStartOffsets.clear();
+            this.chunkedParagraphState.clear();
+            clearTimeout(this.chunkContinuationTimeoutId);
+            this.chunkContinuationTimeoutId = null;
+
+            if (index < 0 || index >= this.paragraphsList.length) {
+                this.stopTTS(false);
+                return;
+            }
+
+            const para = this.paragraphsList[index];
+            if (!para || !para.element || !para.text) {
+                this.stopTTS(false);
+                return;
+            }
+
+            const startCharIndex = Number(options && options.startCharIndex);
+            const safeStartChar = Number.isFinite(startCharIndex) ? Math.max(0, Math.floor(startCharIndex)) : 0;
+            const sentences = this.buildServerSentencePlan(para.text, safeStartChar);
+            if (sentences.length === 0) {
+                const nextIndex = index + 1;
+                if (nextIndex < this.paragraphsList.length) {
+                    this.startServerPlaybackFromParagraph(nextIndex, {});
+                } else {
+                    this.stopTTS(false);
+                }
+                return;
+            }
+
+            this.currentParagraphIndex = index;
+            this.lastSpokenElement = para.element;
+            this.wordHighlightActiveForCurrent = false;
+            this.clearHighlights(true);
+            para.element.classList.add('tts-current-sentence');
+            this.updateProgressPanel();
+
+            if (this.pointerLoopId) cancelAnimationFrame(this.pointerLoopId);
+            this.updatePointerArrow();
+
+            const state = {
+                playbackSessionId: this.playbackSessionId,
+                paragraphIndex: index,
+                sentences,
+                sentenceIndex: 0
+            };
+            this.serverPlaybackState = state;
+            this.playServerSentence(state, 0);
+        },
+
+        onServerParagraphComplete(state) {
+            if (!this.continuousReadingActive) return;
+            if (!state || state.playbackSessionId !== this.playbackSessionId) return;
+
+            this.clearHighlights(true);
+            this.deferProcessedParagraphRevert();
+            this.updateProgressPanel();
+
+            const refreshedIndex = this.refreshParagraphIndex(state.paragraphIndex);
+            const lastIndex = this.paragraphsList.length - 1;
+            if (refreshedIndex >= lastIndex) {
+                if (!this.isChatGPTPage) {
+                    if (this.CONFIG.LOOP_ON_END) {
+                        this.loopToTop();
+                    } else {
+                        this.stopTTS(false);
+                        this.showNotification('End of page.');
+                    }
+                    return;
+                }
+                const nextIndex = refreshedIndex + 1;
+                this.waitForMoreParagraphs(nextIndex);
+                return;
+            }
+
+            this.startServerPlaybackFromParagraph(refreshedIndex + 1, {});
+        },
+
+        async playServerSingleUtterance(text, onComplete = null) {
+            const selectedVoiceId = this.getSelectedServerVoiceId();
+            if (!selectedVoiceId) {
+                if (onComplete) onComplete();
+                return;
+            }
+
+            this.advancePlaybackSession('server-single-utterance');
+            this.stopServerAudioPlayback();
+            this.clearServerSentenceCache();
+            this.ttsActive = true;
+            this.isPaused = false;
+
+            const speedRaw = Number(this.CONFIG.SPEECH_RATE);
+            const safeSpeed = Number.isFinite(speedRaw) ? Math.max(0.25, Math.min(4, speedRaw)) : 2.0;
+            let response;
+            try {
+                response = await this.sendRuntimeMessageAsync({
+                    action: 'synthesizeServerTts',
+                    baseUrl: this.normalizeServerBaseUrl(this.CONFIG.SERVER_BASE_URL),
+                    text,
+                    voiceId: selectedVoiceId,
+                    speed: safeSpeed
+                });
+            } catch (error) {
+                this.logPlaybackGuardEvent('server-single-fetch-failed', {
+                    error: String(error && error.message ? error.message : error)
+                });
+                this.ttsActive = false;
+                if (onComplete) onComplete();
+                return;
+            }
+
+            if (!response || response.ok !== true || typeof response.pcmBase64 !== 'string') {
+                this.logPlaybackGuardEvent('server-single-invalid-response', {
+                    error: response && response.error ? response.error : null
+                });
+                this.ttsActive = false;
+                if (onComplete) onComplete();
+                return;
+            }
+
+            const pcmBytes = this.base64ToUint8Array(response.pcmBase64);
+            const wavUrl = this.createWavUrlFromPcm(pcmBytes, response.sampleRate);
+            const sessionId = this.playbackSessionId;
+            if (sessionId !== this.playbackSessionId) {
+                URL.revokeObjectURL(wavUrl);
+                return;
+            }
+
+            const audio = new Audio(wavUrl);
+            audio.preload = 'auto';
+            this.serverAudioElement = audio;
+            audio.onended = () => {
+                URL.revokeObjectURL(wavUrl);
+                if (sessionId !== this.playbackSessionId) return;
+                this.serverAudioElement = null;
+                this.ttsActive = false;
+                if (onComplete && this.continuousReadingActive) {
+                    onComplete();
+                } else {
+                    this.stopTTS(false);
+                }
+            };
+            audio.onerror = () => {
+                URL.revokeObjectURL(wavUrl);
+                if (sessionId !== this.playbackSessionId) return;
+                this.serverAudioElement = null;
+                this.ttsActive = false;
+                if (onComplete && this.continuousReadingActive) onComplete();
+            };
+            audio.play().catch(() => {
+                URL.revokeObjectURL(wavUrl);
+                if (sessionId !== this.playbackSessionId) return;
+                this.serverAudioElement = null;
+                this.ttsActive = false;
+                if (onComplete && this.continuousReadingActive) onComplete();
+            });
+        },
+
         enqueueParagraph(index) {
             if (!this.continuousReadingActive) return;
             if (this.paragraphsDirty) {
@@ -2786,6 +3339,7 @@
         },
 
         queueFromIndex(startIndex, options = {}) {
+            this.advancePlaybackSession('queue-from-index');
             this.cancelActiveSpeechQueue('queue-from-index');
             this.queuedParagraphs.clear();
             this.queuedStartOffsets.clear();
@@ -2801,16 +3355,28 @@
                 this.queuedStartOffsets.set(startIndex, requestedStartCharIndex);
             }
 
+            const effectiveLookahead = this.getEffectiveQueueLookahead();
+
             this.logPlaybackGuardEvent('queue-from-index', {
                 playbackSessionId: this.playbackSessionId,
                 startIndex,
                 startCharIndex: Number.isFinite(requestedStartCharIndex) ? requestedStartCharIndex : null,
-                lookahead: this.CONFIG.QUEUE_LOOKAHEAD
+                lookahead: this.CONFIG.QUEUE_LOOKAHEAD,
+                effectiveLookahead,
+                serverPrecacheMode: this.CONFIG.SERVER_PRECACHE_MODE
             });
 
-            const maxIndex = Math.min(this.paragraphsList.length - 1, startIndex + this.CONFIG.QUEUE_LOOKAHEAD);
-            for (let i = startIndex; i <= maxIndex; i++) {
+            this.enqueueParagraph(startIndex);
+            if (this.chunkedParagraphState.has(startIndex) || effectiveLookahead <= 0) {
+                return;
+            }
+
+            const maxIndex = Math.min(this.paragraphsList.length - 1, startIndex + effectiveLookahead);
+            for (let i = startIndex + 1; i <= maxIndex; i++) {
                 this.enqueueParagraph(i);
+                if (this.chunkedParagraphState.has(i)) {
+                    break;
+                }
             }
         },
 
@@ -2857,7 +3423,9 @@
             if (this.pointerLoopId) cancelAnimationFrame(this.pointerLoopId);
             this.updatePointerArrow();
             this.prewrapNextParagraph(index);
-            this.prewarmNextUtterance(index);
+            if (!this.chunkedParagraphState.has(index)) {
+                this.prewarmNextUtterance(index);
+            }
         },
 
         onUtteranceEnd(index, utterance = null) {
@@ -2879,6 +3447,13 @@
             if (!this.continuousReadingActive) return;
 
             if (this.chunkedParagraphState.has(index)) {
+                const hasFutureQueuedSpeech = this.queuedParagraphs.size > 0 || Boolean(this.speechSynthesis.pending);
+                if (hasFutureQueuedSpeech) {
+                    this.advancePlaybackSession('chunk-continuation-priority');
+                    this.cancelActiveSpeechQueue('chunk-continuation-priority');
+                    this.queuedParagraphs.clear();
+                    this.queuedStartOffsets.clear();
+                }
                 const gapMs = this.getSpeechChunkGapMs();
                 clearTimeout(this.chunkContinuationTimeoutId);
                 this.chunkContinuationTimeoutId = setTimeout(() => {
@@ -2954,7 +3529,13 @@
 
         prewarmNextUtterance(index) {
             if (!this.continuousReadingActive) return;
-            let nextIndex = index + this.CONFIG.QUEUE_LOOKAHEAD + 1;
+            if (this.chunkedParagraphState.has(index)) return;
+            for (const queuedChunkIndex of this.chunkedParagraphState.keys()) {
+                if (queuedChunkIndex > index) return;
+            }
+
+            const effectiveLookahead = this.getEffectiveQueueLookahead();
+            let nextIndex = index + effectiveLookahead + 1;
             if (nextIndex < 0 || nextIndex >= this.paragraphsList.length) {
                 if (this.paragraphsDirty) {
                     this.refreshParagraphsIfNeeded(true);
@@ -2987,6 +3568,12 @@
                     return;
                 }
 
+                if (this.isServerVoiceSelected()) {
+                    this.advancePlaybackSession('server-voice-read-from-paragraph');
+                    this.startServerPlaybackFromParagraph(index, options);
+                    return;
+                }
+
                 this.queueFromIndex(index, options);
             });
         },
@@ -3006,6 +3593,9 @@
             this.hiddenPauseTimeoutId = null;
             clearTimeout(this.chunkContinuationTimeoutId);
             this.chunkContinuationTimeoutId = null;
+            this.stopServerAudioPlayback();
+            this.serverPlaybackState = null;
+            this.clearServerSentenceCache();
             if (this.speechSynthesis.speaking || this.speechSynthesis.pending) {
                 this.speechSynthesis.cancel();
             }
@@ -3053,6 +3643,20 @@
 
         // ... (pauseResumeTTS, navigate, startReadingOnClick, setupEventListeners are unchanged) ...
         pauseResumeTTS() {
+            if (this.serverAudioElement) {
+                if (this.isPaused) {
+                    this.serverAudioElement.play().catch(() => {});
+                    this.isPaused = false;
+                    this.ttsActive = true;
+                    this.showNotification('Resumed');
+                } else {
+                    this.serverAudioElement.pause();
+                    this.isPaused = true;
+                    this.ttsActive = false;
+                    this.showNotification('Paused');
+                }
+                return;
+            }
             if (!this.speechSynthesis.speaking && !this.isPaused) return;
             if (this.isPaused) {
                 this.speechSynthesis.resume();
@@ -3068,7 +3672,9 @@
         isPlaybackSessionActive() {
             const synth = this.speechSynthesis;
             const synthBusy = Boolean(synth && (synth.speaking || synth.pending || synth.paused));
+            const serverBusy = Boolean(this.serverAudioElement && !this.serverAudioElement.paused);
             return synthBusy ||
+                serverBusy ||
                 this.ttsActive ||
                 this.continuousReadingActive ||
                 this.waitingForMoreContent ||
@@ -3079,7 +3685,8 @@
         clearStalePlaybackFlagsIfIdle() {
             const synth = this.speechSynthesis;
             const synthBusy = Boolean(synth && (synth.speaking || synth.pending || synth.paused));
-            if (synthBusy || this.continuousReadingActive || this.waitingForMoreContent || this.queuedParagraphs.size > 0) {
+            const serverBusy = Boolean(this.serverAudioElement && !this.serverAudioElement.paused);
+            if (synthBusy || serverBusy || this.continuousReadingActive || this.waitingForMoreContent || this.queuedParagraphs.size > 0) {
                 return false;
             }
             const hadStaleFlags = this.ttsActive || this.isPaused;
@@ -3533,6 +4140,7 @@
                 <label for="tts-read-refs-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-read-refs-toggle" ${this.CONFIG.READ_REFERENCES ? 'checked' : ''} style="margin:0;">🔗 Read refs</label>
                 <label for="tts-chat-style-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-chat-style-toggle" ${this.CONFIG.CHATGPT_TEXT_STYLING ? 'checked' : ''} style="margin:0;">🎨 Chat style</label>
                 <label for="tts-low-gap-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-low-gap-toggle" ${this.CONFIG.LOW_GAP_MODE ? 'checked' : ''} style="margin:0;">⚡ Low-gap mode</label>
+                <label for="tts-server-precache-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-server-precache-toggle" ${this.CONFIG.SERVER_PRECACHE_MODE ? 'checked' : ''} style="margin:0;">🛰️ Server precache</label>
                 <label for="tts-auto-read-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-auto-read-toggle" ${this.CONFIG.AUTO_READ_NEW_MESSAGES ? 'checked' : ''} style="margin:0;">🤖 Auto-read new</label>
                 <label for="tts-loop-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-loop-toggle" ${this.CONFIG.LOOP_ON_END ? 'checked' : ''} style="margin:0;">🔁 Loop to top</label>
                 <label for="tts-autoscroll-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-autoscroll-toggle" ${this.CONFIG.AUTO_SCROLL_ENABLED ? 'checked' : ''} style="margin:0;">📜 Auto-scroll</label>
@@ -3578,6 +4186,12 @@
                 persistProfileSetting(this.settingsProfile, 'lowGapMode', this.CONFIG.LOW_GAP_MODE);
             });
             lowGapToggle.addEventListener('mousedown', e => e.stopPropagation());
+            const serverPrecacheToggle = document.getElementById('tts-server-precache-toggle');
+            serverPrecacheToggle.addEventListener('change', e => {
+                this.setServerPrecacheMode(e.target.checked);
+                persistProfileSetting(this.settingsProfile, 'serverPrecacheMode', this.CONFIG.SERVER_PRECACHE_MODE);
+            });
+            serverPrecacheToggle.addEventListener('mousedown', e => e.stopPropagation());
             const autoReadToggle = document.getElementById('tts-auto-read-toggle');
             autoReadToggle.addEventListener('change', e => {
                 this.setAutoReadEnabled(e.target.checked);
@@ -3865,6 +4479,12 @@
         if (typeof settings.lowGapMode === 'boolean') {
             TTSReader.setLowGapMode(settings.lowGapMode, silent);
         }
+        if (typeof settings.serverPrecacheMode === 'boolean') {
+            TTSReader.setServerPrecacheMode(settings.serverPrecacheMode, silent);
+        }
+        if (typeof settings.serverBaseUrl === 'string') {
+            TTSReader.CONFIG.SERVER_BASE_URL = TTSReader.normalizeServerBaseUrl(settings.serverBaseUrl);
+        }
         if (typeof settings.loopOnEnd === 'boolean') {
             TTSReader.setLoopEnabled(settings.loopOnEnd, silent);
         }
@@ -4078,9 +4698,11 @@
                     TTSReader.setSpeechRate(message.rate, true);
                     break;
                 case 'getVoices':
-                    sendResponse({
-                        voices: TTSReader.getAvailableVoices(),
-                        selectedVoiceUri: TTSReader.CONFIG.VOICE_URI
+                    TTSReader.fetchServerVoices(false).finally(() => {
+                        sendResponse({
+                            voices: TTSReader.getAvailableVoices(),
+                            selectedVoiceUri: TTSReader.CONFIG.VOICE_URI
+                        });
                     });
                     return true;
                 case 'ttsLockRevoked':
@@ -4107,6 +4729,7 @@
                             readReferences: TTSReader.CONFIG.READ_REFERENCES,
                             chatgptTextStyling: TTSReader.CONFIG.CHATGPT_TEXT_STYLING,
                             lowGapMode: TTSReader.CONFIG.LOW_GAP_MODE,
+                            serverPrecacheMode: TTSReader.CONFIG.SERVER_PRECACHE_MODE,
                             autoRead: TTSReader.CONFIG.AUTO_READ_NEW_MESSAGES,
                             loopOnEnd: TTSReader.CONFIG.LOOP_ON_END,
                             autoScrollEnabled: TTSReader.CONFIG.AUTO_SCROLL_ENABLED,
