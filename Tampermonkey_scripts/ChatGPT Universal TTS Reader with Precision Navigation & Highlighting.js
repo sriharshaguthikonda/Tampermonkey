@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         *** ChatGPT Universal TTS Reader with Precision Navigation & Highlighting (Ignore Content Root)
 // @namespace    http://tampermonkey.net/
-// @version      3.0
+// @version      3.1
 // @description  TTS reader skips designated UI elements under #content-root
 // @author       Your Name (updated by AI)
 // @match        https://chat.openai.com/c/*
@@ -66,14 +66,25 @@
         waitForMoreNextIndex: -1,
         isChatGPTPage: false,
         processedParagraph: { element: null, originalHTML: '', wordSpans: [], wordOffsets: [] },
+        serverVoiceEnabled: false,
+        serverBaseUrl: null,
+        currentServerAudio: null,
+        serverSentenceCache: new Map(),
+        serverFetchQueue: [],
+        serverFetchInProgress: false,
 
         CONFIG: {
             CANDIDATE_SELECTORS: 'p, li, h1, h2, h3, h4, h5, h6, td, th, .markdown, div[class*="content"], article',
             // Add #content-root and all its descendants to ignore list
             IGNORE_SELECTORS: '.settings-header, nav, script, style, noscript, header, footer, button, a, form, [aria-hidden="true"], [data-tts-ui], pre, code, [class*="code"], [class*="language-"], [class*="highlight"], .token, #thread-bottom-container, #content-root, #content-root *',
             SPEECH_RATE: 5,
-            QUEUE_LOOKAHEAD: 3,
+            QUEUE_LOOKAHEAD: 5,
             NAV_READ_DELAY_MS: 0,
+            LOW_GAP_MODE: true,
+            SERVER_PRECACHE_ENABLED: true,
+            SERVER_VOICE_URL: 'https://api.example.com/tts',
+            SERVER_VOICE_MAX_CACHE_SIZE: 100,
+            SERVER_VOICE_PREFETCH_SENTENCES: 3,
             NAV_THROTTLE_MS: 20,
             NAV_FOCUS_HOLD_MS: 800,
             NAV_KEYUP_READ_DELAY_MS: 150,
@@ -986,7 +997,11 @@
             if (this.pointerLoopId) cancelAnimationFrame(this.pointerLoopId);
             this.updatePointerArrow();
             this.prewrapNextParagraph(index);
-            this.prewarmNextUtterance(index);
+            
+            // KEY BEHAVIORAL FIX: Fill entire lookahead window immediately when paragraph starts
+            if (this.continuousReadingActive) {
+                this.fillLookaheadWindow(index);
+            }
         },
 
         onUtteranceEnd(index) {
@@ -1038,6 +1053,261 @@
                 if (nextIndex < 0 || nextIndex >= this.paragraphsList.length) return;
             }
             this.enqueueParagraph(nextIndex);
+        },
+
+        fillLookaheadWindow(currentIndex) {
+            if (!this.continuousReadingActive) return;
+            
+            // Clear existing queue and refill entire lookahead window
+            this.queuedParagraphs.clear();
+            if (this.paragraphsDirty) {
+                this.refreshParagraphsIfNeeded(true);
+            }
+            
+            // Fill from current index + 1 through the full lookahead window
+            const maxIndex = Math.min(this.paragraphsList.length - 1, currentIndex + this.CONFIG.QUEUE_LOOKAHEAD);
+            for (let i = currentIndex + 1; i <= maxIndex; i++) {
+                this.enqueueParagraph(i);
+            }
+        },
+
+        playServerSentence(sentenceText, sentenceIndex, onComplete = null) {
+            if (!sentenceText || !this.serverVoiceEnabled) return;
+            
+            // Check cache first
+            const cacheKey = `${sentenceIndex}:${sentenceText.substring(0, 50)}`;
+            if (this.serverSentenceCache.has(cacheKey)) {
+                const cachedAudio = this.serverSentenceCache.get(cacheKey);
+                this.playServerAudio(cachedAudio, sentenceIndex, onComplete);
+                return;
+            }
+            
+            // Fetch from server
+            this.fetchServerAudio(sentenceText, sentenceIndex, (audioUrl) => {
+                if (audioUrl) {
+                    // Cache the audio URL
+                    if (this.serverSentenceCache.size >= this.CONFIG.SERVER_VOICE_MAX_CACHE_SIZE) {
+                        // Remove oldest entry if cache is full
+                        const firstKey = this.serverSentenceCache.keys().next().value;
+                        this.serverSentenceCache.delete(firstKey);
+                    }
+                    this.serverSentenceCache.set(cacheKey, audioUrl);
+                    
+                    // Play the audio
+                    this.playServerAudio(audioUrl, sentenceIndex, onComplete);
+                    
+                    // PROACTIVE FETCHING: Start fetching sentences N+1 and N+2 immediately
+                    this.proactiveFetchNextSentences(sentenceIndex);
+                } else if (onComplete) {
+                    onComplete();
+                }
+            });
+        },
+
+        playServerAudio(audioUrl, sentenceIndex, onComplete) {
+            if (this.currentServerAudio) {
+                this.currentServerAudio.pause();
+                this.currentServerAudio = null;
+            }
+            
+            const audio = new Audio(audioUrl);
+            this.currentServerAudio = audio;
+            
+            audio.onplay = () => {
+                this.ttsActive = true;
+                this.isPaused = false;
+            };
+            
+            audio.onended = () => {
+                this.ttsActive = false;
+                this.currentServerAudio = null;
+                if (onComplete) onComplete();
+            };
+            
+            audio.onerror = (e) => {
+                console.error('Server audio error:', e);
+                this.ttsActive = false;
+                this.currentServerAudio = null;
+                if (onComplete) onComplete();
+            };
+            
+            audio.play().catch(e => {
+                console.error('Failed to play server audio:', e);
+                if (onComplete) onComplete();
+            });
+        },
+
+        fetchServerAudio(text, index, callback) {
+            // This is a placeholder - implement actual server fetching logic
+            // You would make an API call to your TTS server here
+            const url = `${this.CONFIG.SERVER_VOICE_URL}?text=${encodeURIComponent(text)}&index=${index}`;
+            
+            fetch(url)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.audioUrl) {
+                        callback(data.audioUrl);
+                    } else {
+                        callback(null);
+                    }
+                })
+                .catch(error => {
+                    console.error('Server TTS fetch error:', error);
+                    callback(null);
+                });
+        },
+
+        proactiveFetchNextSentences(currentIndex) {
+            if (!this.CONFIG.SERVER_PRECACHE_ENABLED) return;
+            
+            // Fetch sentences N+1 and N+2 proactively
+            for (let offset = 1; offset <= 2; offset++) {
+                const nextIndex = currentIndex + offset;
+                if (nextIndex < this.paragraphsList.length) {
+                    const nextPara = this.paragraphsList[nextIndex];
+                    if (nextPara && nextPara.text) {
+                        const cacheKey = `${nextIndex}:${nextPara.text.substring(0, 50)}`;
+                        if (!this.serverSentenceCache.has(cacheKey)) {
+                            // Fetch in background without blocking
+                            this.fetchServerAudio(nextPara.text, nextIndex, (audioUrl) => {
+                                if (audioUrl) {
+                                    if (this.serverSentenceCache.size >= this.CONFIG.SERVER_VOICE_MAX_CACHE_SIZE) {
+                                        const firstKey = this.serverSentenceCache.keys().next().value;
+                                        this.serverSentenceCache.delete(firstKey);
+                                    }
+                                    this.serverSentenceCache.set(cacheKey, audioUrl);
+                                }
+                            });
+                        }
+                    }
+                }
+            }
+        },
+
+        startServerPlaybackFromParagraph(paragraphIndex) {
+            if (!this.serverVoiceEnabled || paragraphIndex < 0 || paragraphIndex >= this.paragraphsList.length) return;
+            
+            const para = this.paragraphsList[paragraphIndex];
+            if (!para || !para.text) return;
+            
+            // Set current paragraph for highlighting
+            this.currentParagraphIndex = paragraphIndex;
+            this.lastSpokenElement = para.element;
+            this.wordHighlightActiveForCurrent = this.shouldHighlightWordsForElement(para.element);
+            
+            // Prepare paragraph for reading (word highlighting)
+            const textToRead = this.prepareParagraphForReading(para.element);
+            if (!textToRead) return;
+            
+            this.clearHighlights(true);
+            para.element.classList.add('tts-current-sentence');
+            this.startAutoScroll();
+            this.maybeAutoScrollOnStart();
+            
+            if (this.pointerLoopId) cancelAnimationFrame(this.pointerLoopId);
+            this.updatePointerArrow();
+            
+            // PREFETCH: Fetch first 3 sentences before playback begins
+            this.prefetchParagraphSentences(para.text, paragraphIndex, () => {
+                // Start playing the first sentence immediately from cache
+                this.playFirstSentenceFromCache(textToRead, paragraphIndex);
+            });
+        },
+
+        prefetchParagraphSentences(paragraphText, paragraphIndex, onComplete) {
+            if (!this.CONFIG.SERVER_PRECACHE_ENABLED) {
+                onComplete();
+                return;
+            }
+            
+            // Split paragraph into sentences (simple split - you may want to improve this)
+            const sentences = paragraphText.match(/[^.!?]+[.!?]+/g) || [paragraphText];
+            const prefetchCount = Math.min(sentences.length, this.CONFIG.SERVER_VOICE_PREFETCH_SENTENCES);
+            
+            let pendingFetches = 0;
+            const fetchComplete = () => {
+                pendingFetches--;
+                if (pendingFetches === 0 && onComplete) {
+                    onComplete();
+                }
+            };
+            
+            // Prefetch first N sentences
+            for (let i = 0; i < prefetchCount; i++) {
+                const sentence = sentences[i].trim();
+                if (!sentence) continue;
+                
+                const cacheKey = `${paragraphIndex}-${i}:${sentence.substring(0, 50)}`;
+                if (!this.serverSentenceCache.has(cacheKey)) {
+                    pendingFetches++;
+                    this.fetchServerAudio(sentence, `${paragraphIndex}-${i}`, (audioUrl) => {
+                        if (audioUrl) {
+                            if (this.serverSentenceCache.size >= this.CONFIG.SERVER_VOICE_MAX_CACHE_SIZE) {
+                                const firstKey = this.serverSentenceCache.keys().next().value;
+                                this.serverSentenceCache.delete(firstKey);
+                            }
+                            this.serverSentenceCache.set(cacheKey, audioUrl);
+                        }
+                        fetchComplete();
+                    });
+                }
+            }
+            
+            // If nothing to fetch, complete immediately
+            if (pendingFetches === 0 && onComplete) {
+                onComplete();
+            }
+        },
+
+        playFirstSentenceFromCache(paragraphText, paragraphIndex) {
+            const sentences = paragraphText.match(/[^.!?]+[.!?]+/g) || [paragraphText];
+            const firstSentence = sentences[0].trim();
+            
+            if (!firstSentence) return;
+            
+            const cacheKey = `${paragraphIndex}-0:${firstSentence.substring(0, 50)}`;
+            const cachedAudio = this.serverSentenceCache.get(cacheKey);
+            
+            if (cachedAudio) {
+                // Play immediately from cache - no fetch wait
+                this.playServerAudio(cachedAudio, `${paragraphIndex}-0`, () => {
+                    // Continue with next sentences or move to next paragraph
+                    this.continueServerPlayback(paragraphIndex, 1);
+                });
+            } else {
+                // Fallback: fetch and play
+                this.playServerSentence(firstSentence, `${paragraphIndex}-0`, () => {
+                    this.continueServerPlayback(paragraphIndex, 1);
+                });
+            }
+        },
+
+        continueServerPlayback(paragraphIndex, sentenceIndex) {
+            const para = this.paragraphsList[paragraphIndex];
+            if (!para || !para.text) return;
+            
+            const sentences = para.text.match(/[^.!?]+[.!?]+/g) || [para.text];
+            
+            if (sentenceIndex < sentences.length) {
+                // Play next sentence in same paragraph
+                const sentence = sentences[sentenceIndex].trim();
+                if (sentence) {
+                    this.playServerSentence(sentence, `${paragraphIndex}-${sentenceIndex}`, () => {
+                        this.continueServerPlayback(paragraphIndex, sentenceIndex + 1);
+                    });
+                    return;
+                }
+            }
+            
+            // Move to next paragraph
+            const nextParagraphIndex = paragraphIndex + 1;
+            if (nextParagraphIndex < this.paragraphsList.length) {
+                this.startServerPlaybackFromParagraph(nextParagraphIndex);
+            } else {
+                // End of content
+                this.stopTTS(false);
+                this.showNotification('End of page.');
+            }
         },
 
         readFromParagraph(index) {
