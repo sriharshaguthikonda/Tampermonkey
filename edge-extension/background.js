@@ -5,8 +5,46 @@ const PROFILE_CHATGPT = 'chatgpt';
 const PROFILE_LOCAL = 'local';
 const PLAYBACK_LOCK_STALE_MS = 8000;
 const SERVER_TTS_DEFAULT_BASE_URL = 'http://127.0.0.1:7860';
+const SERVER_TTS_MIN_SPEED = 0.5;
+const SERVER_TTS_MAX_SPEED = 2.0;
+const SERVER_TTS_TIMEOUT_MS = 12000;
 
 let playbackLockState = null;
+const activeServerSynthesisRequests = new Map();
+const serverTtsPrefetchCache = new Map();
+
+// Concurrency limiter for synthesis requests
+const MAX_CONCURRENT_SYNTHESIS = 2;
+let activeSynthesisCount = 0;
+const synthesisWaitQueue = [];
+
+function acquireSynthesisSlot() {
+    return new Promise((resolve) => {
+        if (activeSynthesisCount < MAX_CONCURRENT_SYNTHESIS) {
+            activeSynthesisCount++;
+            resolve();
+        } else {
+            synthesisWaitQueue.push(resolve);
+        }
+    });
+}
+
+function releaseSynthesisSlot() {
+    if (synthesisWaitQueue.length > 0) {
+        const next = synthesisWaitQueue.shift();
+        next(); // activeSynthesisCount stays the same — slot transfers
+    } else {
+        activeSynthesisCount--;
+    }
+}
+
+function logServerDebug(enabled, event, details = {}) {
+    if (!enabled) return;
+    console.debug('[TTS][Server]', {
+        event,
+        ...details
+    });
+}
 
 function normalizeServerBaseUrl(rawUrl) {
     const input = typeof rawUrl === 'string' && rawUrl.trim()
@@ -33,6 +71,105 @@ function bytesToBase64(bytes) {
         binary += String.fromCharCode(...chunk);
     }
     return btoa(binary);
+}
+
+function clampServerSpeed(value) {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return 1.0;
+    return Math.max(SERVER_TTS_MIN_SPEED, Math.min(SERVER_TTS_MAX_SPEED, parsed));
+}
+
+function joinUint8Chunks(chunks, totalLength) {
+    const safeLength = Number.isFinite(Number(totalLength))
+        ? Math.max(0, Math.round(Number(totalLength)))
+        : 0;
+    const merged = new Uint8Array(safeLength);
+    let offset = 0;
+    for (const chunk of chunks) {
+        if (!chunk || chunk.length === 0) continue;
+        merged.set(chunk, offset);
+        offset += chunk.length;
+    }
+    return merged;
+}
+
+function registerServerRequest(requestId, ownerTabId, abortController) {
+    if (!requestId) return;
+    activeServerSynthesisRequests.set(requestId, {
+        ownerTabId,
+        abortController,
+        startedAt: Date.now()
+    });
+}
+
+function clearServerRequest(requestId) {
+    if (!requestId) return;
+    activeServerSynthesisRequests.delete(requestId);
+}
+
+function cancelServerRequest(requestId) {
+    if (!requestId) return false;
+    const entry = activeServerSynthesisRequests.get(requestId);
+    if (!entry || !entry.abortController) return false;
+    try {
+        entry.abortController.abort();
+    } catch (_error) {
+        // Ignore abort races.
+    }
+    activeServerSynthesisRequests.delete(requestId);
+    return true;
+}
+
+function cancelRequestsForTab(tabId) {
+    if (!Number.isInteger(tabId)) return;
+    for (const [requestId, entry] of activeServerSynthesisRequests.entries()) {
+        if (!entry || entry.ownerTabId !== tabId) continue;
+        try {
+            if (entry.abortController) {
+                entry.abortController.abort();
+            }
+        } catch (_error) {
+            // Ignore abort races.
+        }
+        activeServerSynthesisRequests.delete(requestId);
+    }
+}
+
+function getPrefetchCacheKey(text, voiceId, speed) {
+    const normalizedText = (text || '').trim().toLowerCase();
+    const normalizedVoice = (voiceId || '').trim();
+    const normalizedSpeed = String(Number(speed) || 1.0);
+    return `${normalizedText}|${normalizedVoice}|${normalizedSpeed}`;
+}
+
+function setPrefetchCache(key, data) {
+    if (!key || !data) return;
+    serverTtsPrefetchCache.set(key, {
+        ...data,
+        cachedAt: Date.now()
+    });
+    
+    // Limit cache size to prevent memory bloat
+    const maxCacheSize = 50;
+    if (serverTtsPrefetchCache.size > maxCacheSize) {
+        const oldestKey = serverTtsPrefetchCache.keys().next().value;
+        serverTtsPrefetchCache.delete(oldestKey);
+    }
+}
+
+function getPrefetchCache(key) {
+    if (!key) return null;
+    const entry = serverTtsPrefetchCache.get(key);
+    if (!entry) return null;
+    
+    // Cache entries expire after 5 minutes
+    const maxAgeMs = 5 * 60 * 1000;
+    if (Date.now() - entry.cachedAt > maxAgeMs) {
+        serverTtsPrefetchCache.delete(key);
+        return null;
+    }
+    
+    return entry;
 }
 
 async function fetchServerVoices(baseUrl) {
@@ -63,40 +200,168 @@ async function synthesizeServerTts(request) {
     const baseUrl = normalizeServerBaseUrl(request && request.baseUrl);
     const text = typeof request?.text === 'string' ? request.text : '';
     const voiceId = typeof request?.voiceId === 'string' ? request.voiceId : null;
-    const speedRaw = Number(request?.speed);
-    const speed = Number.isFinite(speedRaw) ? Math.max(0.25, Math.min(4, speedRaw)) : 2.0;
+    const requestId = typeof request?.requestId === 'string' ? request.requestId.trim() : '';
+    const ownerTabIdRaw = Number(request?.ownerTabId);
+    const ownerTabId = Number.isInteger(ownerTabIdRaw) ? ownerTabIdRaw : null;
+    const debugEnabled = request?.debug === true;
+    const speed = clampServerSpeed(request?.speed);
     const format = 'pcm_24k_16bit';
+    const abortController = new AbortController();
+    const timeoutId = setTimeout(() => abortController.abort(), SERVER_TTS_TIMEOUT_MS);
+    const startedAt = performance.now();
+    registerServerRequest(requestId, ownerTabId, abortController);
+    
+    await acquireSynthesisSlot();  // <--- NEW LINE ADDED HERE
 
-    const response = await fetch(`${baseUrl}/v1/tts`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            text,
-            voice: voiceId || null,
-            speed,
-            format
-        })
-    });
-    if (!response.ok) {
-        throw new Error(`Server synthesis failed (${response.status})`);
+    // Check prefetch cache first (outside try-finally to avoid slot issues)
+    const cacheKey = getPrefetchCacheKey(text, voiceId, speed);
+    const cachedData = getPrefetchCache(cacheKey);
+    if (cachedData) {
+        releaseSynthesisSlot();  // Release slot for cache hit
+        clearTimeout(timeoutId);
+        clearServerRequest(requestId);
+        logServerDebug(debugEnabled, 'synthesis-cache-hit', {
+            requestId,
+            textChars: text.length,
+            cachedAt: cachedData.cachedAt
+        });
+        return {
+            pcmBase64: cachedData.pcmBase64,
+            sampleRate: cachedData.sampleRate,
+            audioLength: cachedData.audioLength,
+            timing: {
+                ...cachedData.timing,
+                cacheHit: true,
+                totalMs: 0 // Instant from cache
+            }
+        };
     }
+    
+    logServerDebug(debugEnabled, 'synthesis-start', {
+        requestId,
+        ownerTabId,
+        baseUrl,
+        speed,
+        textChars: text.length,
+        activeRequests: activeServerSynthesisRequests.size
+    });
 
-    const pcmBuffer = await response.arrayBuffer();
-    const pcmBytes = new Uint8Array(pcmBuffer);
-    const sampleRateHeader = response.headers.get('X-Audio-Sample-Rate');
-    const sampleRate = Number.isFinite(Number(sampleRateHeader))
-        ? Math.max(8000, Math.round(Number(sampleRateHeader)))
-        : 24000;
-    const audioLengthHeader = response.headers.get('X-Audio-Length');
-    const audioLength = Number.isFinite(Number(audioLengthHeader))
-        ? Math.max(0, Math.round(Number(audioLengthHeader)))
-        : pcmBytes.length;
+    try {
+        const synthesisResult = await fetch(`${baseUrl}/v1/tts`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                text,
+                voice: voiceId || null,
+                speed,
+                format
+            }),
+            signal: abortController.signal
+        });
 
-    return {
-        pcmBase64: bytesToBase64(pcmBytes),
-        sampleRate,
-        audioLength
-    };
+        if (!synthesisResult.ok) {
+            throw new Error(`Server synthesis failed (${synthesisResult.status})`);
+        }
+
+        const headersAt = performance.now();
+        logServerDebug(debugEnabled, 'synthesis-headers', {
+            requestId,
+            status: synthesisResult.status,
+            headersMs: Math.max(0, Math.round(headersAt - startedAt))
+        });
+        const sampleRateHeader = synthesisResult.headers.get('X-Audio-Sample-Rate');
+        const sampleRate = Number.isFinite(Number(sampleRateHeader))
+            ? Math.max(8000, Math.round(Number(sampleRateHeader)))
+            : 24000;
+        const audioLengthHeader = synthesisResult.headers.get('X-Audio-Length');
+        let audioLength = Number.isFinite(Number(audioLengthHeader))
+            ? Math.max(0, Math.round(Number(audioLengthHeader)))
+            : 0;
+
+        let pcmBytes;
+        let firstChunkAt = 0;
+        if (synthesisResult.body && typeof synthesisResult.body.getReader === 'function') {
+            const reader = synthesisResult.body.getReader();
+            const chunks = [];
+            let totalLength = 0;
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                if (!value || value.length === 0) continue;
+                if (!firstChunkAt) {
+                    firstChunkAt = performance.now();
+                    logServerDebug(debugEnabled, 'synthesis-first-chunk', {
+                        requestId,
+                        firstChunkMs: Math.max(0, Math.round(firstChunkAt - startedAt))
+                    });
+                }
+                const chunk = value instanceof Uint8Array ? value : new Uint8Array(value);
+                chunks.push(chunk);
+                totalLength += chunk.length;
+            }
+            pcmBytes = joinUint8Chunks(chunks, totalLength);
+        } else {
+            const pcmBuffer = await synthesisResult.arrayBuffer();
+            pcmBytes = new Uint8Array(pcmBuffer);
+            firstChunkAt = performance.now();
+        }
+
+        if (!audioLength) {
+            audioLength = pcmBytes.length;
+        }
+
+        const synthesisData = { pcmBytes, sampleRate, audioLength, headersAt, firstChunkAt };
+        const completedAt = performance.now();
+        const totalMs = Math.max(0, Math.round(completedAt - startedAt));
+        const isSlowDueToContention = totalMs > 800 && activeServerSynthesisRequests.size > 1;
+
+        logServerDebug(debugEnabled, 'synthesis-complete', {
+            requestId,
+            totalMs,
+            bytes: synthesisData.pcmBytes.length,
+            sampleRate: synthesisData.sampleRate,
+            activeRequests: activeServerSynthesisRequests.size,
+            // NEW: flags contention clearly in logs
+            likelyConcurrentContention: isSlowDueToContention,
+            warning: isSlowDueToContention
+                ? `Slow due to ${activeServerSynthesisRequests.size} concurrent requests on GPU` 
+                : null
+        });
+
+        const result = {
+            pcmBase64: bytesToBase64(synthesisData.pcmBytes),
+            sampleRate: synthesisData.sampleRate,
+            audioLength: synthesisData.audioLength,
+            timing: {
+                headersMs: Math.max(0, Math.round(synthesisData.headersAt - startedAt)),
+                firstChunkMs: synthesisData.firstChunkAt
+                    ? Math.max(0, Math.round(synthesisData.firstChunkAt - startedAt))
+                    : null,
+                totalMs: Math.max(0, Math.round(completedAt - startedAt))
+            }
+        };
+        
+        // Cache the result for future prefetch hits
+        setPrefetchCache(cacheKey, result);
+        
+        return result;
+    } catch (error) {
+        logServerDebug(debugEnabled, 'synthesis-error', {
+            requestId,
+            totalMs: Math.max(0, Math.round(performance.now() - startedAt)),
+            error: error instanceof Error ? error.message : String(error || 'Unknown error'),
+            activeRequests: activeServerSynthesisRequests.size
+        });
+        throw error;
+    } finally {
+        releaseSynthesisSlot();    // <-- ADD THIS
+        clearTimeout(timeoutId);
+        clearServerRequest(requestId);
+        logServerDebug(debugEnabled, 'synthesis-clear', {
+            requestId,
+            activeRequests: activeServerSynthesisRequests.size
+        });
+    }
 }
 
 const BASE_DEFAULT_SETTINGS = {
@@ -413,7 +678,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 
     if (request.action === 'synthesizeServerTts') {
-        synthesizeServerTts(request)
+        synthesizeServerTts({
+            ...request,
+            ownerTabId: getSenderTabId(sender)
+        })
             .then((payload) => {
                 sendResponse({ ok: true, ...payload });
             })
@@ -426,16 +694,41 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return true;
     }
 
+    if (request.action === 'cancelServerTtsRequest') {
+        const requestId = typeof request.requestId === 'string' ? request.requestId.trim() : '';
+        sendResponse({
+            ok: true,
+            cancelled: cancelServerRequest(requestId)
+        });
+        return false;
+    }
+
+    if (request.action === 'prefetchServerTts') {
+        // Fire-and-forget prefetch - don't wait for response
+        synthesizeServerTts({
+            ...request,
+            ownerTabId: getSenderTabId(sender)
+        }).catch((_error) => {
+            // Silently ignore prefetch errors - they're best-effort
+        });
+        sendResponse({ ok: true, prefetched: true });
+        return false;
+    }
+
     return false;
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
+    cancelRequestsForTab(tabId);
     if (!playbackLockState) return;
     if (playbackLockState.tabId !== tabId) return;
     playbackLockState = null;
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+    if (changeInfo.discarded === true || changeInfo.status === 'unloaded') {
+        cancelRequestsForTab(tabId);
+    }
     if (!playbackLockState) return;
     if (playbackLockState.tabId !== tabId) return;
     if (changeInfo.discarded === true || changeInfo.status === 'unloaded') {
