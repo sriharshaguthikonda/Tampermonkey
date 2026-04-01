@@ -329,6 +329,18 @@
                 <input type="checkbox" id="serverPrecacheToggle">
             </label>
             <label class="toggle-item">
+                <span class="toggle-label"><span aria-hidden="true">🧹</span>Normalize server text</span>
+                <input type="checkbox" id="serverTextNormalizationToggle">
+            </label>
+            <div class="toggle-item" style="align-items:flex-start; flex-direction:column; gap:6px;">
+                <span class="toggle-label"><span aria-hidden="true">❝</span>Quote handling</span>
+                <select id="serverQuotePolicySelect" class="popup-select">
+                    <option value="strip">Strip quote marks</option>
+                    <option value="normalize">Normalize quote marks</option>
+                    <option value="keep">Keep quote marks</option>
+                </select>
+            </div>
+            <label class="toggle-item">
                 <span class="toggle-label"><span aria-hidden="true">🤖</span>Auto-read new</span>
                 <input type="checkbox" id="autoReadToggle">
             </label>

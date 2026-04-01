@@ -3,6 +3,7 @@
 const SETTINGS_STORAGE_KEY = 'settingsByProfile';
 const PROFILE_CHATGPT = 'chatgpt';
 const PROFILE_LOCAL = 'local';
+const PROFILE_FILE = 'file';
 const PLAYBACK_LOCK_STALE_MS = 8000;
 const SERVER_TTS_DEFAULT_BASE_URL = 'http://127.0.0.1:7860';
 
@@ -108,6 +109,15 @@ const BASE_DEFAULT_SETTINGS = {
     chatgptTextStyling: false,
     lowGapMode: false,
     serverPrecacheMode: false,
+    serverTextNormalizationEnabled: true,
+    serverQuotePolicy: 'strip',
+    serverNormalizePunctuation: true,
+    serverNormalizeWhitespace: true,
+    serverRemoveCitationMarkers: true,
+    serverRemoveMarkdownMarkers: true,
+    serverCustomRemovalMode: 'exact',
+    serverCustomExactRemovals: '',
+    serverCustomRegexRemovals: '',
     autoRead: false,
     loopOnEnd: true,
     autoScrollEnabled: true,
@@ -160,13 +170,23 @@ const PROFILE_DEFAULT_SETTINGS = {
         regularAutoSendInInput: false,
         niceAutoPasteEnabled: false,
         niceAutoSend: false
+    },
+    [PROFILE_FILE]: {
+        ...BASE_DEFAULT_SETTINGS,
+        autoRead: false,
+        globalPasteEnabled: false,
+        regularPasteEnabled: false,
+        regularAutoSend: false,
+        regularAutoSendInInput: false,
+        niceAutoPasteEnabled: false,
+        niceAutoSend: false
     }
 };
 
 function getProfileFromUrl(urlLike) {
     try {
         const url = new URL(urlLike || '');
-        if (url.protocol === 'file:') return PROFILE_LOCAL;
+        if (url.protocol === 'file:') return PROFILE_FILE;
 
         const host = (url.hostname || '').toLowerCase();
         if (host === 'chatgpt.com' || host === 'chat.openai.com') return PROFILE_CHATGPT;
@@ -207,6 +227,10 @@ function buildMergedProfiles(items) {
         [PROFILE_LOCAL]: {
             ...getProfileDefaults(PROFILE_LOCAL),
             ...(storedProfiles[PROFILE_LOCAL] || {})
+        },
+        [PROFILE_FILE]: {
+            ...getProfileDefaults(PROFILE_FILE),
+            ...(storedProfiles[PROFILE_FILE] || {})
         }
     };
 
