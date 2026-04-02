@@ -3,6 +3,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const OPTIONS_PROFILE_HINT_KEY = 'optionsPreferredProfile';
     const PROFILE_CHATGPT = 'chatgpt';
     const PROFILE_LOCAL = 'local';
+    const PROFILE_FILE = 'file';
 
     const BASE_DEFAULT_SETTINGS = {
         speechRate: 5,
@@ -14,6 +15,15 @@ document.addEventListener('DOMContentLoaded', () => {
         chatgptTextStyling: false,
         lowGapMode: false,
         serverPrecacheMode: false,
+        serverTextNormalizationEnabled: true,
+        serverQuotePolicy: 'strip',
+        serverNormalizePunctuation: true,
+        serverNormalizeWhitespace: true,
+        serverRemoveCitationMarkers: true,
+        serverRemoveMarkdownMarkers: true,
+        serverCustomRemovalMode: 'exact',
+        serverCustomExactRemovals: '',
+        serverCustomRegexRemovals: '',
         autoRead: false,
         loopOnEnd: true,
         autoScrollEnabled: true,
@@ -64,6 +74,17 @@ document.addEventListener('DOMContentLoaded', () => {
             niceAutoPasteEnabled: false,
             niceAutoSend: false,
             promptHistoryNavEnabled: false
+        },
+        [PROFILE_FILE]: {
+            ...BASE_DEFAULT_SETTINGS,
+            autoRead: false,
+            globalPasteEnabled: false,
+            regularPasteEnabled: false,
+            regularAutoSend: false,
+            regularAutoSendInInput: false,
+            niceAutoPasteEnabled: false,
+            niceAutoSend: false,
+            promptHistoryNavEnabled: false
         }
     };
 
@@ -82,6 +103,15 @@ document.addEventListener('DOMContentLoaded', () => {
         chatgptTextStyling: document.getElementById('chatgptTextStyling'),
         lowGapMode: document.getElementById('lowGapMode'),
         serverPrecacheMode: document.getElementById('serverPrecacheMode'),
+        serverTextNormalizationEnabled: document.getElementById('serverTextNormalizationEnabled'),
+        serverQuotePolicy: document.getElementById('serverQuotePolicy'),
+        serverNormalizePunctuation: document.getElementById('serverNormalizePunctuation'),
+        serverNormalizeWhitespace: document.getElementById('serverNormalizeWhitespace'),
+        serverRemoveCitationMarkers: document.getElementById('serverRemoveCitationMarkers'),
+        serverRemoveMarkdownMarkers: document.getElementById('serverRemoveMarkdownMarkers'),
+        serverCustomRemovalMode: document.getElementById('serverCustomRemovalMode'),
+        serverCustomExactRemovals: document.getElementById('serverCustomExactRemovals'),
+        serverCustomRegexRemovals: document.getElementById('serverCustomRegexRemovals'),
         autoRead: document.getElementById('autoRead'),
         loopOnEnd: document.getElementById('loopOnEnd'),
         autoScrollEnabled: document.getElementById('autoScrollEnabled'),
@@ -151,6 +181,11 @@ document.addEventListener('DOMContentLoaded', () => {
         'chatgptTextStyling',
         'lowGapMode',
         'serverPrecacheMode',
+        'serverTextNormalizationEnabled',
+        'serverNormalizePunctuation',
+        'serverNormalizeWhitespace',
+        'serverRemoveCitationMarkers',
+        'serverRemoveMarkdownMarkers',
         'autoRead',
         'loopOnEnd',
         'autoScrollEnabled',
@@ -180,7 +215,26 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function normalizeProfile(profile) {
-        return profile === PROFILE_LOCAL ? PROFILE_LOCAL : PROFILE_CHATGPT;
+        if (profile === PROFILE_LOCAL) return PROFILE_LOCAL;
+        if (profile === PROFILE_FILE) return PROFILE_FILE;
+        return PROFILE_CHATGPT;
+    }
+
+    function normalizeQuotePolicy(value) {
+        const next = typeof value === 'string' ? value.trim().toLowerCase() : '';
+        if (next === 'keep' || next === 'normalize' || next === 'strip') return next;
+        return 'strip';
+    }
+
+    function normalizeRemovalMode(value) {
+        const next = typeof value === 'string' ? value.trim().toLowerCase() : '';
+        if (next === 'exact' || next === 'regex' || next === 'both') return next;
+        return 'exact';
+    }
+
+    function normalizeMultilineValue(value) {
+        if (typeof value !== 'string') return '';
+        return value.replace(/\r\n/g, '\n').trim();
     }
 
     function pickLegacySettings(items) {
@@ -287,6 +341,14 @@ document.addEventListener('DOMContentLoaded', () => {
         updateVoiceSelect(availableVoices, merged.voiceUri);
         elements.volumeBoostLevel.value = merged.volumeBoostLevel;
         updateVolumeBoostValue(Number(merged.volumeBoostLevel));
+        elements.serverQuotePolicy.value = normalizeQuotePolicy(merged.serverQuotePolicy);
+        elements.serverCustomRemovalMode.value = normalizeRemovalMode(merged.serverCustomRemovalMode);
+        elements.serverCustomExactRemovals.value = typeof merged.serverCustomExactRemovals === 'string'
+            ? merged.serverCustomExactRemovals
+            : '';
+        elements.serverCustomRegexRemovals.value = typeof merged.serverCustomRegexRemovals === 'string'
+            ? merged.serverCustomRegexRemovals
+            : '';
 
         toggleFields.forEach((key) => {
             if (elements[key]) elements[key].checked = Boolean(merged[key]);
@@ -309,6 +371,10 @@ document.addEventListener('DOMContentLoaded', () => {
         settings.speechRate = coerceNumber(elements.speechRate, defaults.speechRate);
         settings.voiceUri = elements.voiceUri.value || '';
         settings.hiddenTabPolicy = String(elements.hiddenTabPolicy.value || defaults.hiddenTabPolicy || 'delay');
+        settings.serverQuotePolicy = normalizeQuotePolicy(elements.serverQuotePolicy.value || defaults.serverQuotePolicy);
+        settings.serverCustomRemovalMode = normalizeRemovalMode(elements.serverCustomRemovalMode.value || defaults.serverCustomRemovalMode);
+        settings.serverCustomExactRemovals = normalizeMultilineValue(elements.serverCustomExactRemovals.value);
+        settings.serverCustomRegexRemovals = normalizeMultilineValue(elements.serverCustomRegexRemovals.value);
 
         toggleFields.forEach((key) => {
             settings[key] = Boolean(elements[key].checked);
@@ -407,6 +473,19 @@ document.addEventListener('DOMContentLoaded', () => {
             scheduleSave();
         });
     }
+
+    elements.serverQuotePolicy.addEventListener('change', () => {
+        scheduleSave();
+    });
+    elements.serverCustomRemovalMode.addEventListener('change', () => {
+        scheduleSave();
+    });
+    elements.serverCustomExactRemovals.addEventListener('input', () => {
+        scheduleSave();
+    });
+    elements.serverCustomRegexRemovals.addEventListener('input', () => {
+        scheduleSave();
+    });
 
     numberFields.forEach((key) => {
         if (key === 'speechRate' || key === 'volumeBoostLevel') return;

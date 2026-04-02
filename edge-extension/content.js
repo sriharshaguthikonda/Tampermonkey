@@ -4,6 +4,7 @@
     const SETTINGS_STORAGE_KEY = 'settingsByProfile';
     const PROFILE_CHATGPT = 'chatgpt';
     const PROFILE_LOCAL = 'local';
+    const PROFILE_FILE = 'file';
 
     const BASE_DEFAULT_SETTINGS = {
         speechRate: 5,
@@ -14,6 +15,15 @@
         readReferences: false,
         chatgptTextStyling: false,
         serverPrecacheMode: true,
+        serverTextNormalizationEnabled: true,
+        serverQuotePolicy: 'strip',
+        serverNormalizePunctuation: true,
+        serverNormalizeWhitespace: true,
+        serverRemoveCitationMarkers: true,
+        serverRemoveMarkdownMarkers: true,
+        serverCustomRemovalMode: 'exact',
+        serverCustomExactRemovals: '',
+        serverCustomRegexRemovals: '',
         serverBaseUrl: 'http://127.0.0.1:7860',
         autoRead: false,
         loopOnEnd: true,
@@ -66,13 +76,24 @@
             niceAutoPasteEnabled: false,
             niceAutoSend: false,
             promptHistoryNavEnabled: false
+        },
+        [PROFILE_FILE]: {
+            ...BASE_DEFAULT_SETTINGS,
+            autoRead: false,
+            globalPasteEnabled: false,
+            regularPasteEnabled: false,
+            regularAutoSend: false,
+            regularAutoSendInInput: false,
+            niceAutoPasteEnabled: false,
+            niceAutoSend: false,
+            promptHistoryNavEnabled: false
         }
     };
 
     function getProfileFromUrl(urlLike) {
         try {
             const url = new URL(urlLike || '');
-            if (url.protocol === 'file:') return PROFILE_LOCAL;
+            if (url.protocol === 'file:') return PROFILE_FILE;
             const host = (url.hostname || '').toLowerCase();
             if (host === 'chatgpt.com' || host === 'chat.openai.com') return PROFILE_CHATGPT;
             if (host === 'localhost' || host === '127.0.0.1') return PROFILE_LOCAL;
@@ -266,13 +287,22 @@
             VOLUME_BOOST_LEVEL: 1.3,
             LOW_GAP_MODE: true,
             SERVER_PRECACHE_MODE: true,
+            SERVER_TEXT_NORMALIZATION_ENABLED: true,
+            SERVER_QUOTE_POLICY: 'strip',
+            SERVER_NORMALIZE_PUNCTUATION: true,
+            SERVER_NORMALIZE_WHITESPACE: true,
+            SERVER_REMOVE_CITATION_MARKERS: true,
+            SERVER_REMOVE_MARKDOWN_MARKERS: true,
+            SERVER_CUSTOM_REMOVAL_MODE: 'exact',
+            SERVER_CUSTOM_EXACT_REMOVALS: '',
+            SERVER_CUSTOM_REGEX_REMOVALS: '',
             SERVER_BASE_URL: 'http://127.0.0.1:7860',
             SERVER_PRECACHE_WORD_BUDGET: 100,
             SERVER_PRECACHE_MAX_SENTENCES: 8,
             SERVER_HANDOFF_WAIT_MS: 120,
             SERVER_TTS_SAMPLE_RATE: 24000,
             SERVER_TTS_DEFAULT_BASE_URL: 'http://127.0.0.1:7860',
-            TEXT_PREPROCESS_CHARS: '',  // Characters to strip from content before TTS
+            TEXT_PREPROCESS_CHARS: '',  // Legacy compatibility, prefer SERVER_CUSTOM_EXACT_REMOVALS
             SERVER_TTS_MIN_SPEED: 0.5,
             SERVER_TTS_MAX_SPEED: 2.0,
             ENTER_TO_SEND_DOUBLE_PRESS_MS: 300,
@@ -1142,6 +1172,33 @@
             this.CONFIG.SERVER_PRECACHE_MODE = nextValue;
             if (!silent) {
                 this.showNotification(`Server precache ${nextValue ? 'on' : 'off'}`);
+            }
+        },
+
+        setServerTextNormalizationEnabled(enabled, silent = false) {
+            const nextValue = Boolean(enabled);
+            if (this.CONFIG.SERVER_TEXT_NORMALIZATION_ENABLED === nextValue) return;
+            this.CONFIG.SERVER_TEXT_NORMALIZATION_ENABLED = nextValue;
+            if (!silent) {
+                this.showNotification(`Server text normalize ${nextValue ? 'on' : 'off'}`);
+            }
+        },
+
+        setServerQuotePolicy(policy, silent = false) {
+            const nextPolicy = this.normalizeServerQuotePolicy(policy);
+            if (this.CONFIG.SERVER_QUOTE_POLICY === nextPolicy) return;
+            this.CONFIG.SERVER_QUOTE_POLICY = nextPolicy;
+            if (!silent) {
+                this.showNotification(`Server quote policy: ${nextPolicy}`);
+            }
+        },
+
+        setServerCustomRemovalMode(mode, silent = false) {
+            const nextMode = this.normalizeServerCustomRemovalMode(mode);
+            if (this.CONFIG.SERVER_CUSTOM_REMOVAL_MODE === nextMode) return;
+            this.CONFIG.SERVER_CUSTOM_REMOVAL_MODE = nextMode;
+            if (!silent) {
+                this.showNotification(`Server removal mode: ${nextMode}`);
             }
         },
 
@@ -3153,31 +3210,185 @@
             return Math.max(min, Math.min(max, configured));
         },
 
-        applyTextPreprocessing(text) {
-            if (!text || typeof text !== 'string') return text;
-            if (!this.CONFIG.TEXT_PREPROCESS_CHARS) return text;
-            
-            let processedText = text;
-            const charsToRemove = this.CONFIG.TEXT_PREPROCESS_CHARS.split('');
-            
-            for (const char of charsToRemove) {
-                const regex = new RegExp(char.replace(/[.*+?^${}]/g, '\\$&'), 'g');
-                processedText = processedText.replace(regex, '');
-            }
-            
-            return processedText.trim();
+        normalizeServerQuotePolicy(policy) {
+            const next = typeof policy === 'string' ? policy.trim().toLowerCase() : '';
+            if (next === 'keep' || next === 'normalize' || next === 'strip') return next;
+            return 'strip';
         },
 
-        buildServerSentencePlan(paragraphText, startOffset = 0) {
+        normalizeServerCustomRemovalMode(mode) {
+            const next = typeof mode === 'string' ? mode.trim().toLowerCase() : '';
+            if (next === 'exact' || next === 'regex' || next === 'both') return next;
+            return 'exact';
+        },
+
+        parseServerRemovalLines(rawValue) {
+            if (typeof rawValue !== 'string') return [];
+            return rawValue
+                .split(/\r?\n/g)
+                .map(line => line.trim())
+                .filter(line => line.length > 0);
+        },
+
+        escapeRegExp(text) {
+            return String(text || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        },
+
+        applyServerExactCustomRemovals(text) {
+            const rules = this.parseServerRemovalLines(this.CONFIG.SERVER_CUSTOM_EXACT_REMOVALS);
+            if (rules.length === 0 && this.CONFIG.TEXT_PREPROCESS_CHARS) {
+                const legacyRules = this.CONFIG.TEXT_PREPROCESS_CHARS
+                    .split(/\r?\n/g)
+                    .join('')
+                    .split('')
+                    .map(char => char.trim())
+                    .filter(Boolean);
+                rules.push(...legacyRules);
+            }
+            if (rules.length === 0) return text;
+
+            let output = text;
+            for (const rawRule of rules) {
+                const escaped = this.escapeRegExp(rawRule).replace(/\s+/g, '\\s+');
+                const isWordLike = /^[A-Za-z0-9][A-Za-z0-9\s'-]*[A-Za-z0-9]$/.test(rawRule);
+                const pattern = isWordLike
+                    ? new RegExp(`\\b${escaped}\\b`, 'gi')
+                    : new RegExp(escaped, 'gi');
+                output = output.replace(pattern, ' ');
+            }
+            return output;
+        },
+
+        parseServerRegexRule(rawRule) {
+            if (typeof rawRule !== 'string') return null;
+            const trimmed = rawRule.trim();
+            if (!trimmed) return null;
+
+            let source = trimmed;
+            let flags = 'gi';
+            const slashMatch = trimmed.match(/^\/(.+)\/([a-z]*)$/i);
+            if (slashMatch) {
+                source = slashMatch[1];
+                flags = slashMatch[2] || '';
+                if (!flags.includes('g')) flags += 'g';
+            }
+
+            try {
+                return new RegExp(source, flags);
+            } catch (error) {
+                this.logPlaybackGuardEvent('server-normalize-invalid-regex', {
+                    rule: rawRule,
+                    error: String(error && error.message ? error.message : error)
+                });
+                return null;
+            }
+        },
+
+        applyServerRegexCustomRemovals(text) {
+            const rules = this.parseServerRemovalLines(this.CONFIG.SERVER_CUSTOM_REGEX_REMOVALS);
+            if (rules.length === 0) return text;
+
+            let output = text;
+            for (const rawRule of rules) {
+                const regex = this.parseServerRegexRule(rawRule);
+                if (!regex) continue;
+                output = output.replace(regex, ' ');
+            }
+            return output;
+        },
+
+        normalizeTextForServerTts(text, context = {}) {
+            const source = typeof text === 'string' ? text : '';
+            if (!source) return '';
+            if (!this.CONFIG.SERVER_TEXT_NORMALIZATION_ENABLED) {
+                return source.trim();
+            }
+
+            let normalized = source
+                .replace(/\r\n/g, '\n')
+                .replace(/\u00A0/g, ' ');
+
+            if (this.CONFIG.SERVER_NORMALIZE_PUNCTUATION) {
+                normalized = normalized
+                    .replace(/[‐‑‒–—]/g, ' - ')
+                    .replace(/…/g, '...')
+                    .replace(/[•▪◦‣∙]/g, ' ');
+            }
+
+            const quotePolicy = this.normalizeServerQuotePolicy(this.CONFIG.SERVER_QUOTE_POLICY);
+            if (quotePolicy === 'normalize') {
+                normalized = normalized
+                    .replace(/[“”„‟«»‹›]/g, '"')
+                    .replace(/[‘’‚‛`´]/g, '\'');
+            } else if (quotePolicy === 'strip') {
+                normalized = normalized
+                    .replace(/[“”„‟«»‹›"]/g, ' ')
+                    .replace(/[‘’‚‛`´]/g, '\'');
+            }
+
+            if (this.CONFIG.SERVER_REMOVE_MARKDOWN_MARKERS) {
+                normalized = normalized
+                    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/gi, '$1')
+                    .replace(/`{1,3}([^`]+)`{1,3}/g, '$1')
+                    .replace(/[*_~]+/g, ' ');
+            }
+
+            if (this.CONFIG.SERVER_REMOVE_CITATION_MARKERS) {
+                normalized = normalized
+                    .replace(/\[\s*\d+(?:\s*[,;]\s*\d+)*\s*\]/g, ' ')
+                    .replace(/\(\s*(?:source|sources|ref|refs|reference|references)?\s*\d+(?:\s*[,;]\s*\d+)*\s*\)/gi, ' ')
+                    .replace(/\+\d+\b/g, ' ');
+            }
+
+            const removalMode = this.normalizeServerCustomRemovalMode(this.CONFIG.SERVER_CUSTOM_REMOVAL_MODE);
+            if (removalMode === 'exact' || removalMode === 'both') {
+                normalized = this.applyServerExactCustomRemovals(normalized);
+            }
+            if (removalMode === 'regex' || removalMode === 'both') {
+                normalized = this.applyServerRegexCustomRemovals(normalized);
+            }
+
+            normalized = normalized.replace(/\s+([,.;:!?])/g, '$1');
+            if (this.CONFIG.SERVER_NORMALIZE_WHITESPACE) {
+                normalized = normalized.replace(/\s+/g, ' ');
+            }
+            normalized = normalized.trim();
+
+            if (normalized !== source && this.CONFIG.SHOW_DIAGNOSTICS_PANEL) {
+                this.logPlaybackGuardEvent('server-text-normalized', {
+                    stage: context.stage || null,
+                    paragraphIndex: Number.isInteger(context.paragraphIndex) ? context.paragraphIndex : null,
+                    sentenceIndex: Number.isInteger(context.sentenceIndex) ? context.sentenceIndex : null,
+                    originalLength: source.length,
+                    normalizedLength: normalized.length,
+                    originalSample: source.slice(0, 120),
+                    normalizedSample: normalized.slice(0, 120)
+                });
+            }
+
+            return normalized;
+        },
+
+        buildServerSentencePlan(paragraphText, startOffset = 0, context = {}) {
             const safeStart = Math.max(0, Math.floor(Number(startOffset) || 0));
             const source = typeof paragraphText === 'string' ? paragraphText : '';
             const sliced = source.slice(safeStart);
             const sentences = this.splitTextIntoSentences(sliced);
-            return sentences.map((sentence) => ({
-                text: sentence.text,
-                startOffset: safeStart + sentence.startOffset,
-                wordCount: this.countWords(sentence.text)
-            }));
+            const plan = [];
+            for (const sentence of sentences) {
+                const normalizedSentence = this.normalizeTextForServerTts(sentence.text, {
+                    stage: 'sentence-plan',
+                    paragraphIndex: Number.isInteger(context.paragraphIndex) ? context.paragraphIndex : null
+                });
+                if (!normalizedSentence) continue;
+                plan.push({
+                    text: sentence.text,
+                    serverText: normalizedSentence,
+                    startOffset: safeStart + sentence.startOffset,
+                    wordCount: this.countWords(sentence.text)
+                });
+            }
+            return plan;
         },
 
         getServerSentenceCacheKey(state, sentenceIndex) {
@@ -3263,6 +3474,12 @@
             if (!sentence || !sentence.text) {
                 throw new Error('Missing sentence');
             }
+            const textForServer = typeof sentence.serverText === 'string' && sentence.serverText.trim()
+                ? sentence.serverText
+                : sentence.text;
+            if (!textForServer) {
+                throw new Error('Missing server sentence text');
+            }
             const selectedVoiceId = this.getSelectedServerVoiceId();
             if (!selectedVoiceId) {
                 throw new Error('No server voice selected');
@@ -3275,7 +3492,7 @@
             const response = await this.sendRuntimeMessageAsync({
                 action: 'synthesizeServerTts',
                 baseUrl: this.normalizeServerBaseUrl(this.CONFIG.SERVER_BASE_URL),
-                text: this.applyTextPreprocessing(sentence.text),
+                text: textForServer,
                 voiceId: selectedVoiceId,
                 speed: safeSpeed,
                 requestId: normalizedRequestId,
@@ -3733,7 +3950,7 @@
 
             const startCharIndex = Number(options && options.startCharIndex);
             const safeStartChar = Number.isFinite(startCharIndex) ? Math.max(0, Math.floor(startCharIndex)) : 0;
-            const sentences = this.buildServerSentencePlan(para.text, safeStartChar);
+            const sentences = this.buildServerSentencePlan(para.text, safeStartChar, { paragraphIndex: index });
             if (sentences.length === 0) {
                 const nextIndex = index + 1;
                 if (nextIndex < this.paragraphsList.length) {
@@ -3829,7 +4046,7 @@
             if (nextIndex >= this.paragraphsList.length) return;
             const nextPara = this.paragraphsList[nextIndex];
             if (!nextPara || !nextPara.text) return;
-            const sentences = this.buildServerSentencePlan(nextPara.text, 0);
+            const sentences = this.buildServerSentencePlan(nextPara.text, 0, { paragraphIndex: nextIndex });
             if (!sentences.length) return;
 
             // Build a dummy state just for cache key generation
@@ -3867,6 +4084,12 @@
                 return;
             }
 
+            const normalizedText = this.normalizeTextForServerTts(text, { stage: 'single-utterance' });
+            if (!normalizedText) {
+                if (onComplete) onComplete();
+                return;
+            }
+
             this.advancePlaybackSession('server-single-utterance');
             this.stopServerAudioPlayback();
             this.clearServerSentenceCache();
@@ -3883,7 +4106,7 @@
                 response = await this.sendRuntimeMessageAsync({
                     action: 'synthesizeServerTts',
                     baseUrl: this.normalizeServerBaseUrl(this.CONFIG.SERVER_BASE_URL),
-                    text,
+                    text: normalizedText,
                     voiceId: selectedVoiceId,
                     speed: safeSpeed,
                     requestId,
@@ -5201,6 +5424,33 @@
         if (typeof settings.serverPrecacheMode === 'boolean') {
             TTSReader.setServerPrecacheMode(settings.serverPrecacheMode, silent);
         }
+        if (typeof settings.serverTextNormalizationEnabled === 'boolean') {
+            TTSReader.setServerTextNormalizationEnabled(settings.serverTextNormalizationEnabled, silent);
+        }
+        if (typeof settings.serverQuotePolicy === 'string') {
+            TTSReader.setServerQuotePolicy(settings.serverQuotePolicy, silent);
+        }
+        if (typeof settings.serverNormalizePunctuation === 'boolean') {
+            TTSReader.CONFIG.SERVER_NORMALIZE_PUNCTUATION = settings.serverNormalizePunctuation;
+        }
+        if (typeof settings.serverNormalizeWhitespace === 'boolean') {
+            TTSReader.CONFIG.SERVER_NORMALIZE_WHITESPACE = settings.serverNormalizeWhitespace;
+        }
+        if (typeof settings.serverRemoveCitationMarkers === 'boolean') {
+            TTSReader.CONFIG.SERVER_REMOVE_CITATION_MARKERS = settings.serverRemoveCitationMarkers;
+        }
+        if (typeof settings.serverRemoveMarkdownMarkers === 'boolean') {
+            TTSReader.CONFIG.SERVER_REMOVE_MARKDOWN_MARKERS = settings.serverRemoveMarkdownMarkers;
+        }
+        if (typeof settings.serverCustomRemovalMode === 'string') {
+            TTSReader.setServerCustomRemovalMode(settings.serverCustomRemovalMode, silent);
+        }
+        if (typeof settings.serverCustomExactRemovals === 'string') {
+            TTSReader.CONFIG.SERVER_CUSTOM_EXACT_REMOVALS = settings.serverCustomExactRemovals;
+        }
+        if (typeof settings.serverCustomRegexRemovals === 'string') {
+            TTSReader.CONFIG.SERVER_CUSTOM_REGEX_REMOVALS = settings.serverCustomRegexRemovals;
+        }
         if (typeof settings.serverBaseUrl === 'string') {
             TTSReader.CONFIG.SERVER_BASE_URL = TTSReader.normalizeServerBaseUrl(settings.serverBaseUrl);
         }
@@ -5431,10 +5681,18 @@
                     applySettings(message.settings || {}, { silent: message.silent === true });
                     break;
                 case 'setTextPreprocess':
-                    if (message.chars) {
-                        TTSReader.CONFIG.TEXT_PREPROCESS_CHARS = message.chars;
+                    if (typeof message.chars === 'string') {
+                        const normalizedChars = message.chars;
+                        TTSReader.CONFIG.TEXT_PREPROCESS_CHARS = normalizedChars;
+                        TTSReader.CONFIG.SERVER_TEXT_NORMALIZATION_ENABLED = true;
+                        TTSReader.CONFIG.SERVER_CUSTOM_REMOVAL_MODE = 'exact';
+                        TTSReader.CONFIG.SERVER_CUSTOM_EXACT_REMOVALS = normalizedChars
+                            .split(/\r?\n/g)
+                            .map(line => line.trim())
+                            .filter(Boolean)
+                            .join('\n');
                         TTSReader.logPlaybackGuardEvent('text-preprocess-updated', {
-                            chars: message.chars
+                            chars: normalizedChars
                         });
                     }
                     break;
@@ -5457,6 +5715,13 @@
                             chatgptTextStyling: TTSReader.CONFIG.CHATGPT_TEXT_STYLING,
                             lowGapMode: TTSReader.CONFIG.LOW_GAP_MODE,
                             serverPrecacheMode: TTSReader.CONFIG.SERVER_PRECACHE_MODE,
+                            serverTextNormalizationEnabled: TTSReader.CONFIG.SERVER_TEXT_NORMALIZATION_ENABLED,
+                            serverQuotePolicy: TTSReader.CONFIG.SERVER_QUOTE_POLICY,
+                            serverNormalizePunctuation: TTSReader.CONFIG.SERVER_NORMALIZE_PUNCTUATION,
+                            serverNormalizeWhitespace: TTSReader.CONFIG.SERVER_NORMALIZE_WHITESPACE,
+                            serverRemoveCitationMarkers: TTSReader.CONFIG.SERVER_REMOVE_CITATION_MARKERS,
+                            serverRemoveMarkdownMarkers: TTSReader.CONFIG.SERVER_REMOVE_MARKDOWN_MARKERS,
+                            serverCustomRemovalMode: TTSReader.CONFIG.SERVER_CUSTOM_REMOVAL_MODE,
                             autoRead: TTSReader.CONFIG.AUTO_READ_NEW_MESSAGES,
                             loopOnEnd: TTSReader.CONFIG.LOOP_ON_END,
                             autoScrollEnabled: TTSReader.CONFIG.AUTO_SCROLL_ENABLED,

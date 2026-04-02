@@ -3,6 +3,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const OPTIONS_PROFILE_HINT_KEY = 'optionsPreferredProfile';
     const PROFILE_CHATGPT = 'chatgpt';
     const PROFILE_LOCAL = 'local';
+    const PROFILE_FILE = 'file';
 
     const BASE_DEFAULT_SETTINGS = {
         speechRate: 5,
@@ -14,6 +15,15 @@ document.addEventListener('DOMContentLoaded', () => {
         chatgptTextStyling: false,
         lowGapMode: false,
         serverPrecacheMode: false,
+        serverTextNormalizationEnabled: true,
+        serverQuotePolicy: 'strip',
+        serverNormalizePunctuation: true,
+        serverNormalizeWhitespace: true,
+        serverRemoveCitationMarkers: true,
+        serverRemoveMarkdownMarkers: true,
+        serverCustomRemovalMode: 'exact',
+        serverCustomExactRemovals: '',
+        serverCustomRegexRemovals: '',
         autoRead: false,
         loopOnEnd: true,
         autoScrollEnabled: true,
@@ -53,6 +63,17 @@ document.addEventListener('DOMContentLoaded', () => {
             niceAutoPasteEnabled: false,
             niceAutoSend: false,
             promptHistoryNavEnabled: false
+        },
+        [PROFILE_FILE]: {
+            ...BASE_DEFAULT_SETTINGS,
+            autoRead: false,
+            globalPasteEnabled: false,
+            regularPasteEnabled: false,
+            regularAutoSend: false,
+            regularAutoSendInInput: false,
+            niceAutoPasteEnabled: false,
+            niceAutoSend: false,
+            promptHistoryNavEnabled: false
         }
     };
 
@@ -81,6 +102,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const chatStyleToggle = document.getElementById('chatStyleToggle');
     const lowGapToggle = document.getElementById('lowGapToggle');
     const serverPrecacheToggle = document.getElementById('serverPrecacheToggle');
+    const serverTextNormalizationToggle = document.getElementById('serverTextNormalizationToggle');
+    const serverQuotePolicySelect = document.getElementById('serverQuotePolicySelect');
     const autoReadToggle = document.getElementById('autoReadToggle');
     const loopToggle = document.getElementById('loopToggle');
     const autoScrollToggle = document.getElementById('autoScrollToggle');
@@ -109,7 +132,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function getProfileFromUrl(urlLike) {
         try {
             const url = new URL(urlLike || '');
-            if (url.protocol === 'file:') return PROFILE_LOCAL;
+            if (url.protocol === 'file:') return PROFILE_FILE;
             const host = (url.hostname || '').toLowerCase();
             if (host === 'chatgpt.com' || host === 'chat.openai.com') return PROFILE_CHATGPT;
             if (host === 'localhost' || host === '127.0.0.1') return PROFILE_LOCAL;
@@ -121,6 +144,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function getProfileDefaults(profile) {
         return PROFILE_DEFAULT_SETTINGS[profile] || PROFILE_DEFAULT_SETTINGS[PROFILE_CHATGPT];
+    }
+
+    function normalizeQuotePolicy(policy) {
+        const next = typeof policy === 'string' ? policy.trim().toLowerCase() : '';
+        if (next === 'keep' || next === 'normalize' || next === 'strip') return next;
+        return 'strip';
     }
 
     function pickLegacySettings(items) {
@@ -288,6 +317,8 @@ document.addEventListener('DOMContentLoaded', () => {
         chatStyleToggle.checked = Boolean(settings.chatgptTextStyling);
         lowGapToggle.checked = Boolean(settings.lowGapMode);
         serverPrecacheToggle.checked = Boolean(settings.serverPrecacheMode);
+        serverTextNormalizationToggle.checked = Boolean(settings.serverTextNormalizationEnabled);
+        serverQuotePolicySelect.value = normalizeQuotePolicy(settings.serverQuotePolicy);
         autoReadToggle.checked = Boolean(settings.autoRead);
         loopToggle.checked = Boolean(settings.loopOnEnd);
         autoScrollToggle.checked = Boolean(settings.autoScrollEnabled);
@@ -404,6 +435,12 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     serverPrecacheToggle.addEventListener('change', (e) => {
         persistSetting('serverPrecacheMode', e.target.checked);
+    });
+    serverTextNormalizationToggle.addEventListener('change', (e) => {
+        persistSetting('serverTextNormalizationEnabled', e.target.checked);
+    });
+    serverQuotePolicySelect.addEventListener('change', (e) => {
+        persistSetting('serverQuotePolicy', normalizeQuotePolicy(e.target.value));
     });
     autoReadToggle.addEventListener('change', (e) => {
         persistSetting('autoRead', e.target.checked);

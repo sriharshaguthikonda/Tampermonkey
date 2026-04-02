@@ -19,7 +19,8 @@
                 <label for="settingsProfile">Apply/edit profile</label>
                 <select id="settingsProfile">
                     <option value="chatgpt">ChatGPT websites</option>
-                    <option value="local">Localhost / local files</option>
+                    <option value="local">Localhost pages</option>
+                    <option value="file">Local files only</option>
                 </select>
             </div>
             <p class="note">Changes are saved per profile automatically.</p>
@@ -67,6 +68,55 @@
                     <span id="volumeBoostLevelValue" class="value-pill">1.3x</span>
                 </div>
             </div>
+        </section>
+
+        <section class="card">
+            <h2>Server Text Pre-processing</h2>
+            <div class="field toggle">
+                <label for="serverTextNormalizationEnabled">🧹 Normalize text before server TTS</label>
+                <input id="serverTextNormalizationEnabled" type="checkbox" />
+            </div>
+            <div class="field">
+                <label for="serverQuotePolicy">❝ Quote handling</label>
+                <select id="serverQuotePolicy">
+                    <option value="strip">Strip quote marks</option>
+                    <option value="normalize">Normalize quote marks</option>
+                    <option value="keep">Keep quote marks as-is</option>
+                </select>
+            </div>
+            <div class="field toggle">
+                <label for="serverNormalizePunctuation">🧠 Normalize punctuation/dashes</label>
+                <input id="serverNormalizePunctuation" type="checkbox" />
+            </div>
+            <div class="field toggle">
+                <label for="serverNormalizeWhitespace">↔️ Normalize whitespace</label>
+                <input id="serverNormalizeWhitespace" type="checkbox" />
+            </div>
+            <div class="field toggle">
+                <label for="serverRemoveCitationMarkers">🧾 Remove citation markers ([1], (ref 2))</label>
+                <input id="serverRemoveCitationMarkers" type="checkbox" />
+            </div>
+            <div class="field toggle">
+                <label for="serverRemoveMarkdownMarkers">🧷 Remove markdown artifacts (*, _, `)</label>
+                <input id="serverRemoveMarkdownMarkers" type="checkbox" />
+            </div>
+            <div class="field">
+                <label for="serverCustomRemovalMode">🧩 Custom removal mode</label>
+                <select id="serverCustomRemovalMode">
+                    <option value="exact">Exact phrases only</option>
+                    <option value="regex">Regex only</option>
+                    <option value="both">Exact + regex</option>
+                </select>
+            </div>
+            <div class="field field-block">
+                <label for="serverCustomExactRemovals">Exact phrases to remove (one per line)</label>
+                <textarea id="serverCustomExactRemovals" rows="4" placeholder="e.g. you said&#10;the"></textarea>
+            </div>
+            <div class="field field-block">
+                <label for="serverCustomRegexRemovals">Regex patterns to remove (one per line)</label>
+                <textarea id="serverCustomRegexRemovals" rows="4" placeholder="e.g. /\\[[0-9]+\\]/g&#10;source\\s*:\\s*\\S+"></textarea>
+            </div>
+            <p class="note">These rules are saved per profile (ChatGPT / localhost / file pages).</p>
         </section>
 
         <section class="card">
