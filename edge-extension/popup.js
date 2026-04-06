@@ -292,11 +292,44 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    function mergeVoiceLists(primary, secondary) {
+        const seen = new Set(primary.map(v => v.voiceURI));
+        return [...primary, ...secondary.filter(v => !seen.has(v.voiceURI))];
+    }
+
+    function fetchServerVoicesDirectly(onComplete) {
+        chrome.runtime.sendMessage({ action: 'getServerVoices' }, (response) => {
+            if (chrome.runtime.lastError || !response || !Array.isArray(response.voices)) {
+                if (onComplete) onComplete([]);
+                return;
+            }
+            if (onComplete) onComplete(response.voices);
+        });
+    }
+
     function requestVoiceList() {
+        // Fetch server voices directly from background so the dropdown populates
+        // regardless of whether the content script has already fetched them.
+        fetchServerVoicesDirectly((serverVoices) => {
+            const selectedUri = typeof availableVoices.find(v => v.voiceURI === voiceSelect.value) !== 'undefined'
+                ? voiceSelect.value
+                : '';
+            const currentBrowserVoices = availableVoices.filter(v => v.source !== 'server');
+            const merged = mergeVoiceLists(currentBrowserVoices, serverVoices);
+            if (merged.length > 0) {
+                getStoredProfileSettings((settings) => {
+                    updateVoiceSelect(merged, settings.voiceUri || selectedUri);
+                });
+            }
+        });
+
         if (!activeTabId) return;
         chrome.tabs.sendMessage(activeTabId, { action: 'getVoices' }, (response) => {
             if (chrome.runtime.lastError || !response) return;
-            updateVoiceSelect(response.voices || [], response.selectedVoiceUri || '');
+            const contentVoices = response.voices || [];
+            const serverDirect = availableVoices.filter(v => v.source === 'server');
+            const merged = mergeVoiceLists(contentVoices, serverDirect);
+            updateVoiceSelect(merged, response.selectedVoiceUri || '');
         });
     }
 
