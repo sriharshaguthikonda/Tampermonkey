@@ -334,6 +334,7 @@
             this.createUI();
             this.setupEventListeners();
             this.loadVoices();
+            this.fetchServerVoices();
             this.initParagraphObserver();
             this.initMediaEnhancements();
             if (this.isChatGPTPage) {
@@ -1645,9 +1646,16 @@
         },
 
         getSelectedServerVoiceId() {
-            if (!this.isServerVoiceUri(this.CONFIG.VOICE_URI)) return '';
-            const voiceId = this.CONFIG.VOICE_URI.slice('server:'.length);
-            return typeof voiceId === 'string' ? voiceId.trim() : '';
+            if (this.isServerVoiceUri(this.CONFIG.VOICE_URI)) {
+                const voiceId = this.CONFIG.VOICE_URI.slice('server:'.length);
+                return typeof voiceId === 'string' ? voiceId.trim() : '';
+            }
+            // Auto-select: if no voice is configured, fall back to first available server voice
+            if (!this.CONFIG.VOICE_URI && Array.isArray(this.serverVoices) && this.serverVoices.length > 0) {
+                const first = this.serverVoices[0];
+                return typeof first.id === 'string' ? first.id : '';
+            }
+            return '';
         },
 
         isServerVoiceSelected() {
