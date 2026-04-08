@@ -9,6 +9,7 @@
     const BASE_DEFAULT_SETTINGS = {
         speechRate: 5,
         voiceUri: '',
+        emojiVoiceMappings: [],
         wordHighlight: true,
         gapTrim: true,
         readUserMessages: false,
@@ -238,6 +239,7 @@
             IGNORE_SELECTORS: '.settings-header, nav, script, style, noscript, header, footer, button, a, form, [aria-hidden="true"], [data-tts-ui], .sr-only, pre, code, [class*="code"], [class*="language-"], [class*="highlight"], .token, #thread-bottom-container, #content-root, #content-root *',
             SPEECH_RATE: 5,
             VOICE_URI: '',
+            EMOJI_VOICE_MAPPINGS: [],
             QUEUE_LOOKAHEAD: 3,
             MAX_SYNTH_BACKLOG: 1,
             SPEECH_CHUNK_MAX_CHARS: 220,
@@ -322,7 +324,8 @@
             INTERRUPTED_RETRY_MAX: 1,
             INTERRUPTED_RETRY_DELAY_MS: 250,
             HOTKEYS: { ACTIVATE: 'U', PAUSE_RESUME: 'P', NAV_NEXT: 'ArrowRight', NAV_PREV: 'ArrowLeft', STOP: 'Escape' },
-            EMOJI_REGEX: /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE0F}]/ug
+            EMOJI_REGEX: /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE0F}]/ug,
+            SPEAKER_EMOJI_REGEX: /^\s*((?:\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?)*))/u
         },
 
         init() {
@@ -1718,6 +1721,10 @@
             return [...browserVoices, ...serverVoices];
         },
 
+        getAvailableBrowserVoices() {
+            return this.speechSynthesis.getVoices();
+        },
+
         isLikelyUnstableVoice(voice) {
             if (!voice) return false;
             const name = (voice.name || '').toLowerCase();
@@ -1727,14 +1734,67 @@
             return false;
         },
 
-        resolvePreferredVoice() {
+        extractLeadingSpeakerEmoji(text) {
+            if (!text) return '';
+            const match = text.match(this.CONFIG.SPEAKER_EMOJI_REGEX);
+            return match ? match[1] : '';
+        },
+
+        normalizeEmojiRuleValue(value) {
+            if (typeof value !== 'string') return '';
+            return this.extractLeadingSpeakerEmoji(value.trim());
+        },
+
+        normalizeEmojiVoiceMappings(mappings) {
+            if (!Array.isArray(mappings)) return [];
+
+            const normalizedMappings = [];
+            for (const mapping of mappings) {
+                const emoji = this.normalizeEmojiRuleValue(mapping?.emoji);
+                if (!emoji) continue;
+
+                const voiceUri = typeof mapping?.voiceUri === 'string' ? mapping.voiceUri.trim() : '';
+                normalizedMappings.push({ emoji, voiceUri });
+            }
+
+            return normalizedMappings;
+        },
+
+        setEmojiVoiceMappings(mappings, silent = false) {
+            this.CONFIG.EMOJI_VOICE_MAPPINGS = this.normalizeEmojiVoiceMappings(mappings);
+            if (!silent) {
+                this.showNotification('Emoji voice rules updated');
+            }
+        },
+
+        getVoiceUriForSpeakerEmoji(speakerEmoji) {
+            const normalizedEmoji = this.normalizeEmojiRuleValue(speakerEmoji);
+            if (!normalizedEmoji) return '';
+
+            const mapping = (this.CONFIG.EMOJI_VOICE_MAPPINGS || []).find(entry =>
+                this.normalizeEmojiRuleValue(entry?.emoji) === normalizedEmoji
+            );
+            if (!mapping || typeof mapping.voiceUri !== 'string') return '';
+            if (this.isServerVoiceUri(mapping.voiceUri)) return '';
+            return mapping.voiceUri.trim();
+        },
+
+        resolvePreferredVoice(speakerEmoji = '') {
             if (this.isServerVoiceSelected()) return null;
-            const voices = this.speechSynthesis.getVoices();
+            const voices = this.getAvailableBrowserVoices();
             if (!voices || voices.length === 0) return null;
+
+            const mappedVoiceUri = this.getVoiceUriForSpeakerEmoji(speakerEmoji);
+            if (mappedVoiceUri) {
+                const mappedVoice = voices.find(v => v.voiceURI === mappedVoiceUri);
+                if (mappedVoice && !this.isLikelyUnstableVoice(mappedVoice)) return mappedVoice;
+                if (mappedVoice) return mappedVoice;
+            }
 
             if (this.CONFIG.VOICE_URI) {
                 const selected = voices.find(v => v.voiceURI === this.CONFIG.VOICE_URI);
                 if (selected && !this.isLikelyUnstableVoice(selected)) return selected;
+                if (selected) return selected;
             }
 
             return voices.find(v => /natural|neural/i.test(v.name))
@@ -1793,7 +1853,10 @@
         },
 
         cleanTextForTTS(text) {
-            return text.replace(this.CONFIG.EMOJI_REGEX, '').replace(/\s+/g, ' ');
+            return String(text || '')
+                .replace(this.CONFIG.EMOJI_REGEX, '')
+                .replace(/[\u200D\uFE0E]/g, '')
+                .replace(/\s+/g, ' ');
         },
 
         trimGapForParagraphEnd(text) {
@@ -1803,7 +1866,7 @@
             return trimmed.replace(/\s+$/g, '');
         },
 
-        getTextFromElement(element) {
+        getRawTextFromElement(element) {
             if (!element) return '';
             let rawText = '';
             if (this.isChatGPTPage && !this.CONFIG.READ_REFERENCES) {
@@ -1821,8 +1884,39 @@
             } else {
                 rawText = element.textContent || '';
             }
+            return rawText;
+        },
+
+        extractTTSMetadata(text, fallbackSpeakerEmoji = '') {
+            const rawText = typeof text === 'string' ? text : '';
+            const speakerEmoji = this.extractLeadingSpeakerEmoji(rawText) || this.normalizeEmojiRuleValue(fallbackSpeakerEmoji);
             const cleaned = this.cleanTextForTTS(rawText);
-            return this.trimGapForParagraphEnd(cleaned);
+
+            return {
+                rawText,
+                speakerEmoji,
+                text: this.trimGapForParagraphEnd(cleaned)
+            };
+        },
+
+        getTextDataFromElement(element) {
+            if (!element) {
+                return { rawText: '', speakerEmoji: '', text: '' };
+            }
+
+            const storedSpeakerEmoji = element.getAttribute('data-tts-speaker-emoji') || '';
+            const metadata = this.extractTTSMetadata(this.getRawTextFromElement(element), storedSpeakerEmoji);
+            if (metadata.speakerEmoji) {
+                element.setAttribute('data-tts-speaker-emoji', metadata.speakerEmoji);
+            } else {
+                element.removeAttribute('data-tts-speaker-emoji');
+            }
+
+            return metadata;
+        },
+
+        getTextFromElement(element) {
+            return this.getTextDataFromElement(element).text;
         },
 
         isUserMessageElement(element) {
@@ -1998,10 +2092,14 @@
                 return true;
             });
 
-            return finalParagraphs.map(element => ({
-                element: element,
-                text: this.getTextFromElement(element)
-            }));
+            return finalParagraphs.map(element => {
+                const metadata = this.getTextDataFromElement(element);
+                return {
+                    element,
+                    text: metadata.text,
+                    speakerEmoji: metadata.speakerEmoji
+                };
+            });
         },
 
         clearHighlights(keepFading = false) {
@@ -3032,7 +3130,9 @@
             }
         },
 
-        triggerTTS(text, onComplete = null) {
+        triggerTTS(text, options = {}) {
+            const normalizedOptions = typeof options === 'function' ? { onComplete: options } : (options || {});
+            const { onComplete = null, speakerEmoji = '' } = normalizedOptions;
             if (!text || text.length === 0) {
                 if (onComplete) onComplete();
                 return;
@@ -3049,7 +3149,7 @@
                 this.isPaused = false;
                 const utterance = new SpeechSynthesisUtterance(text);
                 utterance.__tmxSessionId = this.playbackSessionId;
-                const preferredVoice = this.resolvePreferredVoice();
+                const preferredVoice = this.resolvePreferredVoice(speakerEmoji);
                 if (preferredVoice) utterance.voice = preferredVoice;
                 utterance.rate = this.getSafeSpeechRate(preferredVoice);
                 utterance.volume = this.getSpeechVolume();
@@ -4241,7 +4341,7 @@
             if (!utteranceText || !utteranceText.trim()) return;
 
             const utterance = new SpeechSynthesisUtterance(utteranceText);
-            const preferredVoice = this.resolvePreferredVoice();
+            const preferredVoice = this.resolvePreferredVoice(para.speakerEmoji);
             if (preferredVoice) utterance.voice = preferredVoice;
             utterance.rate = this.getSafeSpeechRate(preferredVoice);
             utterance.volume = this.getSpeechVolume();
@@ -4835,14 +4935,15 @@
         startReadingFromSelection() {
             const selection = window.getSelection();
             const selectedText = selection ? selection.toString() : '';
-            const cleaned = this.cleanTextForTTS(selectedText).trim();
+            const selectionData = this.extractTTSMetadata(selectedText);
+            const cleaned = selectionData.text.trim();
             if (!cleaned) {
                 this.showNotification('No text selected.');
                 return;
             }
             this.stopTTS(false);
             this.continuousReadingActive = false;
-            this.triggerTTS(cleaned);
+            this.triggerTTS(cleaned, { speakerEmoji: selectionData.speakerEmoji });
         },
 
         startReadingFromViewport() {
@@ -5408,6 +5509,9 @@
         if (typeof settings.voiceUri === 'string') {
             TTSReader.setVoiceUri(settings.voiceUri, silent);
         }
+        if (typeof settings.emojiVoiceMappings !== 'undefined') {
+            TTSReader.setEmojiVoiceMappings(settings.emojiVoiceMappings, true);
+        }
         if (typeof settings.wordHighlight === 'boolean') {
             TTSReader.setWordHighlightEnabled(settings.wordHighlight, silent);
         }
@@ -5716,6 +5820,7 @@
                         settings: {
                             speechRate: TTSReader.CONFIG.SPEECH_RATE,
                             voiceUri: TTSReader.CONFIG.VOICE_URI,
+                            emojiVoiceMappings: TTSReader.CONFIG.EMOJI_VOICE_MAPPINGS,
                             wordHighlight: TTSReader.CONFIG.WORD_HIGHLIGHT_ENABLED,
                             gapTrim: TTSReader.CONFIG.GAP_TRIM_ENABLED,
                             readUserMessages: TTSReader.CONFIG.READ_USER_MESSAGES,

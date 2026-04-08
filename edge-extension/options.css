@@ -166,6 +166,44 @@ body {
     gap: 8px;
 }
 
+.emoji-voice-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.emoji-voice-row {
+    display: grid;
+    grid-template-columns: 84px minmax(0, 1fr) 44px;
+    gap: 8px;
+    align-items: center;
+}
+
+.emoji-voice-input,
+.emoji-voice-select {
+    width: 100%;
+    padding: 6px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--opt-input-border);
+    font-size: 13px;
+    background: var(--opt-input-bg);
+    color: var(--opt-text);
+}
+
+.emoji-voice-remove {
+    min-width: 44px;
+    justify-content: center;
+}
+
+.emoji-voice-add {
+    align-self: flex-start;
+}
+
+.emoji-voice-empty {
+    font-size: 13px;
+    color: var(--opt-muted);
+}
+
 .note {
     margin: 8px 0 0;
     font-size: 12px;
@@ -222,6 +260,10 @@ body {
     .field {
         flex-direction: column;
         align-items: stretch;
+    }
+
+    .emoji-voice-row {
+        grid-template-columns: 1fr;
     }
 
     .actions {

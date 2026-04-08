@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         *** ChatGPT Universal TTS Reader with Precision Navigation & Highlighting (Ignore Content Root)
 // @namespace    http://tampermonkey.net/
-// @version      3.1
+// @version      3.2
 // @description  TTS reader skips designated UI elements under #content-root
 // @author       Your Name (updated by AI)
 // @match        https://chat.openai.com/c/*
@@ -72,6 +72,10 @@
         serverSentenceCache: new Map(),
         serverFetchQueue: [],
         serverFetchInProgress: false,
+        voices: [],
+        currentVoice: null,
+        voicePreferencesLoaded: false,
+        hasStoredEmojiVoiceMappings: false,
 
         CONFIG: {
             CANDIDATE_SELECTORS: 'p, li, h1, h2, h3, h4, h5, h6, td, th, .markdown, div[class*="content"], article',
@@ -113,11 +117,13 @@
             LOOP_ON_END: true,
             HOTKEYS: { ACTIVATE: 'U', PAUSE_RESUME: 'P', NAV_NEXT: 'ArrowRight', NAV_PREV: 'ArrowLeft', STOP: 'Escape' },
             EMOJI_REGEX: /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE0F}]/ug,
+            SPEAKER_EMOJI_REGEX: /^\s*((?:\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?)*))/u,
             VOICE_PREFERENCES: {
                 preferredVoice: null,
                 pitch: 1.0,
                 rate: 1.0,
-                volume: 1.0,
+                volume: 0.9,
+                emojiVoiceMappings: [],
                 presets: {
                     casual: { rate: 1.2, pitch: 0.9 },
                     learning: { rate: 0.8, pitch: 1.0 },
@@ -175,6 +181,7 @@
         },
 
         loadVoices() {
+            this.loadVoicePreferences();
             return new Promise((resolve) => {
                 const voices = this.speechSynthesis.getVoices();
                 if (voices.length > 0) {
@@ -190,18 +197,60 @@
             });
         },
 
-        restoreVoicePreferences() {
-            if (!this.voices || !this.CONFIG.VOICE_PREFERENCES.preferredVoice) return;
-            
-            const preferredVoice = this.voices.find(voice => 
-                voice.name === this.CONFIG.VOICE_PREFERENCES.preferredVoice ||
-                (voice.lang && voice.lang.startsWith(this.CONFIG.VOICE_PREFERENCES.preferredVoice?.split('-')[0] || 'en'))
-            );
-            
-            if (preferredVoice) {
-                this.currentVoice = preferredVoice;
-                this.applyVoicePreset(this.CONFIG.VOICE_PREFERENCES.presets.learning);
+        loadVoicePreferences() {
+            if (this.voicePreferencesLoaded) return;
+            this.voicePreferencesLoaded = true;
+
+            try {
+                const storedPreferences = localStorage.getItem('tts-voice-prefs');
+                if (!storedPreferences) return;
+
+                const parsedPreferences = JSON.parse(storedPreferences);
+                this.hasStoredEmojiVoiceMappings = Array.isArray(parsedPreferences?.emojiVoiceMappings);
+                this.CONFIG.VOICE_PREFERENCES = {
+                    ...this.CONFIG.VOICE_PREFERENCES,
+                    preferredVoice: typeof parsedPreferences?.preferredVoice === 'string' && parsedPreferences.preferredVoice.trim()
+                        ? parsedPreferences.preferredVoice.trim()
+                        : null,
+                    pitch: Number.isFinite(parsedPreferences?.pitch)
+                        ? parsedPreferences.pitch
+                        : this.CONFIG.VOICE_PREFERENCES.pitch,
+                    rate: Number.isFinite(parsedPreferences?.rate)
+                        ? parsedPreferences.rate
+                        : this.CONFIG.VOICE_PREFERENCES.rate,
+                    volume: Number.isFinite(parsedPreferences?.volume)
+                        ? parsedPreferences.volume
+                        : this.CONFIG.VOICE_PREFERENCES.volume,
+                    emojiVoiceMappings: Array.isArray(parsedPreferences?.emojiVoiceMappings)
+                        ? parsedPreferences.emojiVoiceMappings.map(mapping => ({
+                            emoji: typeof mapping?.emoji === 'string' ? mapping.emoji : '',
+                            voiceName: typeof mapping?.voiceName === 'string' ? mapping.voiceName : ''
+                        }))
+                        : [],
+                    presets: this.CONFIG.VOICE_PREFERENCES.presets
+                };
+
+                if (Number.isFinite(this.CONFIG.VOICE_PREFERENCES.rate) && this.CONFIG.VOICE_PREFERENCES.rate > 0) {
+                    this.CONFIG.SPEECH_RATE = this.CONFIG.VOICE_PREFERENCES.rate;
+                }
+            } catch (error) {
+                console.warn('Unable to restore TTS voice preferences.', error);
             }
+        },
+
+        restoreVoicePreferences() {
+            if (this.voices && this.voices.length > 0 && this.CONFIG.VOICE_PREFERENCES.preferredVoice) {
+                this.currentVoice = this.findVoiceByName(this.CONFIG.VOICE_PREFERENCES.preferredVoice);
+            } else if (!this.CONFIG.VOICE_PREFERENCES.preferredVoice) {
+                this.currentVoice = null;
+            }
+
+            if (Number.isFinite(this.CONFIG.VOICE_PREFERENCES.rate) && this.CONFIG.VOICE_PREFERENCES.rate > 0) {
+                this.CONFIG.SPEECH_RATE = this.CONFIG.VOICE_PREFERENCES.rate;
+            }
+
+            this.seedDefaultEmojiVoiceMappings();
+            this.syncVoiceSettingsUI();
         },
 
         applyVoicePreset(preset) {
@@ -210,21 +259,333 @@
             this.CONFIG.VOICE_PREFERENCES.rate = preset.rate;
             this.CONFIG.SPEECH_RATE = preset.rate;
             this.saveVoicePreferences();
+            this.syncVoiceSettingsUI();
         },
 
         saveVoicePreferences() {
-            if (this.currentVoice) {
-                this.CONFIG.VOICE_PREFERENCES.preferredVoice = this.currentVoice.name;
-            }
-            localStorage.setItem('tts-voice-prefs', JSON.stringify(this.CONFIG.VOICE_PREFERENCES));
+            this.CONFIG.VOICE_PREFERENCES.preferredVoice = this.currentVoice ? this.currentVoice.name : null;
+            this.CONFIG.VOICE_PREFERENCES.rate = this.CONFIG.SPEECH_RATE;
+
+            const payload = {
+                ...this.CONFIG.VOICE_PREFERENCES,
+                emojiVoiceMappings: this.normalizeEmojiVoiceMappings(this.CONFIG.VOICE_PREFERENCES.emojiVoiceMappings)
+            };
+            localStorage.setItem('tts-voice-prefs', JSON.stringify(payload));
         },
 
         setVoice(voiceName) {
-            const voice = this.voices.find(v => v.name === voiceName);
+            if (!voiceName) {
+                this.currentVoice = null;
+                this.saveVoicePreferences();
+                this.syncVoiceSettingsUI();
+                return;
+            }
+
+            const voice = this.findVoiceByName(voiceName);
             if (voice) {
                 this.currentVoice = voice;
                 this.saveVoicePreferences();
+                this.syncVoiceSettingsUI();
             }
+        },
+
+        getAvailableVoices() {
+            if (this.voices && this.voices.length > 0) return this.voices;
+            return this.speechSynthesis.getVoices();
+        },
+
+        findVoiceByName(voiceName) {
+            if (!voiceName) return null;
+            return this.getAvailableVoices().find(voice => voice.name === voiceName) || null;
+        },
+
+        findVoiceByKeywordCandidates(candidates, { excludeMultilingual = false } = {}) {
+            const voices = this.getAvailableVoices();
+            if (!voices || voices.length === 0) return null;
+
+            for (const candidate of candidates) {
+                const loweredCandidate = candidate.toLowerCase();
+                const match = voices.find(voice => {
+                    const loweredName = (voice.name || '').toLowerCase();
+                    if (excludeMultilingual && loweredName.includes('multilingual')) return false;
+                    return loweredName.includes(loweredCandidate);
+                });
+                if (match) return match;
+            }
+
+            return null;
+        },
+
+        findEnglishVoice() {
+            const voices = this.getAvailableVoices();
+            if (!voices || voices.length === 0) return null;
+
+            return voices.find(voice => (voice.lang || '').toLowerCase().startsWith('en-us')) ||
+                voices.find(voice => (voice.lang || '').toLowerCase().startsWith('en')) ||
+                voices[0] ||
+                null;
+        },
+
+        findAvaVoice() {
+            return this.findVoiceByKeywordCandidates(['ava'], { excludeMultilingual: true }) ||
+                this.findVoiceByKeywordCandidates(['ava']);
+        },
+
+        findFemaleVoice() {
+            return this.findAvaVoice() ||
+                this.findVoiceByKeywordCandidates(
+                    ['aria', 'jenny', 'emma', 'jane', 'sara', 'samantha', 'michelle', 'zira', 'female'],
+                    { excludeMultilingual: true }
+                ) ||
+                this.findVoiceByKeywordCandidates(
+                    ['aria', 'jenny', 'emma', 'jane', 'sara', 'samantha', 'michelle', 'zira', 'female']
+                ) ||
+                this.findEnglishVoice();
+        },
+
+        findMaleVoice() {
+            return this.findVoiceByKeywordCandidates(
+                ['andrew', 'brian', 'christopher', 'davis', 'guy', 'roger', 'ryan', 'steffan', 'adam', 'daniel', 'james', 'male'],
+                { excludeMultilingual: true }
+            ) ||
+                this.findVoiceByKeywordCandidates(
+                    ['andrew', 'brian', 'christopher', 'davis', 'guy', 'roger', 'ryan', 'steffan', 'adam', 'daniel', 'james', 'male']
+                ) ||
+                this.findEnglishVoice();
+        },
+
+        findDefaultVoice() {
+            return this.currentVoice || this.findFemaleVoice() || this.findEnglishVoice();
+        },
+
+        extractLeadingSpeakerEmoji(text) {
+            if (!text) return '';
+            const match = text.match(this.CONFIG.SPEAKER_EMOJI_REGEX);
+            return match ? match[1] : '';
+        },
+
+        normalizeEmojiRuleValue(value) {
+            if (typeof value !== 'string') return '';
+            return this.extractLeadingSpeakerEmoji(value.trim());
+        },
+
+        normalizeEmojiVoiceMappings(mappings) {
+            if (!Array.isArray(mappings)) return [];
+
+            const normalizedMappings = [];
+            for (const mapping of mappings) {
+                const emoji = this.normalizeEmojiRuleValue(mapping?.emoji);
+                if (!emoji) continue;
+
+                normalizedMappings.push({
+                    emoji,
+                    voiceName: typeof mapping?.voiceName === 'string' ? mapping.voiceName : ''
+                });
+            }
+
+            return normalizedMappings;
+        },
+
+        seedDefaultEmojiVoiceMappings() {
+            if (this.hasStoredEmojiVoiceMappings || this.CONFIG.VOICE_PREFERENCES.emojiVoiceMappings.length > 0) return;
+
+            const doctorVoice = this.findMaleVoice();
+            const patientVoice = this.findAvaVoice() || this.findFemaleVoice();
+
+            this.CONFIG.VOICE_PREFERENCES.emojiVoiceMappings = [
+                { emoji: '👨‍⚕️', voiceName: doctorVoice ? doctorVoice.name : '' },
+                { emoji: '🧑', voiceName: patientVoice ? patientVoice.name : '' }
+            ];
+            this.hasStoredEmojiVoiceMappings = true;
+            this.saveVoicePreferences();
+        },
+
+        getVoiceForSpeakerEmoji(speakerEmoji) {
+            const normalizedEmoji = this.normalizeEmojiRuleValue(speakerEmoji);
+            if (normalizedEmoji) {
+                const mapping = (this.CONFIG.VOICE_PREFERENCES.emojiVoiceMappings || []).find(entry =>
+                    this.normalizeEmojiRuleValue(entry?.emoji) === normalizedEmoji
+                );
+                if (mapping && mapping.voiceName) {
+                    const mappedVoice = this.findVoiceByName(mapping.voiceName);
+                    if (mappedVoice) return mappedVoice;
+                }
+            }
+
+            return this.findDefaultVoice();
+        },
+
+        createUtterance(text, speakerEmoji = '') {
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.rate = this.CONFIG.SPEECH_RATE;
+            utterance.pitch = this.CONFIG.VOICE_PREFERENCES.pitch;
+            utterance.volume = this.CONFIG.VOICE_PREFERENCES.volume;
+
+            const voice = this.getVoiceForSpeakerEmoji(speakerEmoji);
+            if (voice) {
+                utterance.voice = voice;
+            }
+
+            return utterance;
+        },
+
+        extractTTSMetadata(text, fallbackSpeakerEmoji = '') {
+            const rawText = typeof text === 'string' ? text : '';
+            const speakerEmoji = this.extractLeadingSpeakerEmoji(rawText) || this.normalizeEmojiRuleValue(fallbackSpeakerEmoji);
+            const cleaned = this.cleanTextForTTS(rawText);
+
+            return {
+                rawText,
+                speakerEmoji,
+                text: this.trimGapForParagraphEnd(cleaned)
+            };
+        },
+
+        getTextDataFromElement(element) {
+            if (!element) {
+                return { rawText: '', speakerEmoji: '', text: '' };
+            }
+
+            const storedSpeakerEmoji = element.getAttribute('data-tts-speaker-emoji') || '';
+            const metadata = this.extractTTSMetadata(element.textContent || '', storedSpeakerEmoji);
+            if (metadata.speakerEmoji) {
+                element.setAttribute('data-tts-speaker-emoji', metadata.speakerEmoji);
+            } else {
+                element.removeAttribute('data-tts-speaker-emoji');
+            }
+
+            return metadata;
+        },
+
+        populateVoiceSelect(selectElement, selectedVoiceName = '', defaultLabel = 'Default') {
+            if (!selectElement) return;
+
+            const voices = this.getAvailableVoices();
+            selectElement.innerHTML = '';
+
+            const defaultOption = document.createElement('option');
+            defaultOption.value = '';
+            defaultOption.textContent = defaultLabel;
+            selectElement.appendChild(defaultOption);
+
+            if (selectedVoiceName && !voices.some(voice => voice.name === selectedVoiceName)) {
+                const missingOption = document.createElement('option');
+                missingOption.value = selectedVoiceName;
+                missingOption.textContent = `${selectedVoiceName} (unavailable)`;
+                selectElement.appendChild(missingOption);
+            }
+
+            voices.forEach(voice => {
+                const option = document.createElement('option');
+                option.value = voice.name;
+                option.textContent = `${voice.name} (${voice.lang})`;
+                selectElement.appendChild(option);
+            });
+
+            selectElement.value = selectedVoiceName || '';
+        },
+
+        syncVoiceSettingsUI() {
+            const speedInput = document.getElementById('tts-speed');
+            const speedValue = document.getElementById('speed-value');
+            const voiceSelect = document.getElementById('tts-voice-select');
+
+            if (speedInput) {
+                speedInput.value = String(this.CONFIG.SPEECH_RATE);
+            }
+            if (speedValue) {
+                speedValue.textContent = this.CONFIG.SPEECH_RATE.toFixed(1);
+            }
+            if (voiceSelect) {
+                this.populateVoiceSelect(voiceSelect, this.currentVoice ? this.currentVoice.name : '', 'Default');
+            }
+
+            this.renderEmojiVoiceMappings();
+        },
+
+        addEmojiVoiceMapping() {
+            this.CONFIG.VOICE_PREFERENCES.emojiVoiceMappings.push({ emoji: '', voiceName: '' });
+            this.renderEmojiVoiceMappings();
+        },
+
+        updateEmojiVoiceMapping(index, changes = {}) {
+            if (!Array.isArray(this.CONFIG.VOICE_PREFERENCES.emojiVoiceMappings) || index < 0) return;
+
+            const currentMapping = this.CONFIG.VOICE_PREFERENCES.emojiVoiceMappings[index] || { emoji: '', voiceName: '' };
+            const nextMapping = {
+                ...currentMapping,
+                ...changes
+            };
+
+            if (Object.prototype.hasOwnProperty.call(changes, 'emoji')) {
+                nextMapping.emoji = this.normalizeEmojiRuleValue(changes.emoji);
+            }
+
+            this.CONFIG.VOICE_PREFERENCES.emojiVoiceMappings[index] = nextMapping;
+            this.saveVoicePreferences();
+        },
+
+        removeEmojiVoiceMapping(index) {
+            if (!Array.isArray(this.CONFIG.VOICE_PREFERENCES.emojiVoiceMappings) || index < 0) return;
+            this.CONFIG.VOICE_PREFERENCES.emojiVoiceMappings.splice(index, 1);
+            this.saveVoicePreferences();
+            this.renderEmojiVoiceMappings();
+        },
+
+        renderEmojiVoiceMappings() {
+            const mappingsContainer = document.getElementById('tts-emoji-voice-list');
+            if (!mappingsContainer) return;
+
+            mappingsContainer.innerHTML = '';
+            const mappings = this.CONFIG.VOICE_PREFERENCES.emojiVoiceMappings || [];
+
+            if (mappings.length === 0) {
+                const emptyState = document.createElement('div');
+                emptyState.textContent = 'No emoji voice rules yet.';
+                emptyState.style.cssText = 'font-size: 11px; opacity: 0.75;';
+                mappingsContainer.appendChild(emptyState);
+                return;
+            }
+
+            mappings.forEach((mapping, index) => {
+                const row = document.createElement('div');
+                row.style.cssText = 'display:flex; gap:4px; align-items:center;';
+
+                const emojiInput = document.createElement('input');
+                emojiInput.type = 'text';
+                emojiInput.placeholder = '👨‍⚕️';
+                emojiInput.value = mapping.emoji || '';
+                emojiInput.maxLength = 16;
+                emojiInput.title = 'Leading emoji to match';
+                emojiInput.style.cssText = 'width: 56px; padding: 2px 4px; background: rgba(0,0,0,0.8); color: #fff; border: 1px solid rgba(255,255,255,0.2); border-radius: 3px;';
+                emojiInput.addEventListener('change', e => {
+                    this.updateEmojiVoiceMapping(index, { emoji: e.target.value });
+                    e.target.value = this.CONFIG.VOICE_PREFERENCES.emojiVoiceMappings[index]?.emoji || '';
+                    this.renderEmojiVoiceMappings();
+                });
+                emojiInput.addEventListener('mousedown', e => e.stopPropagation());
+
+                const mappingSelect = document.createElement('select');
+                mappingSelect.style.cssText = 'flex: 1; min-width: 0; padding: 2px; background: rgba(0,0,0,0.8); color: #fff; border: 1px solid rgba(255,255,255,0.2); border-radius: 3px;';
+                this.populateVoiceSelect(mappingSelect, mapping.voiceName || '', 'Use default');
+                mappingSelect.addEventListener('change', e => {
+                    this.updateEmojiVoiceMapping(index, { voiceName: e.target.value });
+                });
+                mappingSelect.addEventListener('mousedown', e => e.stopPropagation());
+
+                const removeButton = document.createElement('button');
+                removeButton.type = 'button';
+                removeButton.textContent = '×';
+                removeButton.title = 'Remove emoji voice rule';
+                removeButton.style.cssText = 'width: 28px; padding: 2px 0; background: rgba(255,255,255,0.14); border: none; color: #fff; cursor: pointer; border-radius: 3px;';
+                removeButton.addEventListener('click', () => this.removeEmojiVoiceMapping(index));
+                removeButton.addEventListener('mousedown', e => e.stopPropagation());
+
+                row.appendChild(emojiInput);
+                row.appendChild(mappingSelect);
+                row.appendChild(removeButton);
+                mappingsContainer.appendChild(row);
+            });
         },
 
         updateReadingStats(wordCount) {
@@ -289,7 +650,10 @@
         },
 
         cleanTextForTTS(text) {
-            return text.replace(this.CONFIG.EMOJI_REGEX, '').replace(/\s+/g, ' ');
+            return text
+                .replace(this.CONFIG.EMOJI_REGEX, '')
+                .replace(/[\u200D\uFE0E]/g, '')
+                .replace(/\s+/g, ' ');
         },
 
         trimGapForParagraphEnd(text) {
@@ -300,10 +664,7 @@
         },
 
         getTextFromElement(element) {
-            if (!element) return '';
-            const rawText = element.textContent || '';
-            const cleaned = this.cleanTextForTTS(rawText);
-            return this.trimGapForParagraphEnd(cleaned);
+            return this.getTextDataFromElement(element).text;
         },
 
         isUserMessageInSavedHTML(element) {
@@ -359,10 +720,14 @@
                 return true;
             });
 
-            return finalParagraphs.map(element => ({
-                element: element,
-                text: this.getTextFromElement(element)
-            }));
+            return finalParagraphs.map(element => {
+                const metadata = this.getTextDataFromElement(element);
+                return {
+                    element,
+                    text: metadata.text,
+                    speakerEmoji: metadata.speakerEmoji
+                };
+            });
         },
 
         clearHighlights(keepFading = false) {
@@ -891,7 +1256,10 @@
             this.currentWordSpan = span;
         },
 
-        triggerTTS(text, onComplete = null) {
+        triggerTTS(text, options = {}) {
+            const normalizedOptions = typeof options === 'function' ? { onComplete: options } : (options || {});
+            const { onComplete = null, speakerEmoji = '' } = normalizedOptions;
+
             if (!text || text.length === 0) {
                 if (onComplete) onComplete();
                 return;
@@ -899,12 +1267,7 @@
 
             this.ttsActive = true;
             this.isPaused = false;
-            const utterance = new SpeechSynthesisUtterance(text);
-            utterance.rate = this.CONFIG.SPEECH_RATE;
-            utterance.volume = 0.9;
-            const voices = this.speechSynthesis.getVoices();
-            const preferredVoice = voices.find(v => v.name.includes('Ava') && !v.name.includes('Multilingual')) || voices.find(v => v.lang.startsWith('en'));
-            if(preferredVoice) utterance.voice = preferredVoice;
+            const utterance = this.createUtterance(text, speakerEmoji);
 
             if (this.CONFIG.WORD_HIGHLIGHT_ENABLED) {
                 utterance.onboundary = (event) => this.highlightCurrentWord(event);
@@ -939,12 +1302,7 @@
             const para = this.paragraphsList[index];
             if (!para || !para.element || !para.text) return;
 
-            const utterance = new SpeechSynthesisUtterance(para.text);
-            utterance.rate = this.CONFIG.SPEECH_RATE;
-            utterance.volume = 0.9;
-            const voices = this.speechSynthesis.getVoices();
-            const preferredVoice = voices.find(v => v.name.includes('Ava') && !v.name.includes('Multilingual')) || voices.find(v => v.lang.startsWith('en'));
-            if (preferredVoice) utterance.voice = preferredVoice;
+            const utterance = this.createUtterance(para.text, para.speakerEmoji);
 
             utterance.onstart = () => this.onUtteranceStart(index);
             if (this.CONFIG.WORD_HIGHLIGHT_ENABLED) {
@@ -1520,14 +1878,15 @@
         startReadingFromSelection() {
             const selection = window.getSelection();
             const selectedText = selection ? selection.toString() : '';
-            const cleaned = this.cleanTextForTTS(selectedText).trim();
+            const selectionData = this.extractTTSMetadata(selectedText);
+            const cleaned = selectionData.text.trim();
             if (!cleaned) {
                 this.showNotification('No text selected.');
                 return;
             }
             this.stopTTS(false);
             this.continuousReadingActive = false;
-            this.triggerTTS(cleaned);
+            this.triggerTTS(cleaned, { speakerEmoji: selectionData.speakerEmoji });
         },
 
         setupEventListeners() {
@@ -1661,7 +2020,7 @@
             uiPanel.id = 'tts-control-panel';
             uiPanel.setAttribute('data-tts-ui', 'true');
             uiPanel.setAttribute('aria-hidden', 'true');
-            uiPanel.style.cssText = `position: fixed; top: 80px; left: 10%; width: 220px; padding: 8px; background: rgba(0,0,0,0.7); color: #fff; font-family: Arial, sans-serif; font-size: 13px; border-radius: 6px; cursor: move; z-index: 2147483647; user-select: none; -webkit-user-select: none;`;
+            uiPanel.style.cssText = `position: fixed; top: 80px; left: 10%; width: 280px; max-width: calc(100vw - 24px); padding: 8px; background: rgba(0,0,0,0.7); color: #fff; font-family: Arial, sans-serif; font-size: 13px; border-radius: 6px; cursor: move; z-index: 2147483647; user-select: none; -webkit-user-select: none;`;
             uiPanel.innerHTML = `
                 <div style="font-weight:bold; text-align:center; margin-bottom: 5px;">TTS Reader</div>
                 
@@ -1674,6 +2033,11 @@
                 <select id="tts-voice-select" style="width:100%; margin-bottom:6px; background: rgba(0,0,0,0.8); color: #fff; border: none; padding: 2px;">
                     <option value="">Default</option>
                 </select>
+
+                <label style="display:block; margin-bottom:4px;">Emoji voices:</label>
+                <div id="tts-emoji-voice-list" style="display:flex; flex-direction:column; gap:4px; margin-bottom:6px;"></div>
+                <button id="tts-add-emoji-voice" type="button" style="width:100%; margin-bottom:6px; padding:4px 8px; background: rgba(255,255,255,0.14); border: none; color: #fff; cursor: pointer; border-radius: 3px;">Add emoji voice rule</button>
+                <div style="font-size:11px; opacity:0.8; margin-bottom:6px;">Match the leading emoji in a line, for example <span style="white-space:nowrap;">👨‍⚕️</span> or <span style="white-space:nowrap;">🧑</span>.</div>
                 
                 <div style="display:flex; gap:10px; margin-bottom:6px;">
                     <button id="tts-preset-casual" style="flex:1; padding:4px 8px; background: rgba(255,255,255,0.2); border: none; color: #fff; cursor: pointer; border-radius: 3px;">Casual</button>
@@ -1701,18 +2065,16 @@
             
             // Populate voice selection after voices are loaded
             this.loadVoices().then(() => {
-                const voiceSelect = document.getElementById('tts-voice-select');
-                if (voiceSelect) {
-                    voiceSelect.innerHTML = '<option value="">Default</option>' + 
-                        this.voices.map(voice => `<option value="${voice.name}">${voice.name} (${voice.lang})</option>`).join('');
-                }
+                this.syncVoiceSettingsUI();
             });
             
             const speedInput = document.getElementById('tts-speed');
             speedInput.addEventListener('input', e => {
                 this.CONFIG.SPEECH_RATE = parseFloat(e.target.value);
+                this.CONFIG.VOICE_PREFERENCES.rate = this.CONFIG.SPEECH_RATE;
                 document.getElementById('speed-value').textContent = this.CONFIG.SPEECH_RATE.toFixed(1);
             });
+            speedInput.addEventListener('change', () => this.saveVoicePreferences());
             speedInput.addEventListener('mousedown', e => e.stopPropagation());
             
             // Voice selection and presets
@@ -1721,6 +2083,10 @@
                 this.setVoice(e.target.value);
             });
             voiceSelect.addEventListener('mousedown', e => e.stopPropagation());
+
+            const addEmojiVoiceButton = document.getElementById('tts-add-emoji-voice');
+            addEmojiVoiceButton.addEventListener('click', () => this.addEmojiVoiceMapping());
+            addEmojiVoiceButton.addEventListener('mousedown', e => e.stopPropagation());
             
             // Preset buttons
             const casualPreset = document.getElementById('tts-preset-casual');

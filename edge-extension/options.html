@@ -41,6 +41,12 @@
                     <option value="">Auto voice</option>
                 </select>
             </div>
+            <div class="field field-block">
+                <label>Emoji voice rules</label>
+                <div id="emojiVoiceMappings" class="emoji-voice-list"></div>
+                <button id="addEmojiVoiceMapping" type="button" class="button secondary emoji-voice-add">Add emoji rule</button>
+                <p class="note">Matches a leading emoji like 👨‍⚕️ or 🧑. These rules use browser voices only; server voice mode still uses the global server voice.</p>
+            </div>
             <div class="field toggle">
                 <label for="wordHighlight">🖍️ Word highlight</label>
                 <input id="wordHighlight" type="checkbox" />

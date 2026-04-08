@@ -8,6 +8,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const BASE_DEFAULT_SETTINGS = {
         speechRate: 5,
         voiceUri: '',
+        emojiVoiceMappings: [],
         wordHighlight: true,
         gapTrim: true,
         readUserMessages: false,
@@ -93,6 +94,8 @@ document.addEventListener('DOMContentLoaded', () => {
         speechRate: document.getElementById('speechRate'),
         speechRateValue: document.getElementById('speechRateValue'),
         voiceUri: document.getElementById('voiceUri'),
+        emojiVoiceMappings: document.getElementById('emojiVoiceMappings'),
+        addEmojiVoiceMapping: document.getElementById('addEmojiVoiceMapping'),
         wordHighlight: document.getElementById('wordHighlight'),
         gapTrim: document.getElementById('gapTrim'),
         volumeBoostEnabled: document.getElementById('volumeBoostEnabled'),
@@ -209,6 +212,9 @@ document.addEventListener('DOMContentLoaded', () => {
     let saveFeedbackTimer = null;
     let currentProfile = PROFILE_CHATGPT;
     let currentOverlayPosition = null;
+    let availableBrowserVoices = [];
+    let currentEmojiVoiceMappings = [];
+    const SPEAKER_EMOJI_REGEX = /^\s*((?:\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?)*))/u;
 
     function getProfileDefaults(profile) {
         return PROFILE_DEFAULT_SETTINGS[profile] || PROFILE_DEFAULT_SETTINGS[PROFILE_CHATGPT];
@@ -235,6 +241,29 @@ document.addEventListener('DOMContentLoaded', () => {
     function normalizeMultilineValue(value) {
         if (typeof value !== 'string') return '';
         return value.replace(/\r\n/g, '\n').trim();
+    }
+
+    function extractLeadingSpeakerEmoji(value) {
+        if (typeof value !== 'string') return '';
+        const match = value.trim().match(SPEAKER_EMOJI_REGEX);
+        return match ? match[1] : '';
+    }
+
+    function normalizeEmojiVoiceMappings(mappings) {
+        if (!Array.isArray(mappings)) return [];
+
+        const normalized = [];
+        for (const mapping of mappings) {
+            const emoji = extractLeadingSpeakerEmoji(mapping && mapping.emoji ? String(mapping.emoji) : '');
+            if (!emoji) continue;
+
+            normalized.push({
+                emoji,
+                voiceUri: typeof mapping?.voiceUri === 'string' ? mapping.voiceUri : ''
+            });
+        }
+
+        return normalized;
     }
 
     function pickLegacySettings(items) {
@@ -321,6 +350,92 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    function createEmojiVoiceSelect(selectedVoiceUri = '') {
+        const select = document.createElement('select');
+        select.className = 'emoji-voice-select';
+
+        const defaultOption = document.createElement('option');
+        defaultOption.value = '';
+        defaultOption.textContent = 'Use global voice';
+        select.appendChild(defaultOption);
+
+        if (selectedVoiceUri && !availableBrowserVoices.some((voice) => voice.voiceURI === selectedVoiceUri)) {
+            const unavailableOption = document.createElement('option');
+            unavailableOption.value = selectedVoiceUri;
+            unavailableOption.textContent = 'Unavailable voice';
+            select.appendChild(unavailableOption);
+        }
+
+        availableBrowserVoices.forEach((voice) => {
+            const option = document.createElement('option');
+            option.value = voice.voiceURI;
+            option.textContent = formatVoiceLabel(voice);
+            select.appendChild(option);
+        });
+
+        select.value = typeof selectedVoiceUri === 'string' ? selectedVoiceUri : '';
+        return select;
+    }
+
+    function renderEmojiVoiceMappings() {
+        if (!elements.emojiVoiceMappings) return;
+
+        elements.emojiVoiceMappings.innerHTML = '';
+        if (!currentEmojiVoiceMappings.length) {
+            const emptyState = document.createElement('div');
+            emptyState.className = 'emoji-voice-empty';
+            emptyState.textContent = 'No emoji voice rules yet.';
+            elements.emojiVoiceMappings.appendChild(emptyState);
+            return;
+        }
+
+        currentEmojiVoiceMappings.forEach((mapping, index) => {
+            const row = document.createElement('div');
+            row.className = 'emoji-voice-row';
+
+            const emojiInput = document.createElement('input');
+            emojiInput.type = 'text';
+            emojiInput.className = 'emoji-voice-input';
+            emojiInput.placeholder = '👨‍⚕️';
+            emojiInput.value = mapping.emoji || '';
+            emojiInput.maxLength = 16;
+            emojiInput.addEventListener('change', (event) => {
+                currentEmojiVoiceMappings[index] = {
+                    ...(currentEmojiVoiceMappings[index] || { emoji: '', voiceUri: '' }),
+                    emoji: extractLeadingSpeakerEmoji(event.target.value),
+                    voiceUri: currentEmojiVoiceMappings[index]?.voiceUri || ''
+                };
+                renderEmojiVoiceMappings();
+                scheduleSave();
+            });
+
+            const voiceSelect = createEmojiVoiceSelect(mapping.voiceUri || '');
+            voiceSelect.addEventListener('change', (event) => {
+                currentEmojiVoiceMappings[index] = {
+                    ...(currentEmojiVoiceMappings[index] || { emoji: '', voiceUri: '' }),
+                    emoji: currentEmojiVoiceMappings[index]?.emoji || '',
+                    voiceUri: event.target.value || ''
+                };
+                scheduleSave();
+            });
+
+            const removeButton = document.createElement('button');
+            removeButton.type = 'button';
+            removeButton.className = 'button secondary emoji-voice-remove';
+            removeButton.textContent = 'Remove';
+            removeButton.addEventListener('click', () => {
+                currentEmojiVoiceMappings.splice(index, 1);
+                renderEmojiVoiceMappings();
+                scheduleSave();
+            });
+
+            row.appendChild(emojiInput);
+            row.appendChild(voiceSelect);
+            row.appendChild(removeButton);
+            elements.emojiVoiceMappings.appendChild(row);
+        });
+    }
+
     function coerceNumber(el, fallback) {
         const raw = Number(el.value);
         if (!Number.isFinite(raw)) return fallback;
@@ -335,10 +450,17 @@ document.addEventListener('DOMContentLoaded', () => {
     function applySettingsToUI(settings) {
         const merged = { ...getProfileDefaults(currentProfile), ...settings };
         currentOverlayPosition = merged.overlayPosition ?? null;
+        currentEmojiVoiceMappings = Array.isArray(merged.emojiVoiceMappings)
+            ? merged.emojiVoiceMappings.map((mapping) => ({
+                emoji: typeof mapping?.emoji === 'string' ? mapping.emoji : '',
+                voiceUri: typeof mapping?.voiceUri === 'string' ? mapping.voiceUri : ''
+            }))
+            : [];
 
         elements.speechRate.value = merged.speechRate;
         updateSpeechRateValue(Number(merged.speechRate));
         updateVoiceSelect(availableVoices, merged.voiceUri);
+        renderEmojiVoiceMappings();
         elements.volumeBoostLevel.value = merged.volumeBoostLevel;
         updateVolumeBoostValue(Number(merged.volumeBoostLevel));
         elements.serverQuotePolicy.value = normalizeQuotePolicy(merged.serverQuotePolicy);
@@ -370,6 +492,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         settings.speechRate = coerceNumber(elements.speechRate, defaults.speechRate);
         settings.voiceUri = elements.voiceUri.value || '';
+        settings.emojiVoiceMappings = normalizeEmojiVoiceMappings(currentEmojiVoiceMappings);
         settings.hiddenTabPolicy = String(elements.hiddenTabPolicy.value || defaults.hiddenTabPolicy || 'delay');
         settings.serverQuotePolicy = normalizeQuotePolicy(elements.serverQuotePolicy.value || defaults.serverQuotePolicy);
         settings.serverCustomRemovalMode = normalizeRemovalMode(elements.serverCustomRemovalMode.value || defaults.serverCustomRemovalMode);
@@ -455,6 +578,12 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.voiceUri.addEventListener('change', () => {
         scheduleSave();
     });
+    if (elements.addEmojiVoiceMapping) {
+        elements.addEmojiVoiceMapping.addEventListener('click', () => {
+            currentEmojiVoiceMappings.push({ emoji: '', voiceUri: '' });
+            renderEmojiVoiceMappings();
+        });
+    }
 
     elements.volumeBoostLevel.addEventListener('input', () => {
         const level = coerceNumber(elements.volumeBoostLevel, getProfileDefaults(currentProfile).volumeBoostLevel);
@@ -526,10 +655,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const hydrateVoices = () => {
         const browserVoices = getVoicesFromBrowser();
+        availableBrowserVoices = browserVoices;
         getServerVoices((serverVoices) => {
             const mergedVoices = [...browserVoices, ...(Array.isArray(serverVoices) ? serverVoices : [])];
-            if (!mergedVoices.length) return;
-            updateVoiceSelect(mergedVoices, elements.voiceUri.value || '');
+            if (mergedVoices.length) {
+                updateVoiceSelect(mergedVoices, elements.voiceUri.value || '');
+            }
+            renderEmojiVoiceMappings();
         });
     };
     hydrateVoices();
