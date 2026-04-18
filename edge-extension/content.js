@@ -1653,11 +1653,6 @@
                 const voiceId = this.CONFIG.VOICE_URI.slice('server:'.length);
                 return typeof voiceId === 'string' ? voiceId.trim() : '';
             }
-            // Auto-select: if no voice is configured, fall back to first available server voice
-            if (!this.CONFIG.VOICE_URI && Array.isArray(this.serverVoices) && this.serverVoices.length > 0) {
-                const first = this.serverVoices[0];
-                return typeof first.id === 'string' ? first.id : '';
-            }
             return '';
         },
 
@@ -1734,10 +1729,67 @@
             return false;
         },
 
+        extractSpeakerEmojiFromLeadingLabel(text) {
+            const source = String(text || '').trim();
+            if (!source) return '';
+
+            const normalized = source
+                .toLowerCase()
+                .replace(/[\u200b-\u200d\uFEFF]/g, '')
+                .replace(/[\[\](){}<>`"'*_.,!?;:/\\|]+/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+            if (!normalized) return '';
+
+            const prefix = normalized.slice(0, 64);
+            if (/^(?:man health worker|male health worker|man doctor|male doctor|doctor|dr|physician|clinician|medical worker|health worker)\b/.test(prefix)) {
+                return '👨‍⚕️';
+            }
+            if (/^(?:patient|person|adult|user)\b/.test(prefix)) {
+                return '🧑';
+            }
+            return '';
+        },
+
         extractLeadingSpeakerEmoji(text) {
             if (!text) return '';
-            const match = text.match(this.CONFIG.SPEAKER_EMOJI_REGEX);
-            return match ? match[1] : '';
+            const source = String(text);
+            const directMatch = source.match(this.CONFIG.SPEAKER_EMOJI_REGEX);
+            if (directMatch) return directMatch[1];
+
+            const scanWindow = source.slice(0, 64);
+            const fallbackEmojiMatch = scanWindow.match(/(?:\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?)*)/u);
+            if (fallbackEmojiMatch) return fallbackEmojiMatch[0];
+
+            return this.extractSpeakerEmojiFromLeadingLabel(scanWindow);
+        },
+
+        extractLeadingSpeakerEmojiFromElement(element, rawText = '') {
+            const fromText = this.extractLeadingSpeakerEmoji(rawText);
+            if (fromText) return fromText;
+            if (!element) return '';
+
+            const labelCandidates = [];
+            if (typeof element.getAttribute === 'function') {
+                const ownLabel = element.getAttribute('aria-label');
+                if (ownLabel) labelCandidates.push(ownLabel);
+            }
+
+            if (typeof element.querySelectorAll === 'function') {
+                const iconNodes = element.querySelectorAll('[role="img"][aria-label], img[alt], [aria-label][data-testid*="emoji"]');
+                const limit = Math.min(iconNodes.length, 4);
+                for (let i = 0; i < limit; i++) {
+                    const node = iconNodes[i];
+                    const label = node.getAttribute('aria-label') || node.getAttribute('alt') || '';
+                    if (label) labelCandidates.push(label);
+                }
+            }
+
+            for (const label of labelCandidates) {
+                const emoji = this.extractLeadingSpeakerEmoji(label);
+                if (emoji) return emoji;
+            }
+            return '';
         },
 
         normalizeEmojiRuleValue(value) {
@@ -1779,8 +1831,25 @@
             return mapping.voiceUri.trim();
         },
 
-        resolvePreferredVoice(speakerEmoji = '') {
-            if (this.isServerVoiceSelected()) return null;
+        hasEmojiVoiceRule(speakerEmoji = '') {
+            const normalizedEmoji = this.normalizeEmojiRuleValue(speakerEmoji);
+            if (!normalizedEmoji) return false;
+            return Boolean((this.CONFIG.EMOJI_VOICE_MAPPINGS || []).find((entry) =>
+                this.normalizeEmojiRuleValue(entry?.emoji) === normalizedEmoji
+            ));
+        },
+
+        shouldUseEmojiVoiceRoutingForParagraph(para) {
+            if (!para) return false;
+            if (Array.isArray(para.speechUnits) && para.speechUnits.some((unit) => this.hasEmojiVoiceRule(unit.speakerEmoji))) {
+                return true;
+            }
+            return this.hasEmojiVoiceRule(para.speakerEmoji);
+        },
+
+        resolvePreferredVoice(speakerEmoji = '', options = {}) {
+            const { forceBrowser = false } = options;
+            if (this.isServerVoiceSelected() && !forceBrowser) return null;
             const voices = this.getAvailableBrowserVoices();
             if (!voices || voices.length === 0) return null;
 
@@ -1791,8 +1860,11 @@
                 if (mappedVoice) return mappedVoice;
             }
 
-            if (this.CONFIG.VOICE_URI) {
-                const selected = voices.find(v => v.voiceURI === this.CONFIG.VOICE_URI);
+            const selectedBrowserVoiceUri = this.isServerVoiceUri(this.CONFIG.VOICE_URI)
+                ? ''
+                : this.CONFIG.VOICE_URI;
+            if (selectedBrowserVoiceUri) {
+                const selected = voices.find(v => v.voiceURI === selectedBrowserVoiceUri);
                 if (selected && !this.isLikelyUnstableVoice(selected)) return selected;
                 if (selected) return selected;
             }
@@ -1866,6 +1938,22 @@
             return trimmed.replace(/\s+$/g, '');
         },
 
+        getVisibleTextFromNode(node) {
+            if (!node) return '';
+            const renderedText = String(node.innerText || '').replace(/\r\n/g, '\n');
+            if (renderedText) return renderedText;
+
+            if (typeof node.cloneNode === 'function' && typeof node.querySelectorAll === 'function') {
+                const clone = node.cloneNode(true);
+                clone.querySelectorAll('br').forEach((lineBreak) => {
+                    lineBreak.replaceWith('\n');
+                });
+                return String(clone.textContent || '').replace(/\r\n/g, '\n');
+            }
+
+            return String(node.textContent || '').replace(/\r\n/g, '\n');
+        },
+
         getRawTextFromElement(element) {
             if (!element) return '';
             let rawText = '';
@@ -1877,23 +1965,30 @@
                 if (element.querySelector && element.querySelector(refSelector)) {
                     const clone = element.cloneNode(true);
                     clone.querySelectorAll(refSelector).forEach(node => node.remove());
-                    rawText = clone.textContent || '';
+                    rawText = this.getVisibleTextFromNode(clone);
                 } else {
-                    rawText = element.textContent || '';
+                    rawText = this.getVisibleTextFromNode(element);
                 }
             } else {
-                rawText = element.textContent || '';
+                rawText = this.getVisibleTextFromNode(element);
             }
             return rawText;
         },
 
-        extractTTSMetadata(text, fallbackSpeakerEmoji = '') {
+        extractTTSMetadata(text, fallbackSpeakerEmoji = '', sourceElement = null) {
             const rawText = typeof text === 'string' ? text : '';
-            const speakerEmoji = this.extractLeadingSpeakerEmoji(rawText) || this.normalizeEmojiRuleValue(fallbackSpeakerEmoji);
+            let speakerEmoji = this.extractLeadingSpeakerEmoji(rawText);
+            if (!speakerEmoji && sourceElement) {
+                speakerEmoji = this.extractLeadingSpeakerEmojiFromElement(sourceElement, rawText);
+            }
+            if (!speakerEmoji) {
+                speakerEmoji = this.normalizeEmojiRuleValue(fallbackSpeakerEmoji);
+            }
             const cleaned = this.cleanTextForTTS(rawText);
 
             return {
                 rawText,
+                cleanedText: cleaned,
                 speakerEmoji,
                 text: this.trimGapForParagraphEnd(cleaned)
             };
@@ -1901,11 +1996,11 @@
 
         getTextDataFromElement(element) {
             if (!element) {
-                return { rawText: '', speakerEmoji: '', text: '' };
+                return { rawText: '', cleanedText: '', speakerEmoji: '', text: '' };
             }
 
             const storedSpeakerEmoji = element.getAttribute('data-tts-speaker-emoji') || '';
-            const metadata = this.extractTTSMetadata(this.getRawTextFromElement(element), storedSpeakerEmoji);
+            const metadata = this.extractTTSMetadata(this.getRawTextFromElement(element), storedSpeakerEmoji, element);
             if (metadata.speakerEmoji) {
                 element.setAttribute('data-tts-speaker-emoji', metadata.speakerEmoji);
             } else {
@@ -1913,6 +2008,166 @@
             }
 
             return metadata;
+        },
+
+        buildParagraphSpeechUnits(rawText, cleanedText, fallbackSpeakerEmoji = '') {
+            const normalizedText = typeof cleanedText === 'string' ? cleanedText.trim() : '';
+            if (!normalizedText) return [];
+
+            const normalizedRaw = String(rawText || '').replace(/\r\n/g, '\n');
+            const rawLines = normalizedRaw
+                .split(/\n+/)
+                .map((line) => String(line || ''))
+                .filter((line) => line.trim().length > 0);
+            if (rawLines.length < 2) return [];
+
+            const markedLineCount = rawLines.reduce((count, line) => {
+                return count + (this.extractLeadingSpeakerEmoji(line) ? 1 : 0);
+            }, 0);
+            if (markedLineCount < 2) return [];
+
+            const fallbackEmoji = this.normalizeEmojiRuleValue(fallbackSpeakerEmoji);
+            const units = [];
+            let activeSpeaker = fallbackEmoji;
+            let searchFrom = 0;
+
+            for (const rawLine of rawLines) {
+                const lineSpeakerEmoji = this.extractLeadingSpeakerEmoji(rawLine);
+                if (lineSpeakerEmoji) {
+                    activeSpeaker = lineSpeakerEmoji;
+                }
+
+                const cleanedLine = this.cleanTextForTTS(rawLine).trim();
+                if (!cleanedLine) continue;
+
+                let startOffset = normalizedText.indexOf(cleanedLine, searchFrom);
+                if (startOffset === -1) {
+                    startOffset = normalizedText.indexOf(cleanedLine);
+                }
+                if (startOffset === -1) {
+                    startOffset = searchFrom;
+                }
+
+                units.push({
+                    text: cleanedLine,
+                    startOffset: Math.max(0, startOffset),
+                    speakerEmoji: activeSpeaker || fallbackEmoji
+                });
+                searchFrom = Math.max(searchFrom, Math.max(0, startOffset) + cleanedLine.length);
+            }
+
+            if (units.length < 2) return [];
+            const distinctSpeakers = new Set(units.map((unit) => unit.speakerEmoji).filter(Boolean));
+            return distinctSpeakers.size >= 2 ? units : [];
+        },
+
+        applyStartOffsetToSpeechUnits(units, requestedStartOffset = 0) {
+            if (!Array.isArray(units) || units.length === 0) return [];
+
+            const safeOffset = Number.isFinite(requestedStartOffset)
+                ? Math.max(0, Math.floor(requestedStartOffset))
+                : 0;
+            if (safeOffset <= 0) {
+                return units.map((unit) => ({
+                    text: unit.text,
+                    startOffset: Number.isFinite(unit.startOffset) ? unit.startOffset : 0,
+                    speakerEmoji: typeof unit.speakerEmoji === 'string' ? unit.speakerEmoji : ''
+                }));
+            }
+
+            const adjusted = [];
+            for (const unit of units) {
+                if (!unit || typeof unit.text !== 'string' || !unit.text.trim()) continue;
+
+                const unitStart = Number.isFinite(unit.startOffset) ? unit.startOffset : 0;
+                const unitEnd = unitStart + unit.text.length;
+                if (unitEnd <= safeOffset) continue;
+
+                if (safeOffset > unitStart) {
+                    const sliced = unit.text.slice(safeOffset - unitStart);
+                    const trimmed = sliced.trimStart();
+                    if (!trimmed) continue;
+                    adjusted.push({
+                        text: trimmed,
+                        startOffset: safeOffset + (sliced.length - trimmed.length),
+                        speakerEmoji: typeof unit.speakerEmoji === 'string' ? unit.speakerEmoji : ''
+                    });
+                    continue;
+                }
+
+                adjusted.push({
+                    text: unit.text,
+                    startOffset: unitStart,
+                    speakerEmoji: typeof unit.speakerEmoji === 'string' ? unit.speakerEmoji : ''
+                });
+            }
+
+            return adjusted;
+        },
+
+        getQueuedSpeechForIndex(index, para, requestedStartOffset = 0) {
+            const pendingState = this.chunkedParagraphState.get(index);
+            let sourceText = '';
+            let sourceStartOffset = 0;
+            let sourceSpeakerEmoji = para && typeof para.speakerEmoji === 'string' ? para.speakerEmoji : '';
+            let remainingUnits = [];
+
+            if (pendingState && typeof pendingState.text === 'string' && pendingState.text.trim()) {
+                sourceText = pendingState.text;
+                sourceStartOffset = Number.isFinite(pendingState.startOffset) ? pendingState.startOffset : 0;
+                sourceSpeakerEmoji = typeof pendingState.speakerEmoji === 'string' ? pendingState.speakerEmoji : sourceSpeakerEmoji;
+                remainingUnits = Array.isArray(pendingState.remainingUnits) ? pendingState.remainingUnits.slice() : [];
+            } else {
+                const baseUnits = Array.isArray(para && para.speechUnits) && para.speechUnits.length > 0
+                    ? para.speechUnits
+                    : [{
+                        text: para && typeof para.text === 'string' ? para.text : '',
+                        startOffset: 0,
+                        speakerEmoji: para && typeof para.speakerEmoji === 'string' ? para.speakerEmoji : ''
+                    }];
+                const queuedUnits = this.applyStartOffsetToSpeechUnits(baseUnits, requestedStartOffset);
+                const nextUnit = queuedUnits.shift();
+                if (!nextUnit || !nextUnit.text) {
+                    this.chunkedParagraphState.delete(index);
+                    return { utteranceText: '', startOffset: 0, speakerEmoji: '' };
+                }
+
+                sourceText = nextUnit.text;
+                sourceStartOffset = Number.isFinite(nextUnit.startOffset) ? nextUnit.startOffset : 0;
+                sourceSpeakerEmoji = typeof nextUnit.speakerEmoji === 'string' ? nextUnit.speakerEmoji : sourceSpeakerEmoji;
+                remainingUnits = queuedUnits;
+            }
+
+            const split = this.splitSpeechChunk(sourceText, sourceStartOffset);
+            if (!split.chunkText) {
+                this.chunkedParagraphState.delete(index);
+                return { utteranceText: '', startOffset: sourceStartOffset, speakerEmoji: sourceSpeakerEmoji };
+            }
+
+            if (split.remainderText) {
+                this.chunkedParagraphState.set(index, {
+                    text: split.remainderText,
+                    startOffset: split.nextStartOffset,
+                    speakerEmoji: sourceSpeakerEmoji,
+                    remainingUnits
+                });
+            } else if (remainingUnits.length > 0) {
+                const [nextUnit, ...restUnits] = remainingUnits;
+                this.chunkedParagraphState.set(index, {
+                    text: nextUnit.text,
+                    startOffset: Number.isFinite(nextUnit.startOffset) ? nextUnit.startOffset : 0,
+                    speakerEmoji: typeof nextUnit.speakerEmoji === 'string' ? nextUnit.speakerEmoji : sourceSpeakerEmoji,
+                    remainingUnits: restUnits
+                });
+            } else {
+                this.chunkedParagraphState.delete(index);
+            }
+
+            return {
+                utteranceText: split.chunkText,
+                startOffset: sourceStartOffset,
+                speakerEmoji: sourceSpeakerEmoji
+            };
         },
 
         getTextFromElement(element) {
@@ -2096,8 +2351,11 @@
                 const metadata = this.getTextDataFromElement(element);
                 return {
                     element,
+                    rawText: metadata.rawText,
+                    cleanedText: metadata.cleanedText,
                     text: metadata.text,
-                    speakerEmoji: metadata.speakerEmoji
+                    speakerEmoji: metadata.speakerEmoji,
+                    speechUnits: this.buildParagraphSpeechUnits(metadata.rawText, metadata.cleanedText, metadata.speakerEmoji)
                 };
             });
         },
@@ -3140,7 +3398,8 @@
             this.requestPlaybackLock('start-noncontinuous', (granted) => {
                 if (!granted) return;
 
-                if (this.isServerVoiceSelected()) {
+                const forceBrowserVoiceRouting = this.hasEmojiVoiceRule(speakerEmoji);
+                if (this.isServerVoiceSelected() && !forceBrowserVoiceRouting) {
                     this.playServerSingleUtterance(text, onComplete);
                     return;
                 }
@@ -3149,7 +3408,7 @@
                 this.isPaused = false;
                 const utterance = new SpeechSynthesisUtterance(text);
                 utterance.__tmxSessionId = this.playbackSessionId;
-                const preferredVoice = this.resolvePreferredVoice(speakerEmoji);
+                const preferredVoice = this.resolvePreferredVoice(speakerEmoji, { forceBrowser: forceBrowserVoiceRouting });
                 if (preferredVoice) utterance.voice = preferredVoice;
                 utterance.rate = this.getSafeSpeechRate(preferredVoice);
                 utterance.volume = this.getSpeechVolume();
@@ -3231,39 +3490,6 @@
                 chunkText,
                 remainderText,
                 nextStartOffset: startOffset + chunkText.length + 1
-            };
-        },
-
-        getChunkedSpeechForIndex(index, baseText, baseStartOffset = 0) {
-            const pendingChunk = this.chunkedParagraphState.get(index);
-            let sourceText = baseText;
-            let sourceOffset = baseStartOffset;
-
-            if (pendingChunk && typeof pendingChunk.text === 'string' && pendingChunk.text.trim()) {
-                sourceText = pendingChunk.text;
-                sourceOffset = Number.isFinite(pendingChunk.startOffset)
-                    ? pendingChunk.startOffset
-                    : sourceOffset;
-            }
-
-            const split = this.splitSpeechChunk(sourceText, sourceOffset);
-            if (!split.chunkText) {
-                this.chunkedParagraphState.delete(index);
-                return { utteranceText: '', startOffset: sourceOffset };
-            }
-
-            if (split.remainderText) {
-                this.chunkedParagraphState.set(index, {
-                    text: split.remainderText,
-                    startOffset: split.nextStartOffset
-                });
-            } else {
-                this.chunkedParagraphState.delete(index);
-            }
-
-            return {
-                utteranceText: split.chunkText,
-                startOffset: sourceOffset
             };
         },
 
@@ -4146,7 +4372,16 @@
                 return;
             }
 
-            this.startServerPlaybackFromParagraph(refreshedIndex + 1, {});
+            const nextIndex = refreshedIndex + 1;
+            const nextPara = this.paragraphsList[nextIndex];
+            if (this.shouldUseEmojiVoiceRoutingForParagraph(nextPara)) {
+                this.stopServerAudioPlayback();
+                this.serverPlaybackState = null;
+                this.queueFromIndex(nextIndex, {});
+                return;
+            }
+
+            this.startServerPlaybackFromParagraph(nextIndex, {});
         },
 
         _prefetchNextParagraphSentences(currentIndex, sessionId) {
@@ -4154,6 +4389,7 @@
             if (nextIndex >= this.paragraphsList.length) return;
             const nextPara = this.paragraphsList[nextIndex];
             if (!nextPara || !nextPara.text) return;
+            if (this.shouldUseEmojiVoiceRoutingForParagraph(nextPara)) return;
             const sentences = this.buildServerSentencePlan(nextPara.text, 0, { paragraphIndex: nextIndex });
             if (!sentences.length) return;
 
@@ -4315,33 +4551,20 @@
                 return;
             }
 
-            let utteranceText = para.text;
-            let startOffset = 0;
-            if (this.queuedStartOffsets.has(index)) {
-                const requestedOffset = Number(this.queuedStartOffsets.get(index));
-                this.queuedStartOffsets.delete(index);
-                if (Number.isFinite(requestedOffset)) {
-                    const safeOffset = Math.max(0, Math.min(utteranceText.length - 1, Math.floor(requestedOffset)));
-                    const sliced = utteranceText.slice(safeOffset);
-                    const leadingWhitespaceLength = (sliced.match(/^\s+/) || [''])[0].length;
-                    const normalizedOffset = safeOffset + leadingWhitespaceLength;
-                    const normalizedSlice = utteranceText.slice(normalizedOffset);
-                    if (normalizedSlice.trim().length > 0) {
-                        utteranceText = normalizedSlice;
-                        startOffset = normalizedOffset;
-                    }
-                }
-            }
+            const requestedOffset = this.queuedStartOffsets.has(index)
+                ? Number(this.queuedStartOffsets.get(index))
+                : 0;
+            this.queuedStartOffsets.delete(index);
 
-            if (!utteranceText || !utteranceText.trim()) return;
-
-            const chunked = this.getChunkedSpeechForIndex(index, utteranceText, startOffset);
-            utteranceText = chunked.utteranceText;
-            startOffset = chunked.startOffset;
+            const queuedSpeech = this.getQueuedSpeechForIndex(index, para, requestedOffset);
+            let utteranceText = queuedSpeech.utteranceText;
+            let startOffset = queuedSpeech.startOffset;
+            const speakerEmoji = queuedSpeech.speakerEmoji || para.speakerEmoji;
             if (!utteranceText || !utteranceText.trim()) return;
 
             const utterance = new SpeechSynthesisUtterance(utteranceText);
-            const preferredVoice = this.resolvePreferredVoice(para.speakerEmoji);
+            const forceBrowserVoiceRouting = this.shouldUseEmojiVoiceRoutingForParagraph(para);
+            const preferredVoice = this.resolvePreferredVoice(speakerEmoji, { forceBrowser: forceBrowserVoiceRouting });
             if (preferredVoice) utterance.voice = preferredVoice;
             utterance.rate = this.getSafeSpeechRate(preferredVoice);
             utterance.volume = this.getSpeechVolume();
@@ -4443,6 +4666,7 @@
 
             this.clearHighlights(true);
             para.element.classList.add('tts-current-sentence');
+            this.highlightWordByCharIndex(this.currentUtteranceStartOffset);
 
             if (this.pointerLoopId) cancelAnimationFrame(this.pointerLoopId);
             this.updatePointerArrow();
@@ -4613,7 +4837,9 @@
                     return;
                 }
 
-                if (this.isServerVoiceSelected()) {
+                const para = this.paragraphsList[index];
+                const forceBrowserVoiceRouting = this.shouldUseEmojiVoiceRoutingForParagraph(para);
+                if (this.isServerVoiceSelected() && !forceBrowserVoiceRouting) {
                     // REMOVED: this.advancePlaybackSession('server-voice-read-from-paragraph') — Fix 2
                     this.startServerPlaybackFromParagraph(index, options);
                     return;
@@ -4839,7 +5065,7 @@
 
             const currentIndex = this.resolveCurrentNavigationIndex();
             const newIndex = currentIndex + direction;
-            this.focusNavigationIndex(newIndex, {
+            return this.focusNavigationIndex(newIndex, {
                 previewOnly,
                 outOfRangeMessage: direction > 0 ? 'End of page.' : 'Start of page.'
             });
@@ -5036,13 +5262,11 @@
                 switch (key) {
                     case KEY.NAV_NEXT:
                         e.preventDefault();
-                        this.navKeyHeld = true;
-                        this.navigate(ctrlOrMeta ? this.getNavigationJumpStep() : 1, { previewOnly: true });
+                        this.navKeyHeld = this.navigate(ctrlOrMeta ? this.getNavigationJumpStep() : 1, { previewOnly: true });
                         break;
                     case KEY.NAV_PREV:
                         e.preventDefault();
-                        this.navKeyHeld = true;
-                        this.navigate(ctrlOrMeta ? -this.getNavigationJumpStep() : -1, { previewOnly: true });
+                        this.navKeyHeld = this.navigate(ctrlOrMeta ? -this.getNavigationJumpStep() : -1, { previewOnly: true });
                         break;
                     case KEY.STOP: e.preventDefault(); this.stopTTS(); break;
                 }
@@ -5073,7 +5297,7 @@
                 const key = e.key;
                 const KEY = this.CONFIG.HOTKEYS;
                 if (key === KEY.NAV_NEXT || key === KEY.NAV_PREV) {
-                    if (!this.navKeyHeld) return;
+                    if (!this.navKeyHeld && this.pendingNavIndex === -1) return;
                     e.preventDefault();
                     this.navKeyHeld = false;
                     this.startReadingFromPendingNav();
