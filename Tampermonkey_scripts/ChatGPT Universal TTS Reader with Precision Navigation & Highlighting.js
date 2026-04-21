@@ -1485,14 +1485,11 @@
 
         fillLookaheadWindow(currentIndex) {
             if (!this.continuousReadingActive) return;
-            
-            // Clear existing queue and refill entire lookahead window
-            this.queuedParagraphs.clear();
             if (this.paragraphsDirty) {
                 this.refreshParagraphsIfNeeded(true);
             }
-            
-            // Fill from current index + 1 through the full lookahead window
+
+            // Top up the lookahead window without clearing pending entries.
             const maxIndex = Math.min(this.paragraphsList.length - 1, currentIndex + this.CONFIG.QUEUE_LOOKAHEAD);
             for (let i = currentIndex + 1; i <= maxIndex; i++) {
                 this.enqueueParagraph(i);
