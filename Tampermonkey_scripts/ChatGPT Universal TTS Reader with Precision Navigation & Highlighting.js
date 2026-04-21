@@ -358,10 +358,67 @@
             return this.currentVoice || this.findFemaleVoice() || this.findEnglishVoice();
         },
 
+        extractSpeakerEmojiFromLeadingLabel(text) {
+            const source = String(text || '').trim();
+            if (!source) return '';
+
+            const normalized = source
+                .toLowerCase()
+                .replace(/[\u200b-\u200d\uFEFF]/g, '')
+                .replace(/[\[\](){}<>`"'*_.,!?;:/\\|]+/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+            if (!normalized) return '';
+
+            const prefix = normalized.slice(0, 64);
+            if (/^(?:man health worker|male health worker|man doctor|male doctor|doctor|dr|physician|clinician|medical worker|health worker)\b/.test(prefix)) {
+                return '👨‍⚕️';
+            }
+            if (/^(?:patient|person|adult|user)\b/.test(prefix)) {
+                return '🧑';
+            }
+            return '';
+        },
+
         extractLeadingSpeakerEmoji(text) {
             if (!text) return '';
-            const match = text.match(this.CONFIG.SPEAKER_EMOJI_REGEX);
-            return match ? match[1] : '';
+            const source = String(text);
+            const directMatch = source.match(this.CONFIG.SPEAKER_EMOJI_REGEX);
+            if (directMatch) return directMatch[1];
+
+            const scanWindow = source.slice(0, 64);
+            const fallbackEmojiMatch = scanWindow.match(/(?:\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?)*)/u);
+            if (fallbackEmojiMatch) return fallbackEmojiMatch[0];
+
+            return this.extractSpeakerEmojiFromLeadingLabel(scanWindow);
+        },
+
+        extractLeadingSpeakerEmojiFromElement(element, rawText = '') {
+            const fromText = this.extractLeadingSpeakerEmoji(rawText);
+            if (fromText) return fromText;
+            if (!element) return '';
+
+            const labelCandidates = [];
+            if (typeof element.getAttribute === 'function') {
+                const ownLabel = element.getAttribute('aria-label');
+                if (ownLabel) labelCandidates.push(ownLabel);
+            }
+
+            if (typeof element.querySelectorAll === 'function') {
+                const iconNodes = element.querySelectorAll('[role="img"][aria-label], img[alt], [aria-label][data-testid*="emoji"]');
+                const limit = Math.min(iconNodes.length, 4);
+                for (let i = 0; i < limit; i++) {
+                    const node = iconNodes[i];
+                    const label = node.getAttribute('aria-label') || node.getAttribute('alt') || '';
+                    if (label) labelCandidates.push(label);
+                }
+            }
+
+            for (const label of labelCandidates) {
+                const emoji = this.extractLeadingSpeakerEmoji(label);
+                if (emoji) return emoji;
+            }
+            return '';
         },
 
         normalizeEmojiRuleValue(value) {
@@ -429,9 +486,15 @@
             return utterance;
         },
 
-        extractTTSMetadata(text, fallbackSpeakerEmoji = '') {
+        extractTTSMetadata(text, fallbackSpeakerEmoji = '', sourceElement = null) {
             const rawText = typeof text === 'string' ? text : '';
-            const speakerEmoji = this.extractLeadingSpeakerEmoji(rawText) || this.normalizeEmojiRuleValue(fallbackSpeakerEmoji);
+            let speakerEmoji = this.extractLeadingSpeakerEmoji(rawText);
+            if (!speakerEmoji && sourceElement) {
+                speakerEmoji = this.extractLeadingSpeakerEmojiFromElement(sourceElement, rawText);
+            }
+            if (!speakerEmoji) {
+                speakerEmoji = this.normalizeEmojiRuleValue(fallbackSpeakerEmoji);
+            }
             const cleaned = this.cleanTextForTTS(rawText);
 
             return {
@@ -447,7 +510,7 @@
             }
 
             const storedSpeakerEmoji = element.getAttribute('data-tts-speaker-emoji') || '';
-            const metadata = this.extractTTSMetadata(element.textContent || '', storedSpeakerEmoji);
+            const metadata = this.extractTTSMetadata(element.textContent || '', storedSpeakerEmoji, element);
             if (metadata.speakerEmoji) {
                 element.setAttribute('data-tts-speaker-emoji', metadata.speakerEmoji);
             } else {
@@ -1243,12 +1306,18 @@
         highlightCurrentWord(event) {
             if (!this.CONFIG.WORD_HIGHLIGHT_ENABLED || !this.wordHighlightActiveForCurrent) return;
             if (event.name !== 'word') return;
+
+            this.highlightWordByCharIndex(event.charIndex || 0);
+        },
+
+        highlightWordByCharIndex(charIndex) {
+            if (!this.CONFIG.WORD_HIGHLIGHT_ENABLED || !this.wordHighlightActiveForCurrent) return;
             if (this.currentWordSpan) {
                 this.currentWordSpan.classList.remove('tts-current-word');
                 this.currentWordSpan = null;
             }
 
-            const idx = this.findWordIndexByChar(event.charIndex);
+            const idx = this.findWordIndexByChar(charIndex);
             if (idx === -1) return;
             const span = this.processedParagraph.wordSpans[idx];
             if (!span) return;
@@ -1351,6 +1420,7 @@
 
             this.clearHighlights(true);
             para.element.classList.add('tts-current-sentence');
+            this.highlightWordByCharIndex(0);
 
             if (this.pointerLoopId) cancelAnimationFrame(this.pointerLoopId);
             this.updatePointerArrow();
