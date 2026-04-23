@@ -47,6 +47,9 @@
         niceAutoPasteEnabled: true,
         niceAutoSend: false,
         copyButtonEnabled: true,
+        smartCopyEnabled: true,
+        smartCopyMode: 'selection-first',
+        copyFormat: 'dialogue-plus-setup',
         doubleClickEditEnabled: true,
         autoCloseLimitWarning: true,
         limitWarningDelay: 1500,
@@ -205,6 +208,7 @@
         promptHistoryCursor: -1,
         promptHistoryDraft: '',
         promptHistoryDraftTooLarge: false,
+        smartCopyCopyHandler: null,
         selectionSeekDebounceId: null,
         serverVoices: [],
         serverVoicesFetchedAt: 0,
@@ -315,6 +319,11 @@
             NICE_AUTO_PASTE_ENABLED: true,
             NICE_AUTO_SEND: false,
             COPY_BUTTON_ENABLED: true,
+            SMART_COPY_ENABLED: true,
+            SMART_COPY_MODE: 'selection-first',
+            COPY_FORMAT: 'dialogue-plus-setup',
+            SMART_COPY_USER_LABEL: 'Doctor',
+            SMART_COPY_ASSISTANT_LABEL: 'ChatGPT',
             DOUBLE_CLICK_EDIT_ENABLED: true,
             AUTO_CLOSE_LIMIT_WARNING: true,
             LIMIT_WARNING_DELAY_MS: 1500,
@@ -340,6 +349,7 @@
             this.fetchServerVoices();
             this.initParagraphObserver();
             this.initMediaEnhancements();
+            this.initSmartCopyEnhancements();
             if (this.isChatGPTPage) {
                 this.initChatGPTEnhancements();
                 this.initAutoReadObserver();
@@ -653,6 +663,946 @@
             }
             this.checkAndCloseLimitWarnings();
             this.initPromptHistoryObserver();
+        },
+
+        initSmartCopyEnhancements() {
+            if (!this.copyObserver) {
+                this.copyObserver = new MutationObserver(() => {
+                    this.updateCopyButtons();
+                    this.applySmartCopySelectionAllowlist();
+                });
+                this.copyObserver.observe(document.body, { childList: true, subtree: true });
+            }
+            this.applySmartCopySelectionAllowlist();
+            this.updateCopyButtons();
+        },
+
+        isConversationSurfaceAvailable() {
+            if (document.querySelector('[data-message-author-role="assistant"], [data-message-author-role="user"]')) return true;
+            if (document.querySelector('section[data-turn="assistant"], section[data-turn="user"]')) return true;
+            return false;
+        },
+
+        getConversationMessageElements() {
+            const roleNodes = Array.from(document.querySelectorAll('[data-message-author-role="assistant"], [data-message-author-role="user"]'));
+            if (roleNodes.length > 0) return roleNodes;
+
+            const sectionNodes = Array.from(document.querySelectorAll('section[data-turn="assistant"], section[data-turn="user"]'));
+            if (sectionNodes.length > 0) return sectionNodes;
+
+            return [];
+        },
+
+        getMessageRoleFromElement(element) {
+            if (!element) return '';
+
+            const directRole = (element.getAttribute && element.getAttribute('data-message-author-role')) || '';
+            if (directRole === 'assistant' || directRole === 'user') return directRole;
+
+            const roleContainer = element.closest ? element.closest('[data-message-author-role]') : null;
+            const containerRole = roleContainer ? roleContainer.getAttribute('data-message-author-role') : '';
+            if (containerRole === 'assistant' || containerRole === 'user') return containerRole;
+
+            const directTurn = (element.getAttribute && element.getAttribute('data-turn')) || '';
+            if (directTurn === 'assistant' || directTurn === 'user') return directTurn;
+
+            const section = element.closest ? element.closest('section[data-turn]') : null;
+            const sectionTurn = section ? section.getAttribute('data-turn') : '';
+            if (sectionTurn === 'assistant' || sectionTurn === 'user') return sectionTurn;
+
+            if (this.isUserMessageElement(element)) return 'user';
+            return 'assistant';
+        },
+
+        getPreferredMessageContentNode(messageElement) {
+            if (!messageElement) return null;
+            return messageElement.querySelector('.whitespace-pre-wrap, .markdown') || messageElement;
+        },
+
+        getConversationTurnIndex(messageElement) {
+            if (!messageElement || !messageElement.closest) return null;
+            const turnNode = messageElement.closest('section[data-testid*="conversation-turn-"], [data-testid*="conversation-turn-"]');
+            if (!turnNode || !turnNode.getAttribute) return null;
+            const testId = turnNode.getAttribute('data-testid') || '';
+            const match = testId.match(/conversation-turn-(\d+)/i);
+            if (!match) return null;
+            const value = Number(match[1]);
+            return Number.isFinite(value) ? value : null;
+        },
+
+        getMessageOrderInsideTurn(messageElement) {
+            if (!messageElement || !messageElement.closest) return null;
+            const turnNode = messageElement.closest('section[data-testid*="conversation-turn-"], [data-testid*="conversation-turn-"]');
+            if (!turnNode || !turnNode.querySelectorAll) return null;
+            const siblings = Array.from(turnNode.querySelectorAll('[data-message-author-role]'));
+            const idx = siblings.indexOf(messageElement);
+            return idx >= 0 ? idx : null;
+        },
+
+        applySmartCopySelectionAllowlist() {
+            const selectors = [
+                '[data-message-author-role]',
+                '[data-message-author-role] *',
+                '[data-message-author-role] .markdown',
+                '[data-message-author-role] .whitespace-pre-wrap',
+                'section[data-turn]',
+                'section[data-turn] *',
+                'section[data-turn] .markdown',
+                'section[data-turn] .whitespace-pre-wrap'
+            ];
+            document.querySelectorAll(selectors.join(', ')).forEach((node) => {
+                if (!node || !node.style) return;
+                node.style.userSelect = 'text';
+                node.style.webkitUserSelect = 'text';
+            });
+        },
+
+        cleanSmartCopyWorkingNode(node) {
+            if (!node || !node.querySelectorAll) return;
+            node.querySelectorAll(
+                [
+                    '[data-tmx-control]',
+                    '.tmx-copy-row',
+                    '.tmx-copy-button',
+                    '[data-tts-ui]',
+                    '.sr-only',
+                    'button',
+                    '[data-testid="copy-turn-action-button"]',
+                    '[data-testid*="turn-action"]',
+                    '[aria-label="Response actions"]',
+                    '[aria-label="Your message actions"]',
+                    '[role="group"][aria-label*="actions"]'
+                ].join(', ')
+            ).forEach((target) => target.remove());
+        },
+
+        normalizeSmartCopyText(text) {
+            const lines = String(text || '')
+                .replace(/\r\n/g, '\n')
+                .split('\n')
+                .map((line) => line.replace(/\s+$/g, ''));
+            const normalized = [];
+            let pendingBlank = false;
+
+            lines.forEach((line) => {
+                const trimmed = line.trim();
+                if (!trimmed) {
+                    if (normalized.length > 0) pendingBlank = true;
+                    return;
+                }
+                if (/^copy$/i.test(trimmed)) return;
+                if (/^thought for\b/i.test(trimmed)) return;
+                if (/^\d{1,2}:\d{2}(?::\d{2})?$/.test(trimmed)) return;
+                if (/^you said$/i.test(trimmed)) return;
+                if (pendingBlank) {
+                    normalized.push('');
+                    pendingBlank = false;
+                }
+                normalized.push(trimmed);
+            });
+
+            while (normalized.length > 0 && normalized[0] === '') normalized.shift();
+            while (normalized.length > 0 && normalized[normalized.length - 1] === '') normalized.pop();
+            return normalized.join('\n').trim();
+        },
+
+        extractConversationTextFromNode(node) {
+            if (!node) return '';
+            const clone = node.cloneNode(true);
+            this.cleanSmartCopyWorkingNode(clone);
+            const text = clone.innerText || clone.textContent || '';
+            return this.normalizeSmartCopyText(text);
+        },
+
+        extractConversationTextFromMessage(messageElement) {
+            const preferred = this.getPreferredMessageContentNode(messageElement);
+            if (preferred) return this.extractConversationTextFromNode(preferred);
+            return this.extractConversationTextFromNode(messageElement);
+        },
+
+        formatSmartCopyEntries(entries) {
+            if (!Array.isArray(entries) || entries.length === 0) return '';
+            const formatted = entries
+                .map((entry) => {
+                    const role = entry && entry.role === 'user'
+                        ? this.CONFIG.SMART_COPY_USER_LABEL
+                        : this.CONFIG.SMART_COPY_ASSISTANT_LABEL;
+                    const text = this.normalizeSmartCopyText(entry && entry.text ? entry.text : '');
+                    if (!text) return '';
+                    return `${role}: ${text}`;
+                })
+                .filter(Boolean);
+            return formatted.join('\n\n').trim();
+        },
+
+        getStableSmartCopyEntryKey({ messageId = '', turnIndex = NaN, turnMessageIndex = NaN, role = '', text = '', fallbackIndex = 0 } = {}) {
+            if (messageId) return `id:${messageId}`;
+            if (Number.isFinite(turnIndex) && Number.isFinite(turnMessageIndex)) {
+                return `turn:${turnIndex}:msg:${turnMessageIndex}:${role}`;
+            }
+            if (Number.isFinite(turnIndex)) {
+                return `turn:${turnIndex}:${role}:${fallbackIndex}`;
+            }
+            return `k:${role}:${String(text || '').slice(0, 220)}:${fallbackIndex}`;
+        },
+
+        collectSmartCopyEntriesFromMessages(messageElements) {
+            const orderedKeys = [];
+            const entriesByKey = new Map();
+            (messageElements || []).forEach((messageElement, index) => {
+                const role = this.getMessageRoleFromElement(messageElement);
+                if (role !== 'assistant' && role !== 'user') return;
+                const text = this.extractConversationTextFromMessage(messageElement);
+                if (!text) return;
+                const messageId = (messageElement.getAttribute && messageElement.getAttribute('data-message-id')) || '';
+                const turnIndex = this.getConversationTurnIndex(messageElement);
+                const turnMessageIndex = this.getMessageOrderInsideTurn(messageElement);
+                const key = this.getStableSmartCopyEntryKey({
+                    messageId,
+                    turnIndex,
+                    turnMessageIndex,
+                    role,
+                    text,
+                    fallbackIndex: index
+                });
+                if (entriesByKey.has(key)) return;
+                entriesByKey.set(key, { key, role, text, turnIndex, turnMessageIndex });
+                orderedKeys.push(key);
+            });
+            return orderedKeys.map((key) => entriesByKey.get(key)).filter(Boolean);
+        },
+
+        sortSmartCopyEntries(entries) {
+            if (!Array.isArray(entries)) return [];
+            return entries
+                .filter(Boolean)
+                .sort((a, b) => {
+                    const aTurn = Number.isFinite(a.turnIndex) ? a.turnIndex : Number.POSITIVE_INFINITY;
+                    const bTurn = Number.isFinite(b.turnIndex) ? b.turnIndex : Number.POSITIVE_INFINITY;
+                    if (aTurn !== bTurn) return aTurn - bTurn;
+
+                    const aMsg = Number.isFinite(a.turnMessageIndex) ? a.turnMessageIndex : Number.POSITIVE_INFINITY;
+                    const bMsg = Number.isFinite(b.turnMessageIndex) ? b.turnMessageIndex : Number.POSITIVE_INFINITY;
+                    if (aMsg !== bMsg) return aMsg - bMsg;
+
+                    const aSeen = Number.isFinite(a.firstSeenOrder) ? a.firstSeenOrder : Number.POSITIVE_INFINITY;
+                    const bSeen = Number.isFinite(b.firstSeenOrder) ? b.firstSeenOrder : Number.POSITIVE_INFINITY;
+                    return aSeen - bSeen;
+                });
+        },
+
+        buildSmartCopyTranscriptText() {
+            if (this.CONFIG.COPY_FORMAT !== 'dialogue-plus-setup') return '';
+            const entries = this.sortSmartCopyEntries(
+                this.collectSmartCopyEntriesFromMessages(this.getConversationMessageElements())
+            );
+            return this.formatSmartCopyEntries(entries);
+        },
+
+        getSmartCopyScrollContainer() {
+            const candidates = [document.scrollingElement || document.documentElement];
+            const all = Array.from(document.querySelectorAll('body *'));
+
+            all.forEach((el) => {
+                try {
+                    const style = window.getComputedStyle(el);
+                    const overflowY = String(style.overflowY || '').toLowerCase();
+                    const isScrollable = ['auto', 'scroll', 'overlay'].includes(overflowY);
+                    if (!isScrollable) return;
+                    if ((el.scrollHeight || 0) <= (el.clientHeight || 0) * 1.5) return;
+                    if ((el.clientHeight || 0) <= 200) return;
+                    candidates.push(el);
+                } catch (_error) {
+                    // Ignore style lookup issues.
+                }
+            });
+
+            candidates.sort((a, b) => {
+                const aHeight = a === window
+                    ? (document.documentElement.scrollHeight || 0)
+                    : (a.scrollHeight || 0);
+                const bHeight = b === window
+                    ? (document.documentElement.scrollHeight || 0)
+                    : (b.scrollHeight || 0);
+                return bHeight - aHeight;
+            });
+
+            return candidates[0] || document.scrollingElement || document.documentElement || document.body;
+        },
+
+        getSmartCopyScrollTop(container) {
+            if (!container) return 0;
+            if (container === document.body || container === document.documentElement || container === document.scrollingElement) {
+                return window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
+            }
+            return container.scrollTop || 0;
+        },
+
+        getSmartCopyMaxScrollTop(container) {
+            if (!container) return 0;
+            const maxTop = Math.max(0, (container.scrollHeight || 0) - (container.clientHeight || 0));
+            return Number.isFinite(maxTop) ? maxTop : 0;
+        },
+
+        setSmartCopyScrollTop(container, top, options = {}) {
+            const nextTop = Math.max(0, Number(top) || 0);
+            const behavior = options && options.behavior === 'smooth' ? 'smooth' : 'auto';
+            if (!container) return;
+            if (container === document.body || container === document.documentElement || container === document.scrollingElement) {
+                try {
+                    if (behavior === 'smooth' && typeof window.scrollTo === 'function') {
+                        window.scrollTo({ left: 0, top: nextTop, behavior });
+                    } else {
+                        window.scrollTo(0, nextTop);
+                    }
+                } catch (_error) {
+                    window.scrollTo(0, nextTop);
+                }
+                return;
+            }
+            try {
+                if (typeof container.scrollTo === 'function') {
+                    container.scrollTo({ top: nextTop, behavior });
+                    return;
+                }
+            } catch (_error) {
+                // Fall back to direct assignment.
+            }
+            container.scrollTop = nextTop;
+        },
+
+        waitSmartCopySettle(ms = 130) {
+            return new Promise((resolve) => setTimeout(resolve, ms));
+        },
+
+        getSmartCopyScrollMetrics(container) {
+            if (!container || container === document.body || container === document.documentElement || container === document.scrollingElement) {
+                const doc = document.scrollingElement || document.documentElement || document.body;
+                const view = window.innerHeight || doc.clientHeight || 0;
+                return {
+                    pos: this.getSmartCopyScrollTop(container),
+                    max: Math.max(0, (doc.scrollHeight || 0) - view),
+                    view
+                };
+            }
+            return {
+                pos: container.scrollTop || 0,
+                max: Math.max(0, (container.scrollHeight || 0) - (container.clientHeight || 0)),
+                view: container.clientHeight || 0
+            };
+        },
+
+        getSmartCopyVisibleEntriesSignature() {
+            const entries = this.collectSmartCopyEntriesFromMessages(this.getConversationMessageElements());
+            return entries
+                .slice(0, 8)
+                .map((entry, index) => {
+                    const key = entry.key || this.getStableSmartCopyEntryKey({ ...entry, fallbackIndex: index });
+                    return `${key}|${String(entry.text || '').slice(0, 120)}`;
+                })
+                .join('\n')
+                .slice(0, 1500);
+        },
+
+        async waitForSmartCopyRender(_container, settleMs = 700) {
+            let previousSignature = '';
+            let stablePasses = 0;
+            const sliceMs = Math.max(60, Math.round(settleMs / 4));
+
+            for (let pass = 0; pass < 8; pass += 1) {
+                await this.waitSmartCopySettle(sliceMs);
+                const signature = this.getSmartCopyVisibleEntriesSignature();
+                if (signature === previousSignature) {
+                    stablePasses += 1;
+                } else {
+                    stablePasses = 0;
+                }
+                previousSignature = signature;
+                if (stablePasses >= 2) break;
+            }
+        },
+
+        getSmartCopyTruncationScore(text) {
+            const source = String(text || '');
+            if (!source) return 0;
+            const dotLineCount = source
+                .split('\n')
+                .map((line) => line.trim())
+                .filter((line) => line === '.' || line === '..' || line === '...')
+                .length;
+            const dotOnlyTokens = (source.match(/\.\s*/g) || []).length;
+            return dotLineCount * 60 + dotOnlyTokens;
+        },
+
+        findSmartCopyTextOverlap(leftText, rightText, minOverlap = 24) {
+            const left = String(leftText || '');
+            const right = String(rightText || '');
+            const limit = Math.min(left.length, right.length);
+            if (!left || !right || limit < minOverlap) return 0;
+
+            for (let size = limit; size >= minOverlap; size -= 1) {
+                if (left.slice(-size) === right.slice(0, size)) return size;
+            }
+            return 0;
+        },
+
+        findSmartCopyLineOverlap(leftLines, rightLines, minChars = 24) {
+            if (!Array.isArray(leftLines) || !Array.isArray(rightLines)) return 0;
+            const limit = Math.min(leftLines.length, rightLines.length);
+            for (let size = limit; size >= 1; size -= 1) {
+                const leftSlice = leftLines.slice(-size).join('\n');
+                const rightSlice = rightLines.slice(0, size).join('\n');
+                if (leftSlice && leftSlice === rightSlice && (leftSlice.length >= minChars || size >= 2)) {
+                    return size;
+                }
+            }
+            return 0;
+        },
+
+        shouldReplaceSmartCopyEntry(existingEntry, incomingEntry) {
+            if (!existingEntry) return true;
+            if (!incomingEntry) return false;
+
+            const existingText = String(existingEntry.text || '');
+            const incomingText = String(incomingEntry.text || '');
+            if (!incomingText) return false;
+            if (!existingText) return true;
+
+            const existingScore = this.getSmartCopyTruncationScore(existingText);
+            const incomingScore = this.getSmartCopyTruncationScore(incomingText);
+            const existingLen = existingText.length;
+            const incomingLen = incomingText.length;
+
+            if (incomingScore < existingScore && incomingLen >= Math.max(40, Math.floor(existingLen * 0.6))) return true;
+            if (incomingLen > existingLen + 30) return true;
+            if (incomingLen > existingLen && incomingText.includes('\n') && !existingText.includes('\n')) return true;
+            return false;
+        },
+
+        mergeSmartCopyEntryText(existingText, incomingText) {
+            const existing = this.normalizeSmartCopyText(existingText);
+            const incoming = this.normalizeSmartCopyText(incomingText);
+            if (!existing) return incoming;
+            if (!incoming) return existing;
+            if (existing === incoming) return existing;
+            if (existing.includes(incoming)) return existing;
+            if (incoming.includes(existing)) return incoming;
+
+            const forwardOverlap = this.findSmartCopyTextOverlap(existing, incoming);
+            const backwardOverlap = this.findSmartCopyTextOverlap(incoming, existing);
+            if (forwardOverlap >= 24 || backwardOverlap >= 24) {
+                return forwardOverlap >= backwardOverlap
+                    ? this.normalizeSmartCopyText(existing + incoming.slice(forwardOverlap))
+                    : this.normalizeSmartCopyText(incoming + existing.slice(backwardOverlap));
+            }
+
+            const existingLines = existing.split('\n');
+            const incomingLines = incoming.split('\n');
+            const forwardLineOverlap = this.findSmartCopyLineOverlap(existingLines, incomingLines);
+            const backwardLineOverlap = this.findSmartCopyLineOverlap(incomingLines, existingLines);
+            if (forwardLineOverlap >= 1 || backwardLineOverlap >= 1) {
+                return forwardLineOverlap >= backwardLineOverlap
+                    ? this.normalizeSmartCopyText(existingLines.concat(incomingLines.slice(forwardLineOverlap)).join('\n'))
+                    : this.normalizeSmartCopyText(incomingLines.concat(existingLines.slice(backwardLineOverlap)).join('\n'));
+            }
+
+            if (this.shouldReplaceSmartCopyEntry({ text: existing }, { text: incoming })) return incoming;
+            if (this.shouldReplaceSmartCopyEntry({ text: incoming }, { text: existing })) return existing;
+            return incoming.length > existing.length ? incoming : existing;
+        },
+
+        setSmartCopyActionButtonsBusy(activeButtonId = '', label = '') {
+            ['tts-copy-transcript-btn', 'tts-copy-selection-btn'].forEach((buttonId) => {
+                const button = document.getElementById(buttonId);
+                if (!button) return;
+                if (!button.dataset.defaultLabel) {
+                    button.dataset.defaultLabel = String(button.textContent || '').trim();
+                }
+                const isBusy = Boolean(activeButtonId);
+                const isActive = isBusy && buttonId === activeButtonId;
+                button.disabled = isBusy;
+                button.style.opacity = isBusy && !isActive ? '0.65' : '1';
+                button.style.cursor = isBusy ? 'wait' : 'pointer';
+                button.textContent = isActive && label ? label : button.dataset.defaultLabel;
+            });
+        },
+
+        async scrollSmartCopyContainerVisibly(container, targetTop, { stage = 'moving', progressCallback = null, stepPx = 220, settleMs = 110 } = {}) {
+            if (!container) return;
+            const startTop = this.getSmartCopyScrollTop(container);
+            const desiredTop = Math.max(0, Number(targetTop) || 0);
+            const totalDistance = Math.abs(desiredTop - startTop);
+            if (totalDistance <= 1) {
+                this.setSmartCopyScrollTop(container, desiredTop, { behavior: 'auto' });
+                await this.waitSmartCopySettle(settleMs);
+                if (typeof progressCallback === 'function') {
+                    progressCallback({ stage, percent: 100 });
+                }
+                return;
+            }
+
+            const direction = desiredTop > startTop ? 1 : -1;
+            const viewportHeight = container.clientHeight || window.innerHeight || 900;
+            const actualStepPx = Math.max(120, Number(stepPx) || Math.floor(viewportHeight * 0.5));
+            const guardLimit = Math.max(12, Math.ceil(totalDistance / actualStepPx) + 4);
+            let guard = 0;
+
+            while (guard < guardLimit) {
+                guard += 1;
+                const currentTop = this.getSmartCopyScrollTop(container);
+                const remaining = desiredTop - currentTop;
+                if (Math.abs(remaining) <= 1) break;
+
+                const nextTop = direction > 0
+                    ? Math.min(desiredTop, currentTop + actualStepPx)
+                    : Math.max(desiredTop, currentTop - actualStepPx);
+                this.setSmartCopyScrollTop(container, nextTop, { behavior: 'auto' });
+                await this.waitSmartCopySettle(settleMs);
+
+                if (typeof progressCallback === 'function') {
+                    const nowTop = this.getSmartCopyScrollTop(container);
+                    const progressed = totalDistance <= 0
+                        ? 100
+                        : Math.round((Math.abs(nowTop - startTop) / totalDistance) * 100);
+                    progressCallback({ stage, percent: Math.max(0, Math.min(100, progressed)) });
+                }
+            }
+
+            this.setSmartCopyScrollTop(container, desiredTop, { behavior: 'auto' });
+            await this.waitSmartCopySettle(settleMs);
+            if (typeof progressCallback === 'function') {
+                progressCallback({ stage, percent: 100 });
+            }
+        },
+
+        async buildSmartCopyTranscriptTextByScrollingThread(options = null) {
+            if (this.CONFIG.COPY_FORMAT !== 'dialogue-plus-setup') return '';
+            const progressCallback = typeof options === 'function'
+                ? options
+                : options && typeof options.progressCallback === 'function'
+                    ? options.progressCallback
+                    : null;
+            const visualize = Boolean(options && options.visualize);
+            const restorePosition = Object.prototype.hasOwnProperty.call(options || {}, 'restorePosition')
+                ? options.restorePosition !== false
+                : !visualize;
+            const overlapPx = Math.max(220, Number(options && options.overlapPx) || 300);
+            const renderSettleMs = Math.max(220, Number(options && options.settleMs) || (visualize ? 700 : 420));
+            const travelSettleMs = Math.max(90, Number(options && options.travelSettleMs) || 120);
+
+            const container = this.getSmartCopyScrollContainer();
+            if (!container) return this.buildSmartCopyTranscriptText();
+
+            const originalTop = this.getSmartCopyScrollTop(container);
+            const orderedKeys = [];
+            const entriesByKey = new Map();
+            let seenCounter = 0;
+            let lastProgressStage = '';
+            let lastProgressBucket = -1;
+
+            const reportProgress = (stage, percent = null) => {
+                if (typeof progressCallback !== 'function') return;
+                if (stage !== lastProgressStage) {
+                    lastProgressStage = stage;
+                    lastProgressBucket = -1;
+                }
+                if (Number.isFinite(percent)) {
+                    const bucket = Math.max(0, Math.min(100, Math.floor(percent / 5) * 5));
+                    if (bucket === lastProgressBucket) return;
+                    lastProgressBucket = bucket;
+                    progressCallback({ stage, percent: bucket });
+                    return;
+                }
+                progressCallback({ stage, percent });
+            };
+
+            const recordVisibleEntries = () => {
+                const entries = this.collectSmartCopyEntriesFromMessages(this.getConversationMessageElements());
+                entries.forEach((entry) => {
+                    const key = entry.key || this.getStableSmartCopyEntryKey(entry);
+                    if (entriesByKey.has(key)) {
+                        const existing = entriesByKey.get(key);
+                        entriesByKey.set(key, {
+                            ...existing,
+                            ...entry,
+                            firstSeenOrder: existing.firstSeenOrder,
+                            turnIndex: Number.isFinite(existing.turnIndex) ? existing.turnIndex : entry.turnIndex,
+                            turnMessageIndex: Number.isFinite(existing.turnMessageIndex) ? existing.turnMessageIndex : entry.turnMessageIndex,
+                            text: this.mergeSmartCopyEntryText(existing.text, entry.text)
+                        });
+                        return;
+                    }
+                    entry.firstSeenOrder = seenCounter++;
+                    entriesByKey.set(key, entry);
+                    orderedKeys.push(key);
+                });
+            };
+
+            try {
+                const initialMetrics = this.getSmartCopyScrollMetrics(container);
+                const travelStepPx = Math.max(100, initialMetrics.view - overlapPx);
+                if (visualize && originalTop > 1) {
+                    reportProgress('preparing', 0);
+                    await this.scrollSmartCopyContainerVisibly(container, 0, {
+                        stage: 'preparing',
+                        progressCallback: ({ stage, percent }) => reportProgress(stage, percent),
+                        stepPx: travelStepPx,
+                        settleMs: travelSettleMs
+                    });
+                } else {
+                    reportProgress('scanning', 0);
+                    this.setSmartCopyScrollTop(container, 0, { behavior: 'auto' });
+                    await this.waitSmartCopySettle(visualize ? travelSettleMs : 40);
+                }
+
+                let steps = 0;
+                let stuck = 0;
+                let lastEntryCount = 0;
+                const seenPositions = new Set();
+
+                while (steps < 500) {
+                    const metrics = this.getSmartCopyScrollMetrics(container);
+                    const stepSize = Math.max(100, metrics.view - overlapPx);
+                    const positionKey = Math.round(metrics.pos);
+
+                    if (seenPositions.has(positionKey)) {
+                        stuck += 1;
+                        if (stuck >= 3) break;
+                    } else {
+                        seenPositions.add(positionKey);
+                        stuck = 0;
+                    }
+
+                    reportProgress('scanning', metrics.max <= 0 ? 100 : (metrics.pos / metrics.max) * 100);
+                    await this.waitForSmartCopyRender(container, renderSettleMs);
+                    recordVisibleEntries();
+
+                    if (metrics.pos >= metrics.max - 5) break;
+
+                    const nextTop = Math.min(metrics.max, metrics.pos + stepSize);
+                    if (Math.round(nextTop) === Math.round(metrics.pos)) break;
+
+                    this.setSmartCopyScrollTop(container, nextTop, { behavior: 'auto' });
+                    await this.waitSmartCopySettle(visualize ? travelSettleMs : 50);
+
+                    if (entriesByKey.size === lastEntryCount) stuck += 1;
+                    lastEntryCount = entriesByKey.size;
+                    steps += 1;
+                }
+
+                reportProgress('scanning', 100);
+                reportProgress('stitching');
+            } finally {
+                if (restorePosition && visualize) {
+                    reportProgress('returning', 0);
+                    await this.scrollSmartCopyContainerVisibly(container, originalTop, {
+                        stage: 'returning',
+                        progressCallback: ({ stage, percent }) => reportProgress(stage, percent),
+                        stepPx: Math.max(100, this.getSmartCopyScrollMetrics(container).view - overlapPx),
+                        settleMs: travelSettleMs
+                    });
+                } else if (restorePosition) {
+                    reportProgress('returning');
+                    this.setSmartCopyScrollTop(container, originalTop, { behavior: 'auto' });
+                    await this.waitSmartCopySettle(20);
+                }
+            }
+
+            const entries = this.sortSmartCopyEntries(
+                orderedKeys.map((key) => entriesByKey.get(key)).filter(Boolean)
+            );
+            return this.formatSmartCopyEntries(entries);
+        },
+
+        extractSelectedTextFromNodeWithinRange(node, range) {
+            if (!node || !range) return '';
+            let nodeRange;
+            try {
+                nodeRange = document.createRange();
+                nodeRange.selectNodeContents(node);
+            } catch (_error) {
+                return '';
+            }
+
+            try {
+                if (range.compareBoundaryPoints(Range.END_TO_START, nodeRange) <= 0) return '';
+                if (range.compareBoundaryPoints(Range.START_TO_END, nodeRange) >= 0) return '';
+            } catch (_error) {
+                return '';
+            }
+
+            const clipped = range.cloneRange();
+            try {
+                if (clipped.compareBoundaryPoints(Range.START_TO_START, nodeRange) < 0) {
+                    clipped.setStart(nodeRange.startContainer, nodeRange.startOffset);
+                }
+                if (clipped.compareBoundaryPoints(Range.END_TO_END, nodeRange) > 0) {
+                    clipped.setEnd(nodeRange.endContainer, nodeRange.endOffset);
+                }
+            } catch (_error) {
+                return '';
+            }
+
+            const container = document.createElement('div');
+            container.appendChild(clipped.cloneContents());
+            this.cleanSmartCopyWorkingNode(container);
+            return this.normalizeSmartCopyText(container.innerText || container.textContent || '');
+        },
+
+        buildSmartCopySelectionText(selection = null) {
+            const activeSelection = selection || window.getSelection();
+            if (!activeSelection || activeSelection.rangeCount === 0 || activeSelection.isCollapsed) return '';
+
+            const messages = this.getConversationMessageElements();
+            if (messages.length === 0) return '';
+
+            const entries = [];
+            messages.forEach((messageElement) => {
+                const role = this.getMessageRoleFromElement(messageElement);
+                if (role !== 'assistant' && role !== 'user') return;
+
+                const contentNode = this.getPreferredMessageContentNode(messageElement);
+                const selectedParts = [];
+                for (let i = 0; i < activeSelection.rangeCount; i++) {
+                    const range = activeSelection.getRangeAt(i);
+                    const selectedText = this.extractSelectedTextFromNodeWithinRange(contentNode || messageElement, range);
+                    if (selectedText) selectedParts.push(selectedText);
+                }
+                if (selectedParts.length === 0) return;
+
+                const merged = this.normalizeSmartCopyText(selectedParts.join('\n'));
+                if (!merged) return;
+                entries.push({ role, text: merged });
+            });
+
+            return this.formatSmartCopyEntries(entries);
+        },
+
+        isEditableSelectionContext() {
+            const activeEl = document.activeElement;
+            if (!activeEl) return false;
+            if (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA') return true;
+            if (activeEl.isContentEditable) return true;
+            return false;
+        },
+
+        copyTextUsingExecCommand(text) {
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.setAttribute('readonly', 'readonly');
+            textarea.style.position = 'fixed';
+            textarea.style.left = '-9999px';
+            textarea.style.top = '0';
+            document.body.appendChild(textarea);
+            textarea.focus();
+            textarea.select();
+            let ok = false;
+            try {
+                ok = Boolean(document.execCommand('copy'));
+            } catch (_error) {
+                ok = false;
+            }
+            textarea.remove();
+            return ok;
+        },
+
+        copyTextToClipboard(text) {
+            const normalized = String(text || '');
+            if (!normalized) return Promise.resolve(false);
+            if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+                return navigator.clipboard.writeText(normalized)
+                    .then(() => true)
+                    .catch(() => this.copyTextUsingExecCommand(normalized));
+            }
+            return Promise.resolve(this.copyTextUsingExecCommand(normalized));
+        },
+
+        copyTranscriptWithFullScan(options = true) {
+            const normalizedOptions = options && typeof options === 'object'
+                ? options
+                : { showToast: options !== false };
+            const showToast = normalizedOptions.showToast !== false;
+            const buttonId = normalizedOptions.buttonId || '';
+            const visualize = normalizedOptions.visualize === true;
+            if (!this.isConversationSurfaceAvailable()) return false;
+            (async () => {
+                let lastStageMessage = '';
+                const updateStage = (message, { toast = false, durationMs = 2200 } = {}) => {
+                    if (buttonId) this.setSmartCopyActionButtonsBusy(buttonId, message);
+                    if (!showToast || !toast || message === lastStageMessage) return;
+                    lastStageMessage = message;
+                    this.showNotification(message, durationMs);
+                };
+
+                try {
+                    updateStage(`${visualize ? 'Scrolling' : 'Scanning'} 0%`, { toast: true, durationMs: 1600 });
+                    const text = await this.buildSmartCopyTranscriptTextByScrollingThread({
+                        visualize,
+                        progressCallback: ({ stage, percent }) => {
+                        if (stage === 'scanning') {
+                            updateStage(`${visualize ? 'Scrolling' : 'Scanning'} ${Math.max(0, Math.min(100, Math.round(percent || 0)))}%`);
+                            return;
+                        }
+                        if (stage === 'preparing' && visualize) {
+                            updateStage(`To top ${Math.max(0, Math.min(100, Math.round(percent || 0)))}%`);
+                            return;
+                        }
+                        if (stage === 'stitching') {
+                            updateStage('Stitching...', { toast: true, durationMs: 1600 });
+                            return;
+                        }
+                        if (stage === 'returning' && visualize) {
+                            updateStage(`Returning ${Math.max(0, Math.min(100, Math.round(percent || 0)))}%`, { toast: true, durationMs: 1200 });
+                        }
+                    }
+                    });
+                    if (!text) {
+                        if (showToast) this.showNotification('No transcript text found.');
+                        return;
+                    }
+
+                    updateStage('Copying...', { toast: true, durationMs: 1600 });
+                    const ok = await this.copyTextToClipboard(text);
+                    if (showToast) {
+                        this.showNotification(ok ? 'Transcript copied.' : 'Copy failed.');
+                    }
+                } catch (_error) {
+                    if (showToast) this.showNotification('Copy failed.');
+                } finally {
+                    this.setSmartCopyActionButtonsBusy('', '');
+                }
+            })();
+            return true;
+        },
+
+        runSmartCopyAction({ useSelection = true, fallbackToTranscript = true, preserveNativeOnSelectionMiss = false, showToast = true, buttonId = '' } = {}) {
+            const selection = window.getSelection();
+            const hasSelection = Boolean(selection && !selection.isCollapsed && String(selection.toString() || '').trim());
+
+            let text = '';
+            if (useSelection && hasSelection) {
+                text = this.buildSmartCopySelectionText(selection);
+                if (!text && preserveNativeOnSelectionMiss) {
+                    return false;
+                }
+            }
+            if (!text && fallbackToTranscript) {
+                text = this.buildSmartCopyTranscriptText();
+            }
+            if (!text) return false;
+
+            if (buttonId) this.setSmartCopyActionButtonsBusy(buttonId, 'Copying...');
+            this.copyTextToClipboard(text).then((ok) => {
+                if (!showToast) return;
+                this.showNotification(ok ? 'Copied to clipboard.' : 'Copy failed.');
+            }).finally(() => {
+                this.setSmartCopyActionButtonsBusy('', '');
+            });
+            return true;
+        },
+
+        handleSmartCopyShortcut(event) {
+            if (!this.CONFIG.SMART_COPY_ENABLED) return false;
+            if (!event || event.defaultPrevented) return false;
+            if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return false;
+            if (String(event.key || '').toLowerCase() !== 'c') return false;
+            if (this.isEditableSelectionContext()) return false;
+
+            const selection = window.getSelection();
+            const hasSelection = Boolean(selection && !selection.isCollapsed && String(selection.toString() || '').trim());
+            if (!hasSelection) {
+                const started = this.copyTranscriptWithFullScan(true);
+                if (!started) return false;
+                event.preventDefault();
+                event.stopPropagation();
+                return true;
+            }
+
+            const handled = this.runSmartCopyAction({
+                useSelection: this.CONFIG.SMART_COPY_MODE === 'selection-first',
+                fallbackToTranscript: true,
+                preserveNativeOnSelectionMiss: true,
+                showToast: true
+            });
+            if (!handled) return false;
+
+            event.preventDefault();
+            event.stopPropagation();
+            return true;
+        },
+
+        handleSmartCopyCopyEvent(event) {
+            if (!this.CONFIG.SMART_COPY_ENABLED) return false;
+            if (!event || event.defaultPrevented) return false;
+            if (this.isEditableSelectionContext()) return false;
+
+            const selection = window.getSelection();
+            const hasSelection = Boolean(selection && !selection.isCollapsed && String(selection.toString() || '').trim());
+            if (!hasSelection) return false;
+            let text = '';
+            if (this.CONFIG.SMART_COPY_MODE === 'selection-first' && hasSelection) {
+                text = this.buildSmartCopySelectionText(selection);
+                if (!text) return false;
+            }
+            if (!text) {
+                text = this.buildSmartCopyTranscriptText();
+            }
+            if (!text) return false;
+
+            event.preventDefault();
+            if (event.clipboardData && typeof event.clipboardData.setData === 'function') {
+                event.clipboardData.setData('text/plain', text);
+                return true;
+            }
+            this.copyTextToClipboard(text);
+            return true;
+        },
+
+        setSmartCopyEnabled(enabled, silent = false) {
+            const nextValue = Boolean(enabled);
+            if (this.CONFIG.SMART_COPY_ENABLED === nextValue) return;
+            this.CONFIG.SMART_COPY_ENABLED = nextValue;
+            if (!silent) {
+                this.showNotification(`Smart copy ${nextValue ? 'on' : 'off'}`);
+            }
+        },
+
+        setSmartCopyMode(mode, silent = false) {
+            const nextValue = mode === 'selection-first' ? 'selection-first' : 'selection-first';
+            if (this.CONFIG.SMART_COPY_MODE === nextValue) return;
+            this.CONFIG.SMART_COPY_MODE = nextValue;
+            if (!silent) {
+                this.showNotification(`Smart copy mode: ${nextValue}`);
+            }
+        },
+
+        setCopyFormat(format, silent = false) {
+            const nextValue = format === 'dialogue-plus-setup' ? 'dialogue-plus-setup' : 'dialogue-plus-setup';
+            if (this.CONFIG.COPY_FORMAT === nextValue) return;
+            this.CONFIG.COPY_FORMAT = nextValue;
+            if (!silent) {
+                this.showNotification('Copy format updated');
+            }
+        },
+
+        copyTranscriptFromOverlay() {
+            this.copyTranscriptWithFullScan({ showToast: true, buttonId: 'tts-copy-transcript-btn', visualize: true, restorePosition: false });
+        },
+
+        copySelectionFromOverlay() {
+            const selection = window.getSelection();
+            const hasSelection = Boolean(selection && !selection.isCollapsed && String(selection.toString() || '').trim());
+            if (!hasSelection) {
+                this.copyTranscriptWithFullScan({ showToast: true, buttonId: 'tts-copy-selection-btn', visualize: true, restorePosition: false });
+                return;
+            }
+            this.runSmartCopyAction({
+                useSelection: true,
+                fallbackToTranscript: true,
+                preserveNativeOnSelectionMiss: false,
+                showToast: true,
+                buttonId: 'tts-copy-selection-btn'
+            });
         },
 
         findPromptArea() {
@@ -1475,7 +2425,31 @@
             }
         },
 
-        addCopyButton(target) {
+        hasNativeTurnCopyActions() {
+            if (!this.isChatGPTPage) return false;
+            return Boolean(document.querySelector('[data-testid="copy-turn-action-button"], button[aria-label="Copy message"]'));
+        },
+
+        shouldInjectCustomCopyButtons() {
+            if (!this.CONFIG.COPY_BUTTON_ENABLED) return false;
+            if (!this.isConversationSurfaceAvailable()) return false;
+            if (this.hasNativeTurnCopyActions()) return false;
+            return true;
+        },
+
+        getCopyButtonTargets() {
+            const targets = [];
+            this.getConversationMessageElements().forEach((messageElement) => {
+                const role = this.getMessageRoleFromElement(messageElement);
+                if (role !== 'assistant' && role !== 'user') return;
+                const contentNode = this.getPreferredMessageContentNode(messageElement);
+                if (!contentNode) return;
+                targets.push({ target: contentNode, role });
+            });
+            return targets;
+        },
+
+        addCopyButton(target, role = 'assistant') {
             if (!target || !target.isConnected) return;
 
             const adjacentRow = target.nextElementSibling && target.nextElementSibling.classList
@@ -1500,13 +2474,12 @@
             copyButton.addEventListener('click', (event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                const clone = target.cloneNode(true);
-                clone.querySelectorAll('.tmx-copy-row, .tmx-copy-button').forEach((node) => node.remove());
-                const text = (clone.innerText || clone.textContent || '').trim();
+                const text = this.extractConversationTextFromNode(target);
                 if (!text) return;
-                navigator.clipboard.writeText(text)
-                    .then(() => this.showNotification('Copied to clipboard.'))
-                    .catch(() => this.showNotification('Copy failed.'));
+                const payload = this.formatSmartCopyEntries([{ role, text }]);
+                if (!payload) return;
+                this.copyTextToClipboard(payload)
+                    .then((ok) => this.showNotification(ok ? 'Copied to clipboard.' : 'Copy failed.'));
             });
 
             row.appendChild(copyButton);
@@ -1522,12 +2495,16 @@
         },
 
         updateCopyButtons() {
-            if (!this.isChatGPTPage) return;
             if (!this.CONFIG.COPY_BUTTON_ENABLED) {
                 this.removeCopyButtons();
                 return;
             }
-            document.querySelectorAll('.whitespace-pre-wrap').forEach((target) => this.addCopyButton(target));
+            this.applySmartCopySelectionAllowlist();
+            if (!this.shouldInjectCustomCopyButtons()) {
+                this.removeCopyButtons();
+                return;
+            }
+            this.getCopyButtonTargets().forEach(({ target, role }) => this.addCopyButton(target, role));
         },
 
         setCopyButtonEnabled(enabled, silent = false) {
@@ -1648,12 +2625,88 @@
             return typeof voiceUri === 'string' && voiceUri.startsWith('server:');
         },
 
-        getSelectedServerVoiceId() {
-            if (this.isServerVoiceUri(this.CONFIG.VOICE_URI)) {
-                const voiceId = this.CONFIG.VOICE_URI.slice('server:'.length);
-                return typeof voiceId === 'string' ? voiceId.trim() : '';
+        isAutoVoiceSelected() {
+            return !(typeof this.CONFIG.VOICE_URI === 'string' && this.CONFIG.VOICE_URI.trim());
+        },
+
+        getServerVoiceIdFromVoiceUri(voiceUri) {
+            if (!this.isServerVoiceUri(voiceUri)) return '';
+            const voiceId = voiceUri.slice('server:'.length);
+            return typeof voiceId === 'string' ? voiceId.trim() : '';
+        },
+
+        normalizeVoiceCandidateText(value) {
+            return String(value || '')
+                .toLowerCase()
+                .replace(/[_-]+/g, ' ')
+                .trim();
+        },
+
+        isAvaVoiceCandidate(voice) {
+            if (!voice) return false;
+            const name = this.normalizeVoiceCandidateText(voice.name);
+            const id = this.normalizeVoiceCandidateText(voice.id);
+            const combined = `${name} ${id}`.trim();
+            return /\bava\b/.test(combined);
+        },
+
+        isMultilingualVoiceCandidate(voice) {
+            if (!voice) return false;
+            const lang = this.normalizeVoiceCandidateText(voice.lang);
+            const name = this.normalizeVoiceCandidateText(voice.name);
+            const id = this.normalizeVoiceCandidateText(voice.id);
+            const combined = `${lang} ${name} ${id}`.trim();
+            return /multi\s*lingual/.test(combined);
+        },
+
+        isEnglishUsVoiceCandidate(voice) {
+            if (!voice) return false;
+            const lang = this.normalizeVoiceCandidateText(voice.lang);
+            const name = this.normalizeVoiceCandidateText(voice.name);
+            const id = this.normalizeVoiceCandidateText(voice.id);
+            if (/^en\s*us\b/.test(lang) || /^en\s*usa\b/.test(lang)) {
+                return true;
             }
-            return '';
+            const combined = `${name} ${id}`.trim();
+            return /english/.test(combined) && /(united states|\bus\b)/.test(combined);
+        },
+
+        findAutoPreferredServerVoice() {
+            const serverVoices = Array.isArray(this.serverVoices) ? this.serverVoices : [];
+            if (serverVoices.length === 0) return null;
+            const matches = serverVoices.filter((voice) =>
+                this.isAvaVoiceCandidate(voice)
+                && this.isEnglishUsVoiceCandidate(voice)
+                && !this.isMultilingualVoiceCandidate(voice)
+            );
+            return matches[0] || null;
+        },
+
+        findAutoPreferredBrowserAvaVoice(voices = null) {
+            const availableVoices = Array.isArray(voices) ? voices : this.getAvailableBrowserVoices();
+            if (!availableVoices || availableVoices.length === 0) return null;
+            const avaVoices = availableVoices.filter((voice) =>
+                this.isAvaVoiceCandidate(voice)
+                && this.isEnglishUsVoiceCandidate(voice)
+                && !this.isMultilingualVoiceCandidate(voice)
+            );
+            if (avaVoices.length === 0) return null;
+            return avaVoices.find((voice) => !this.isLikelyUnstableVoice(voice))
+                || avaVoices[0];
+        },
+
+        getSelectedServerVoiceId() {
+            const configuredVoiceId = this.getServerVoiceIdFromVoiceUri(this.CONFIG.VOICE_URI);
+            if (configuredVoiceId) {
+                return configuredVoiceId;
+            }
+            if (!this.isAutoVoiceSelected()) {
+                return '';
+            }
+            const autoServerVoice = this.findAutoPreferredServerVoice();
+            if (!autoServerVoice) return '';
+            return this.getServerVoiceIdFromVoiceUri(autoServerVoice.voiceURI)
+                || (typeof autoServerVoice.id === 'string' ? autoServerVoice.id.trim() : '');
         },
 
         isServerVoiceSelected() {
@@ -1869,8 +2922,13 @@
                 if (selected) return selected;
             }
 
+            if (this.isAutoVoiceSelected()) {
+                const autoBrowserAvaVoice = this.findAutoPreferredBrowserAvaVoice(voices);
+                if (autoBrowserAvaVoice) return autoBrowserAvaVoice;
+            }
+
             return voices.find(v => /natural|neural/i.test(v.name))
-                || voices.find(v => v.name.includes('Ava') && !v.name.includes('Multilingual'))
+                || voices.find(v => /ava/i.test(v.name || '') && !/multilingual/i.test(v.name || ''))
                 || voices.find(v => v.lang && v.lang.toLowerCase().startsWith('en') && !this.isLikelyUnstableVoice(v))
                 || voices.find(v => v.lang && v.lang.toLowerCase().startsWith('en'))
                 || voices[0];
@@ -5194,6 +6252,7 @@
         setupEventListeners() {
             document.addEventListener('keydown', (e) => {
                 this.markUserInteraction();
+                if (this.handleSmartCopyShortcut(e)) return;
                 this.capturePromptForNativeEnterSend(e);
                 this.handleEnterToSend(e);
                 if (this.handlePromptHistoryHotkeys(e)) return;
@@ -5299,6 +6358,10 @@
                     this.startReadingFromPendingNav();
                 }
             });
+            if (!this.smartCopyCopyHandler) {
+                this.smartCopyCopyHandler = (event) => this.handleSmartCopyCopyEvent(event);
+                document.addEventListener('copy', this.smartCopyCopyHandler, true);
+            }
             document.addEventListener('dblclick', (event) => this.handleSelectionSeek(event), true);
             const interactionHandler = () => this.markUserInteraction();
             window.addEventListener('wheel', interactionHandler, { passive: true });
@@ -5353,6 +6416,17 @@
                 .tts-navigation-focus { background-color: rgba(52, 152, 219, 0.3) !important; box-shadow: inset 4px 0 0 #3498db !important; transition: background-color 0.3s, box-shadow 0.3s; }
                 .tts-focus-fade-out { box-shadow: none !important; background-color: transparent !important; transition: background-color var(--tts-focus-fade-ms, 500ms) ease, box-shadow var(--tts-focus-fade-ms, 500ms) ease; }
                 .tts-overlay-hidden [data-tts-ui] { display: none !important; }
+                [data-message-author-role],
+                [data-message-author-role] *,
+                section[data-turn],
+                section[data-turn] *,
+                [data-message-author-role] .markdown,
+                [data-message-author-role] .whitespace-pre-wrap,
+                section[data-turn] .markdown,
+                section[data-turn] .whitespace-pre-wrap {
+                    user-select: text !important;
+                    -webkit-user-select: text !important;
+                }
 
                 /* NEW: In-game waypoint style pointer */
                 #tts-pointer {
@@ -5415,6 +6489,11 @@
                 <label for="tts-auto-read-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-auto-read-toggle" ${this.CONFIG.AUTO_READ_NEW_MESSAGES ? 'checked' : ''} style="margin:0;">🤖 Auto-read new</label>
                 <label for="tts-loop-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-loop-toggle" ${this.CONFIG.LOOP_ON_END ? 'checked' : ''} style="margin:0;">🔁 Loop to top</label>
                 <label for="tts-autoscroll-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-autoscroll-toggle" ${this.CONFIG.AUTO_SCROLL_ENABLED ? 'checked' : ''} style="margin:0;">📜 Auto-scroll</label>
+                <label for="tts-smart-copy-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-smart-copy-toggle" ${this.CONFIG.SMART_COPY_ENABLED ? 'checked' : ''} style="margin:0;">Smart copy</label>
+                <div style="display:flex; gap:6px; margin-top:6px;">
+                    <button id="tts-copy-transcript-btn" type="button" style="flex:1; padding:4px 8px; background: rgba(255,255,255,0.2); border: none; color: #fff; cursor: pointer; border-radius: 3px;">Copy transcript</button>
+                    <button id="tts-copy-selection-btn" type="button" style="flex:1; padding:4px 8px; background: rgba(255,255,255,0.2); border: none; color: #fff; cursor: pointer; border-radius: 3px;">Copy selection</button>
+                </div>
             `;
             document.body.appendChild(uiPanel);
             this.overlayPanel = uiPanel;
@@ -5478,6 +6557,24 @@
                 this.setAutoScrollEnabled(e.target.checked);
             });
             autoScrollToggle.addEventListener('mousedown', e => e.stopPropagation());
+            const smartCopyToggle = document.getElementById('tts-smart-copy-toggle');
+            smartCopyToggle.addEventListener('change', (e) => {
+                this.setSmartCopyEnabled(e.target.checked);
+                persistProfileSetting(this.settingsProfile, 'smartCopyEnabled', this.CONFIG.SMART_COPY_ENABLED);
+            });
+            smartCopyToggle.addEventListener('mousedown', (e) => e.stopPropagation());
+            const copyTranscriptButton = document.getElementById('tts-copy-transcript-btn');
+            copyTranscriptButton.addEventListener('click', (e) => {
+                e.preventDefault();
+                this.copyTranscriptFromOverlay();
+            });
+            copyTranscriptButton.addEventListener('mousedown', (e) => e.stopPropagation());
+            const copySelectionButton = document.getElementById('tts-copy-selection-btn');
+            copySelectionButton.addEventListener('click', (e) => {
+                e.preventDefault();
+                this.copySelectionFromOverlay();
+            });
+            copySelectionButton.addEventListener('mousedown', (e) => e.stopPropagation());
             this.makeDraggable(uiPanel, (position) => {
                 this.setOverlayPosition(position, { persist: true, silent: true });
             });
@@ -5652,7 +6749,7 @@
         },
 
         // ... (showNotification and makeDraggable are unchanged) ...
-        showNotification(message) {
+        showNotification(message, durationMs = 2500) {
             let existing = document.getElementById('tts-notification-popup');
             if(existing) existing.remove();
 
@@ -5667,7 +6764,7 @@
             setTimeout(() => {
                 notification.style.opacity = '0';
                 setTimeout(() => { if (notification.parentNode) notification.parentNode.removeChild(notification); }, 300);
-            }, 2500);
+            }, Math.max(600, Number(durationMs) || 2500));
         },
 
         makeDraggable(el, onDrop = null) {
@@ -5834,6 +6931,15 @@
         }
         if (typeof settings.copyButtonEnabled === 'boolean') {
             TTSReader.setCopyButtonEnabled(settings.copyButtonEnabled, silent);
+        }
+        if (typeof settings.smartCopyEnabled === 'boolean') {
+            TTSReader.setSmartCopyEnabled(settings.smartCopyEnabled, silent);
+        }
+        if (typeof settings.smartCopyMode === 'string') {
+            TTSReader.setSmartCopyMode(settings.smartCopyMode, silent);
+        }
+        if (typeof settings.copyFormat === 'string') {
+            TTSReader.setCopyFormat(settings.copyFormat, silent);
         }
         if (typeof settings.doubleClickEditEnabled === 'boolean') {
             TTSReader.setDoubleClickEditEnabled(settings.doubleClickEditEnabled, silent);
@@ -6075,6 +7181,9 @@
                             niceAutoPasteEnabled: TTSReader.CONFIG.NICE_AUTO_PASTE_ENABLED,
                             niceAutoSend: TTSReader.CONFIG.NICE_AUTO_SEND,
                             copyButtonEnabled: TTSReader.CONFIG.COPY_BUTTON_ENABLED,
+                            smartCopyEnabled: TTSReader.CONFIG.SMART_COPY_ENABLED,
+                            smartCopyMode: TTSReader.CONFIG.SMART_COPY_MODE,
+                            copyFormat: TTSReader.CONFIG.COPY_FORMAT,
                             doubleClickEditEnabled: TTSReader.CONFIG.DOUBLE_CLICK_EDIT_ENABLED,
                             autoCloseLimitWarning: TTSReader.CONFIG.AUTO_CLOSE_LIMIT_WARNING,
                             limitWarningDelay: TTSReader.CONFIG.LIMIT_WARNING_DELAY_MS,
