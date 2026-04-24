@@ -1,3 +1,12 @@
+# Tampermonkey — Agent Entry Point
+
+## Active work
+
+- **Open issues:** see [`TODO.md`](./TODO.md) for P0/P1-sorted index, or [GitHub Issues](https://github.com/sriharshaguthikonda/Tampermonkey/issues).
+- **Working branch:** `enhance-tts-functionality` (non-default; default is `gemini-version`).
+
+---
+
 # Tampermonkey Update Workflow (GitHub Raw)
 
 This repo uses GitHub raw URLs as the update source for Tampermonkey. The goal is:
