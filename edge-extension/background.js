@@ -585,12 +585,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (!request || !request.action) return false;
 
     if (request.action === 'getSettings') {
+        // return true keeps the message port open; timer ensures sendResponse always fires
         const profile = getProfileFromUrl(request.url || sender?.tab?.url || '');
-        chrome.storage.sync.get(null, (items) => {
-            sendResponse({
-                profile,
-                settings: getSettingsForProfile(items || {}, profile)
-            });
+        const timer = setTimeout(() => sendResponse({ error: 'timeout' }), 10000);
+        chrome.storage.sync.get(null).then(items => {
+            clearTimeout(timer);
+            sendResponse({ profile, settings: getSettingsForProfile(items || {}, profile) });
+        }).catch(err => {
+            clearTimeout(timer);
+            sendResponse({ error: err.message });
         });
         return true;
     }
