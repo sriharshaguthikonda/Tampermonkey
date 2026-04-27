@@ -3430,10 +3430,38 @@
             this.clearServerWordHighlightTimers();
         },
 
+        sanitizeHTMLForRestore(html) {
+            if (typeof html !== 'string' || !html) return '';
+            const tpl = document.createElement('template');
+            tpl.innerHTML = html;
+            const BAD_TAGS = new Set(['SCRIPT', 'IFRAME', 'OBJECT', 'EMBED', 'BASE', 'LINK', 'META']);
+            const URL_ATTRS = new Set(['href', 'src', 'xlink:href', 'action', 'formaction', 'srcdoc']);
+            const walker = document.createTreeWalker(tpl.content, NodeFilter.SHOW_ELEMENT);
+            const toRemove = [];
+            while (walker.nextNode()) {
+                const el = walker.currentNode;
+                if (BAD_TAGS.has(el.tagName)) {
+                    toRemove.push(el);
+                    continue;
+                }
+                for (const attr of Array.from(el.attributes)) {
+                    const name = attr.name.toLowerCase();
+                    const val = attr.value || '';
+                    if (name.startsWith('on')) {
+                        el.removeAttribute(attr.name);
+                    } else if (URL_ATTRS.has(name) && /^\s*(javascript|vbscript):/i.test(val)) {
+                        el.removeAttribute(attr.name);
+                    }
+                }
+            }
+            for (const el of toRemove) el.remove();
+            return tpl.innerHTML;
+        },
+
         revertParagraph() {
             const { element, originalHTML } = this.processedParagraph;
             if (element && originalHTML) {
-                element.innerHTML = originalHTML;
+                element.innerHTML = this.sanitizeHTMLForRestore(originalHTML);
             }
             this.processedParagraph = { element: null, originalHTML: '', wordSpans: [], wordOffsets: [] };
             this.clearHighlights();
@@ -3562,7 +3590,7 @@
                 const isValid = element && element.isConnected && validElements.has(element);
                 if (!isValid) {
                     if (element && element.isConnected && data.originalHTML) {
-                        element.innerHTML = data.originalHTML;
+                        element.innerHTML = this.sanitizeHTMLForRestore(data.originalHTML);
                     }
                     this.prewrappedParagraphs.delete(element);
                 }
@@ -3573,7 +3601,7 @@
             if (this.prewrappedParagraphs.size === 0) return;
             for (const [element, data] of this.prewrappedParagraphs.entries()) {
                 if (element && element.isConnected && data.originalHTML) {
-                    element.innerHTML = data.originalHTML;
+                    element.innerHTML = this.sanitizeHTMLForRestore(data.originalHTML);
                 }
             }
             this.prewrappedParagraphs.clear();
@@ -3597,7 +3625,7 @@
                 if (this.pendingReverts.length === 0) return;
                 const next = this.pendingReverts.shift();
                 if (next && next.element && next.element.isConnected && next.originalHTML) {
-                    next.element.innerHTML = next.originalHTML;
+                    next.element.innerHTML = this.sanitizeHTMLForRestore(next.originalHTML);
                 }
                 if (this.pendingReverts.length > 0) {
                     this.schedulePendingRevert();
@@ -3629,7 +3657,7 @@
             while (this.pendingReverts.length > 0) {
                 const next = this.pendingReverts.shift();
                 if (next && next.element && next.element.isConnected && next.originalHTML) {
-                    next.element.innerHTML = next.originalHTML;
+                    next.element.innerHTML = this.sanitizeHTMLForRestore(next.originalHTML);
                 }
             }
         },
