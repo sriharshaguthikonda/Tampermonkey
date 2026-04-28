@@ -5,6 +5,12 @@
 - **Open issues:** see [`TODO.md`](./TODO.md) for P0/P1-sorted index, or [GitHub Issues](https://github.com/sriharshaguthikonda/Tampermonkey/issues).
 - **Working branch:** `enhance-tts-functionality` (non-default; default is `gemini-version`).
 
+## Implementation order (required)
+
+- For feature/bug changes that affect both codepaths, implement in `edge-extension/` first.
+- Then translate/port the same change to `Tampermonkey_scripts/`.
+- Keep behavior parity unless a platform-specific difference is explicitly required.
+
 ---
 
 # Tampermonkey Update Workflow (GitHub Raw)
