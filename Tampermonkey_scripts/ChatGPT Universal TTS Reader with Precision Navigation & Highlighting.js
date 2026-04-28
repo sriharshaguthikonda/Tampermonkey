@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         *** ChatGPT Universal TTS Reader with Precision Navigation & Highlighting (Ignore Content Root)
 // @namespace    http://tampermonkey.net/
-// @version      3.9
+// @version      3.10
 // @description  TTS reader skips designated UI elements under #content-root
 // @author       Your Name (updated by AI)
 // @match        https://chat.openai.com/c/*
@@ -22,6 +22,7 @@
     'use strict';
 
     const SMART_COPY_SETTINGS_KEY = 'tts-smart-copy-settings';
+    const START_READ_SETTINGS_KEY = 'tts-start-read-settings';
 
     const TTSReader = {
         speechSynthesis: window.speechSynthesis,
@@ -70,6 +71,7 @@
         smartCopyCopyHandler: null,
         isChatGPTPage: false,
         processedParagraph: { element: null, originalHTML: '', wordSpans: [], wordOffsets: [] },
+        pendingStartWordOffset: null,
         serverVoiceEnabled: false,
         serverBaseUrl: null,
         currentServerAudio: null,
@@ -99,6 +101,7 @@
             NAV_FOCUS_FADE_MS: 800,
             SCROLL_THROTTLE_MS: 250,
             SCROLL_EDGE_PADDING: 80,
+            CLICK_START_SKIP_WORDS: 0,
             AUTO_SCROLL_ENABLED: true,
             AUTO_SCROLL_MODE: 'paragraph',
             AUTO_SCROLL_INTERVAL_MS: 2000,
@@ -156,6 +159,7 @@
         init() {
             this.detectContext();
             this.loadSmartCopySettings();
+            this.loadStartReadSettings();
             this.saveSmartCopySettings();
             this.waitForPageLoad();
             this.createUI();
@@ -214,6 +218,25 @@
                 copyButtonEnabled: this.CONFIG.COPY_BUTTON_ENABLED
             };
             localStorage.setItem(SMART_COPY_SETTINGS_KEY, JSON.stringify(payload));
+        },
+
+        loadStartReadSettings() {
+            try {
+                const raw = localStorage.getItem(START_READ_SETTINGS_KEY);
+                if (!raw) return;
+                const parsed = JSON.parse(raw);
+                const skip = Number.parseInt(parsed?.clickStartSkipWords, 10);
+                this.CONFIG.CLICK_START_SKIP_WORDS = Number.isFinite(skip) && skip > 0 ? skip : 0;
+            } catch (error) {
+                console.warn('Unable to restore start-read settings.', error);
+            }
+        },
+
+        saveStartReadSettings() {
+            const payload = {
+                clickStartSkipWords: this.CONFIG.CLICK_START_SKIP_WORDS
+            };
+            localStorage.setItem(START_READ_SETTINGS_KEY, JSON.stringify(payload));
         },
 
         initSmartCopyEnhancements() {
@@ -1801,6 +1824,98 @@
                 .replace(/\s+/g, ' ');
         },
 
+        getWordBoundaries(text) {
+            const source = String(text || '');
+            const boundaries = [];
+            const pattern = /\S+/g;
+            let match;
+            while ((match = pattern.exec(source)) !== null) {
+                boundaries.push({ start: match.index, end: match.index + match[0].length });
+            }
+            return boundaries;
+        },
+
+        findWordIndexByCharFromText(text, charIndex) {
+            const boundaries = this.getWordBoundaries(text);
+            if (boundaries.length === 0) return -1;
+            const safeCharIndex = Math.max(0, Number.isFinite(charIndex) ? charIndex : 0);
+            for (let i = 0; i < boundaries.length; i++) {
+                const boundary = boundaries[i];
+                if (safeCharIndex <= boundary.start) return i;
+                if (safeCharIndex < boundary.end) return i;
+            }
+            return boundaries.length - 1;
+        },
+
+        sliceTextByWordOffset(text, wordOffset) {
+            const source = String(text || '');
+            const boundaries = this.getWordBoundaries(source);
+            if (boundaries.length === 0) return { text: '', startCharIndex: 0, totalWords: 0 };
+
+            const safeOffset = Math.max(0, Number.parseInt(wordOffset, 10) || 0);
+            if (safeOffset >= boundaries.length) {
+                return { text: '', startCharIndex: source.length, totalWords: boundaries.length };
+            }
+
+            const startCharIndex = boundaries[safeOffset].start;
+            return {
+                text: source.slice(startCharIndex).trimStart(),
+                startCharIndex,
+                totalWords: boundaries.length
+            };
+        },
+
+        resolveParagraphStartByWordOffset(startParagraphIndex, wordOffset) {
+            let paragraphIndex = Number.parseInt(startParagraphIndex, 10);
+            if (!Number.isFinite(paragraphIndex) || paragraphIndex < 0) return null;
+            let remainingWords = Math.max(0, Number.parseInt(wordOffset, 10) || 0);
+
+            while (paragraphIndex < this.paragraphsList.length) {
+                const para = this.paragraphsList[paragraphIndex];
+                const wordCount = this.getWordBoundaries(para && para.text ? para.text : '').length;
+                if (wordCount === 0) {
+                    paragraphIndex += 1;
+                    continue;
+                }
+                if (remainingWords < wordCount) {
+                    return { paragraphIndex, wordOffset: remainingWords };
+                }
+                remainingWords -= wordCount;
+                paragraphIndex += 1;
+            }
+            return null;
+        },
+
+        getCaretRangeFromPoint(clientX, clientY) {
+            if (typeof document.caretRangeFromPoint === 'function') {
+                return document.caretRangeFromPoint(clientX, clientY);
+            }
+            if (typeof document.caretPositionFromPoint === 'function') {
+                const position = document.caretPositionFromPoint(clientX, clientY);
+                if (position && position.offsetNode) {
+                    const range = document.createRange();
+                    range.setStart(position.offsetNode, position.offset);
+                    range.collapse(true);
+                    return range;
+                }
+            }
+            return null;
+        },
+
+        getClickWordIndexInElement(element, event) {
+            if (!element || !event) return -1;
+            const text = this.getTextFromElement(element);
+            if (!text) return -1;
+            const range = this.getCaretRangeFromPoint(event.clientX, event.clientY);
+            if (!range || !element.contains(range.startContainer)) return -1;
+
+            const prefixRange = document.createRange();
+            prefixRange.selectNodeContents(element);
+            prefixRange.setEnd(range.startContainer, range.startOffset);
+            const prefixText = this.cleanTextForTTS(prefixRange.toString());
+            return this.findWordIndexByCharFromText(text, prefixText.length);
+        },
+
         trimGapForParagraphEnd(text) {
             if (!this.CONFIG.GAP_TRIM_ENABLED) return text;
             let trimmed = text.replace(/\s+$/g, '');
@@ -2357,6 +2472,13 @@
             this.showNotification(`Loop ${this.CONFIG.LOOP_ON_END ? 'on' : 'off'}`);
         },
 
+        setClickStartSkipWords(value) {
+            const parsed = Number.parseInt(value, 10);
+            const nextValue = Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+            this.CONFIG.CLICK_START_SKIP_WORDS = nextValue;
+            this.saveStartReadSettings();
+        },
+
         toggleWordHighlight() {
             this.setWordHighlightEnabled(!this.CONFIG.WORD_HIGHLIGHT_ENABLED);
         },
@@ -2453,11 +2575,21 @@
             const para = this.paragraphsList[index];
             if (!para || !para.element || !para.text) return;
 
-            const utterance = this.createUtterance(para.text, para.speakerEmoji);
+            let textToSpeak = para.text;
+            let startCharOffset = 0;
+            if (this.pendingStartWordOffset && this.pendingStartWordOffset.paragraphIndex === index) {
+                const sliced = this.sliceTextByWordOffset(para.text, this.pendingStartWordOffset.wordOffset);
+                this.pendingStartWordOffset = null;
+                if (!sliced.text) return;
+                textToSpeak = sliced.text;
+                startCharOffset = sliced.startCharIndex;
+            }
 
-            utterance.onstart = () => this.onUtteranceStart(index);
+            const utterance = this.createUtterance(textToSpeak, para.speakerEmoji);
+
+            utterance.onstart = () => this.onUtteranceStart(index, startCharOffset);
             if (this.CONFIG.WORD_HIGHLIGHT_ENABLED) {
-                utterance.onboundary = (event) => this.highlightCurrentWord(event);
+                utterance.onboundary = (event) => this.highlightWordByCharIndex((event.charIndex || 0) + startCharOffset);
             }
             utterance.onend = () => this.onUtteranceEnd(index);
             utterance.onerror = (e) => this.onUtteranceError(index, e);
@@ -2477,7 +2609,7 @@
             }
         },
 
-        onUtteranceStart(index) {
+        onUtteranceStart(index, startCharOffset = 0) {
             this.ttsActive = true;
             this.isPaused = false;
 
@@ -2502,7 +2634,7 @@
 
             this.clearHighlights(true);
             para.element.classList.add('tts-current-sentence');
-            this.highlightWordByCharIndex(0);
+            this.highlightWordByCharIndex(startCharOffset);
 
             if (this.pointerLoopId) cancelAnimationFrame(this.pointerLoopId);
             this.updatePointerArrow();
@@ -2831,11 +2963,23 @@
             this.queueFromIndex(index);
         },
 
+        startReadingFromParagraphWordOffset(index, wordOffset) {
+            const normalizedOffset = Math.max(0, Number.parseInt(wordOffset, 10) || 0);
+            if (normalizedOffset === 0) {
+                this.pendingStartWordOffset = null;
+                this.readFromParagraph(index);
+                return;
+            }
+            this.pendingStartWordOffset = { paragraphIndex: index, wordOffset: normalizedOffset };
+            this.readFromParagraph(index);
+        },
+
         stopTTS(notify = true) {
             this.ttsActive = false;
             this.isPaused = false;
             this.isNavigating = false;
             this.continuousReadingActive = false;
+            this.pendingStartWordOffset = null;
             this.pendingNavIndex = -1;
             this.navKeyHeld = false;
             clearTimeout(this.navigationTimeoutId);
@@ -2990,10 +3134,12 @@
             this.stopTTS(false);
             this.refreshParagraphsIfNeeded(true);
             let startParaIndex = -1;
+            let clickWordIndex = -1;
 
             const containingParagraph = this.paragraphsList.find(p => p.element.contains(event.target));
             if (containingParagraph) {
                 startParaIndex = this.paragraphsList.indexOf(containingParagraph);
+                clickWordIndex = this.getClickWordIndexInElement(containingParagraph.element, event);
             } else {
                 const clickY = event.clientY;
                 for(let i = 0; i < this.paragraphsList.length; i++) {
@@ -3006,8 +3152,15 @@
             }
 
             if (startParaIndex !== -1) {
+                const baseWordOffset = clickWordIndex >= 0 ? clickWordIndex : 0;
+                const totalWordOffset = baseWordOffset + this.CONFIG.CLICK_START_SKIP_WORDS;
+                const resolved = this.resolveParagraphStartByWordOffset(startParaIndex, totalWordOffset);
+                if (!resolved) {
+                    this.showNotification('Skip words reached end of readable text.');
+                    return;
+                }
                 this.continuousReadingActive = true;
-                this.readFromParagraph(startParaIndex);
+                this.startReadingFromParagraphWordOffset(resolved.paragraphIndex, resolved.wordOffset);
             } else {
                 this.showNotification('No readable text found at or below your click.');
             }
@@ -3033,9 +3186,15 @@
                 this.showNotification('No text selected.');
                 return;
             }
+            const sliced = this.sliceTextByWordOffset(cleaned, this.CONFIG.CLICK_START_SKIP_WORDS);
+            const startText = sliced.text || '';
+            if (!startText) {
+                this.showNotification('Selection shorter than skip words.');
+                return;
+            }
             this.stopTTS(false);
             this.continuousReadingActive = false;
-            this.triggerTTS(cleaned, { speakerEmoji: selectionData.speakerEmoji });
+            this.triggerTTS(startText, { speakerEmoji: selectionData.speakerEmoji });
         },
 
         setupEventListeners() {
@@ -3226,6 +3385,10 @@
                     <label for="tts-loop-toggle" style="display:flex; align-items:center; gap:6px; cursor:pointer;"><input type="checkbox" id="tts-loop-toggle" ${this.CONFIG.LOOP_ON_END ? 'checked' : ''} style="margin:0;">Loop to top</label>
                     <label for="tts-smart-copy-toggle" style="display:flex; align-items:center; gap:6px; cursor:pointer;"><input type="checkbox" id="tts-smart-copy-toggle" ${this.CONFIG.SMART_COPY_ENABLED ? 'checked' : ''} style="margin:0;">Smart copy</label>
                 </div>
+                <div style="display:flex; align-items:center; gap:6px; margin-top:6px;">
+                    <label for="tts-click-skip-words" style="flex:1; min-width:0;">Start reading +X words</label>
+                    <input type="number" id="tts-click-skip-words" min="0" step="1" value="${this.CONFIG.CLICK_START_SKIP_WORDS}" style="width:86px; padding:2px; background: rgba(0,0,0,0.8); color:#fff; border:1px solid rgba(255,255,255,0.25); border-radius:3px;">
+                </div>
                 <div style="display:flex; gap:6px; margin-top:6px;">
                     <button id="tts-copy-transcript-btn" type="button" style="flex:1; padding:4px 8px; background: rgba(255,255,255,0.2); border: none; color: #fff; cursor: pointer; border-radius: 3px;">Copy transcript</button>
                     <button id="tts-copy-selection-btn" type="button" style="flex:1; padding:4px 8px; background: rgba(255,255,255,0.2); border: none; color: #fff; cursor: pointer; border-radius: 3px;">Copy selection</button>
@@ -3314,6 +3477,16 @@
                 this.setSmartCopyEnabled(e.target.checked);
             });
             smartCopyToggle.addEventListener('mousedown', e => e.stopPropagation());
+            const clickSkipWordsInput = document.getElementById('tts-click-skip-words');
+            clickSkipWordsInput.addEventListener('input', e => {
+                this.setClickStartSkipWords(e.target.value);
+                e.target.value = String(this.CONFIG.CLICK_START_SKIP_WORDS);
+            });
+            clickSkipWordsInput.addEventListener('change', e => {
+                this.setClickStartSkipWords(e.target.value);
+                e.target.value = String(this.CONFIG.CLICK_START_SKIP_WORDS);
+            });
+            clickSkipWordsInput.addEventListener('mousedown', e => e.stopPropagation());
             const copyTranscriptButton = document.getElementById('tts-copy-transcript-btn');
             copyTranscriptButton.addEventListener('click', e => {
                 e.preventDefault();
