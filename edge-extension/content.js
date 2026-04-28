@@ -50,6 +50,7 @@
         smartCopyEnabled: true,
         smartCopyMode: 'selection-first',
         copyFormat: 'dialogue-plus-setup',
+        clickStartSkipWords: 0,
         doubleClickEditEnabled: true,
         autoCloseLimitWarning: true,
         limitWarningDelay: 1500,
@@ -322,6 +323,7 @@
             SMART_COPY_ENABLED: true,
             SMART_COPY_MODE: 'selection-first',
             COPY_FORMAT: 'dialogue-plus-setup',
+            CLICK_START_SKIP_WORDS: 0,
             SMART_COPY_USER_LABEL: 'Doctor',
             SMART_COPY_ASSISTANT_LABEL: 'ChatGPT',
             DOUBLE_CLICK_EDIT_ENABLED: true,
@@ -1582,6 +1584,16 @@
             this.CONFIG.COPY_FORMAT = nextValue;
             if (!silent) {
                 this.showNotification('Copy format updated');
+            }
+        },
+
+        setClickStartSkipWords(value, silent = false) {
+            const parsed = Number.parseInt(value, 10);
+            const nextValue = Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+            if (this.CONFIG.CLICK_START_SKIP_WORDS === nextValue) return;
+            this.CONFIG.CLICK_START_SKIP_WORDS = nextValue;
+            if (!silent) {
+                this.showNotification(`Start +${nextValue} words`);
             }
         },
 
@@ -2989,6 +3001,76 @@
                 .replace(/\s+/g, ' ');
         },
 
+        getWordBoundaries(text) {
+            const source = String(text || '');
+            const boundaries = [];
+            const pattern = /\S+/g;
+            let match;
+            while ((match = pattern.exec(source)) !== null) {
+                boundaries.push({ start: match.index, end: match.index + match[0].length });
+            }
+            return boundaries;
+        },
+
+        findWordIndexByCharFromText(text, charIndex) {
+            const boundaries = this.getWordBoundaries(text);
+            if (boundaries.length === 0) return -1;
+            const safeCharIndex = Math.max(0, Number.isFinite(charIndex) ? charIndex : 0);
+            for (let i = 0; i < boundaries.length; i++) {
+                const boundary = boundaries[i];
+                if (safeCharIndex <= boundary.start) return i;
+                if (safeCharIndex < boundary.end) return i;
+            }
+            return boundaries.length - 1;
+        },
+
+        getCharIndexByWordOffset(text, wordOffset) {
+            const source = String(text || '');
+            const boundaries = this.getWordBoundaries(source);
+            if (boundaries.length === 0) return { startCharIndex: 0, totalWords: 0 };
+
+            const safeOffset = Math.max(0, Number.parseInt(wordOffset, 10) || 0);
+            if (safeOffset >= boundaries.length) {
+                return { startCharIndex: source.length, totalWords: boundaries.length };
+            }
+            return { startCharIndex: boundaries[safeOffset].start, totalWords: boundaries.length };
+        },
+
+        sliceTextByWordOffset(text, wordOffset) {
+            const source = String(text || '');
+            const charData = this.getCharIndexByWordOffset(source, wordOffset);
+            if (charData.totalWords === 0) return { text: '', startCharIndex: 0, totalWords: 0 };
+            if (charData.startCharIndex >= source.length) {
+                return { text: '', startCharIndex: source.length, totalWords: charData.totalWords };
+            }
+            return {
+                text: source.slice(charData.startCharIndex).trimStart(),
+                startCharIndex: charData.startCharIndex,
+                totalWords: charData.totalWords
+            };
+        },
+
+        resolveParagraphStartByWordOffset(startParagraphIndex, wordOffset) {
+            let paragraphIndex = Number.parseInt(startParagraphIndex, 10);
+            if (!Number.isFinite(paragraphIndex) || paragraphIndex < 0) return null;
+            let remainingWords = Math.max(0, Number.parseInt(wordOffset, 10) || 0);
+
+            while (paragraphIndex < this.paragraphsList.length) {
+                const para = this.paragraphsList[paragraphIndex];
+                const wordCount = this.getWordBoundaries(para && para.text ? para.text : '').length;
+                if (wordCount === 0) {
+                    paragraphIndex += 1;
+                    continue;
+                }
+                if (remainingWords < wordCount) {
+                    return { paragraphIndex, wordOffset: remainingWords };
+                }
+                remainingWords -= wordCount;
+                paragraphIndex += 1;
+            }
+            return null;
+        },
+
         trimGapForParagraphEnd(text) {
             if (!this.CONFIG.GAP_TRIM_ENABLED) return text;
             let trimmed = text.replace(/\s+$/g, '');
@@ -3352,16 +3434,25 @@
             const paragraphIndex = Number.isInteger(target.paragraphIndex) ? target.paragraphIndex : -1;
             const charIndex = Number.isFinite(target.charIndex) ? Math.max(0, Math.floor(target.charIndex)) : 0;
             if (paragraphIndex < 0 || paragraphIndex >= this.paragraphsList.length) return false;
+            const paragraph = this.paragraphsList[paragraphIndex];
+            const baseWordOffset = Math.max(0, this.findWordIndexByCharFromText(paragraph && paragraph.text ? paragraph.text : '', charIndex));
+            const totalWordOffset = baseWordOffset + this.CONFIG.CLICK_START_SKIP_WORDS;
+            const resolved = this.resolveParagraphStartByWordOffset(paragraphIndex, totalWordOffset);
+            if (!resolved) return false;
+            const resolvedParagraph = this.paragraphsList[resolved.paragraphIndex];
+            const resolvedCharData = this.getCharIndexByWordOffset(resolvedParagraph && resolvedParagraph.text ? resolvedParagraph.text : '', resolved.wordOffset);
+            if (resolvedCharData.totalWords === 0) return false;
 
             this.logPlaybackGuardEvent('selection-seek-jump', {
-                paragraphIndex,
+                paragraphIndex: resolved.paragraphIndex,
                 charIndex,
+                startCharIndex: resolvedCharData.startCharIndex,
                 currentParagraphIndex: this.currentParagraphIndex
             });
 
             this.stopTTS(false);
             this.continuousReadingActive = true;
-            this.readFromParagraph(paragraphIndex, { startCharIndex: charIndex });
+            this.readFromParagraph(resolved.paragraphIndex, { startCharIndex: resolvedCharData.startCharIndex });
             return true;
         },
 
@@ -6206,10 +6297,15 @@
             this.stopTTS(false);
             this.refreshParagraphsIfNeeded(true);
             let startParaIndex = -1;
+            let startCharIndex = 0;
 
             const containingParagraph = this.paragraphsList.find(p => p.element.contains(event.target));
             if (containingParagraph) {
                 startParaIndex = this.paragraphsList.indexOf(containingParagraph);
+                const clickRange = this.getRangeFromPoint(event.clientX, event.clientY);
+                if (clickRange && containingParagraph.element.contains(clickRange.startContainer)) {
+                    startCharIndex = this.computeCharIndexWithinParagraphFromRange(containingParagraph.element, clickRange);
+                }
             } else {
                 const clickY = event.clientY;
                 for(let i = 0; i < this.paragraphsList.length; i++) {
@@ -6222,8 +6318,24 @@
             }
 
             if (startParaIndex !== -1) {
+                const startParagraph = this.paragraphsList[startParaIndex];
+                const baseWordOffset = containingParagraph
+                    ? Math.max(0, this.findWordIndexByCharFromText(startParagraph && startParagraph.text ? startParagraph.text : '', startCharIndex))
+                    : 0;
+                const totalWordOffset = baseWordOffset + this.CONFIG.CLICK_START_SKIP_WORDS;
+                const resolved = this.resolveParagraphStartByWordOffset(startParaIndex, totalWordOffset);
+                if (!resolved) {
+                    this.showNotification('Skip words reached end of readable text.');
+                    return;
+                }
+                const resolvedParagraph = this.paragraphsList[resolved.paragraphIndex];
+                const resolvedCharData = this.getCharIndexByWordOffset(resolvedParagraph && resolvedParagraph.text ? resolvedParagraph.text : '', resolved.wordOffset);
+                if (resolvedCharData.totalWords === 0) {
+                    this.showNotification('No readable text found at or below your click.');
+                    return;
+                }
                 this.continuousReadingActive = true;
-                this.readFromParagraph(startParaIndex);
+                this.readFromParagraph(resolved.paragraphIndex, { startCharIndex: resolvedCharData.startCharIndex });
             } else {
                 this.showNotification('No readable text found at or below your click.');
             }
@@ -6249,9 +6361,15 @@
                 this.showNotification('No text selected.');
                 return;
             }
+            const sliced = this.sliceTextByWordOffset(cleaned, this.CONFIG.CLICK_START_SKIP_WORDS);
+            const startText = sliced.text || '';
+            if (!startText) {
+                this.showNotification('Selection shorter than skip words.');
+                return;
+            }
             this.stopTTS(false);
             this.continuousReadingActive = false;
-            this.triggerTTS(cleaned, { speakerEmoji: selectionData.speakerEmoji });
+            this.triggerTTS(startText, { speakerEmoji: selectionData.speakerEmoji });
         },
 
         startReadingFromViewport() {
@@ -6518,6 +6636,10 @@
                 <label for="tts-loop-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-loop-toggle" ${this.CONFIG.LOOP_ON_END ? 'checked' : ''} style="margin:0;">🔁 Loop to top</label>
                 <label for="tts-autoscroll-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-autoscroll-toggle" ${this.CONFIG.AUTO_SCROLL_ENABLED ? 'checked' : ''} style="margin:0;">📜 Auto-scroll</label>
                 <label for="tts-smart-copy-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-smart-copy-toggle" ${this.CONFIG.SMART_COPY_ENABLED ? 'checked' : ''} style="margin:0;">Smart copy</label>
+                <div style="display:flex; align-items:center; gap:6px; margin-top:6px;">
+                    <label for="tts-click-skip-words" style="flex:1; min-width:0;">Start +X words</label>
+                    <input type="number" id="tts-click-skip-words" min="0" step="1" value="${this.CONFIG.CLICK_START_SKIP_WORDS}" style="width:72px; padding:2px; background: rgba(0,0,0,0.8); color:#fff; border:1px solid rgba(255,255,255,0.25); border-radius:3px;">
+                </div>
                 <div style="display:flex; gap:6px; margin-top:6px;">
                     <button id="tts-copy-transcript-btn" type="button" style="flex:1; padding:4px 8px; background: rgba(255,255,255,0.2); border: none; color: #fff; cursor: pointer; border-radius: 3px;">Copy transcript</button>
                     <button id="tts-copy-selection-btn" type="button" style="flex:1; padding:4px 8px; background: rgba(255,255,255,0.2); border: none; color: #fff; cursor: pointer; border-radius: 3px;">Copy selection</button>
@@ -6591,6 +6713,18 @@
                 persistProfileSetting(this.settingsProfile, 'smartCopyEnabled', this.CONFIG.SMART_COPY_ENABLED);
             });
             smartCopyToggle.addEventListener('mousedown', (e) => e.stopPropagation());
+            const clickSkipWordsInput = document.getElementById('tts-click-skip-words');
+            clickSkipWordsInput.addEventListener('input', (e) => {
+                this.setClickStartSkipWords(e.target.value, true);
+                persistProfileSetting(this.settingsProfile, 'clickStartSkipWords', this.CONFIG.CLICK_START_SKIP_WORDS);
+                e.target.value = String(this.CONFIG.CLICK_START_SKIP_WORDS);
+            });
+            clickSkipWordsInput.addEventListener('change', (e) => {
+                this.setClickStartSkipWords(e.target.value, true);
+                persistProfileSetting(this.settingsProfile, 'clickStartSkipWords', this.CONFIG.CLICK_START_SKIP_WORDS);
+                e.target.value = String(this.CONFIG.CLICK_START_SKIP_WORDS);
+            });
+            clickSkipWordsInput.addEventListener('mousedown', (e) => e.stopPropagation());
             const copyTranscriptButton = document.getElementById('tts-copy-transcript-btn');
             copyTranscriptButton.addEventListener('click', (e) => {
                 e.preventDefault();
@@ -6969,6 +7103,9 @@
         if (typeof settings.copyFormat === 'string') {
             TTSReader.setCopyFormat(settings.copyFormat, silent);
         }
+        if (typeof settings.clickStartSkipWords !== 'undefined') {
+            TTSReader.setClickStartSkipWords(settings.clickStartSkipWords, true);
+        }
         if (typeof settings.doubleClickEditEnabled === 'boolean') {
             TTSReader.setDoubleClickEditEnabled(settings.doubleClickEditEnabled, silent);
         }
@@ -7212,6 +7349,7 @@
                             smartCopyEnabled: TTSReader.CONFIG.SMART_COPY_ENABLED,
                             smartCopyMode: TTSReader.CONFIG.SMART_COPY_MODE,
                             copyFormat: TTSReader.CONFIG.COPY_FORMAT,
+                            clickStartSkipWords: TTSReader.CONFIG.CLICK_START_SKIP_WORDS,
                             doubleClickEditEnabled: TTSReader.CONFIG.DOUBLE_CLICK_EDIT_ENABLED,
                             autoCloseLimitWarning: TTSReader.CONFIG.AUTO_CLOSE_LIMIT_WARNING,
                             limitWarningDelay: TTSReader.CONFIG.LIMIT_WARNING_DELAY_MS,
