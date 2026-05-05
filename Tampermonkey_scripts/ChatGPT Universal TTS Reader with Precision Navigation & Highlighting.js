@@ -19,6 +19,28 @@
 // ==/UserScript==
 
 (function() {
+    // =============================================================================
+    // TABLE OF CONTENTS
+    // -----------------------------------------------------------------------------
+    // 02 TTSReader State & CONFIG
+    // 03 Lifecycle & Init
+    // 05 Smart Copy & Transcript
+    // 08 Voice Resolution
+    // 09 Paragraph Indexing
+    // 10 Text & Speech Units
+    // 12 Highlight & Word Spans
+    // 13 Prewrap & Revert
+    // 14 Auto-Read Observer
+    // 15 Server TTS
+    // 16 Queue & Utterance Lifecycle
+    // 17 Reading Flow & Navigation
+    // 18 Event Listeners
+    // 19 UI Build (overlay etc.)
+    // 20 Scroll & Pointer
+    // 21 Notifications & Drag
+    // Search any header with: grep "// SECTION NN"
+    // =============================================================================
+
     'use strict';
 
     const SMART_COPY_SETTINGS_KEY = 'tts-smart-copy-settings';

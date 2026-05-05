@@ -1,4 +1,32 @@
 (function() {
+    // =============================================================================
+    // TABLE OF CONTENTS
+    // -----------------------------------------------------------------------------
+    // 01 Settings & Profiles
+    // 02 TTSReader State & CONFIG
+    // 03 Lifecycle & Init
+    // 04 Playback Lock (cross-tab)
+    // 05 Smart Copy & Transcript
+    // 06 Prompt / Send / Paste
+    // 07 Media Boost
+    // 08 Voice Resolution
+    // 09 Paragraph Indexing
+    // 10 Text & Speech Units
+    // 11 Selection Seek
+    // 12 Highlight & Word Spans
+    // 13 Prewrap & Revert
+    // 14 Auto-Read Observer
+    // 15 Server TTS
+    // 16 Queue & Utterance Lifecycle
+    // 17 Reading Flow & Navigation
+    // 18 Event Listeners
+    // 19 UI Build (overlay etc.)
+    // 20 Scroll & Pointer
+    // 21 Notifications & Drag
+    // 22 Bottom-Level Bootstrap
+    // Search any header with: grep "// SECTION NN"
+    // =============================================================================
+
     'use strict';
 
     const SETTINGS_STORAGE_KEY = 'settingsByProfile';
