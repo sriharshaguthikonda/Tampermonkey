@@ -95,6 +95,12 @@
         }
     };
 
+    // =============================================================================
+    // SECTION 01: Settings & Profiles
+    // -----------------------------------------------------------------------------
+    // (See refactor_plan.md section B.1 for the canonical section list.)
+    // =============================================================================
+
     function getProfileFromUrl(urlLike) {
         try {
             const url = new URL(urlLike || '');
@@ -142,6 +148,12 @@
             chrome.storage.sync.set({ [SETTINGS_STORAGE_KEY]: settingsByProfile });
         });
     }
+
+    // =============================================================================
+    // SECTION 02: TTSReader State & CONFIG
+    // -----------------------------------------------------------------------------
+    // (See refactor_plan.md section B.1 for the canonical section list.)
+    // =============================================================================
 
     const TTSReader = {
         speechSynthesis: window.speechSynthesis,
@@ -339,6 +351,12 @@
             SPEAKER_EMOJI_REGEX: /^\s*((?:\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?)*))/u
         },
 
+        // =============================================================================
+        // SECTION 03: Lifecycle & Init
+        // -----------------------------------------------------------------------------
+        // (See refactor_plan.md section B.1 for the canonical section list.)
+        // =============================================================================
+
         init() {
             this.settingsProfile = getCurrentProfile();
             this.playbackOwnerId = this.generatePlaybackOwnerId();
@@ -373,6 +391,12 @@
                 this.CONFIG.LOOP_WAIT_MS = 0;
             }
         },
+
+        // =============================================================================
+        // SECTION 04: Playback Lock (cross-tab)
+        // -----------------------------------------------------------------------------
+        // (See refactor_plan.md section B.1 for the canonical section list.)
+        // =============================================================================
 
         generatePlaybackOwnerId() {
             const randomPart = Math.random().toString(36).slice(2, 10);
@@ -666,6 +690,12 @@
             this.checkAndCloseLimitWarnings();
             this.initPromptHistoryObserver();
         },
+
+        // =============================================================================
+        // SECTION 05: Smart Copy & Transcript
+        // -----------------------------------------------------------------------------
+        // (See refactor_plan.md section B.1 for the canonical section list.)
+        // =============================================================================
 
         initSmartCopyEnhancements() {
             if (!this.copyObserver) {
@@ -1617,6 +1647,12 @@
             });
         },
 
+        // =============================================================================
+        // SECTION 06: Prompt / Send / Paste
+        // -----------------------------------------------------------------------------
+        // (See refactor_plan.md section B.1 for the canonical section list.)
+        // =============================================================================
+
         findPromptArea() {
             const selectors = [
                 '#prompt-textarea[contenteditable="true"]',
@@ -2037,6 +2073,12 @@
             this.lastEnterPressTime = now;
         },
 
+        // =============================================================================
+        // SECTION 07: Media Boost
+        // -----------------------------------------------------------------------------
+        // (See refactor_plan.md section B.1 for the canonical section list.)
+        // =============================================================================
+
         boostMediaElement(mediaElement) {
             if (!mediaElement || !this.CONFIG.VOLUME_BOOST_ENABLED) return;
             if (!this.audioContexts.has(mediaElement)) {
@@ -2174,6 +2216,12 @@
             if (!Number.isFinite(level)) return 0.9;
             return Math.max(0.1, Math.min(1, level));
         },
+
+        // =============================================================================
+        // SECTION 15: Server TTS
+        // -----------------------------------------------------------------------------
+        // (See refactor_plan.md section B.1 for the canonical section list.)
+        // =============================================================================
 
         ensureServerAudioGraph() {
             const AudioCtx = window.AudioContext || window.webkitAudioContext;
@@ -2607,6 +2655,12 @@
             }
         },
 
+        // =============================================================================
+        // SECTION 08: Voice Resolution
+        // -----------------------------------------------------------------------------
+        // (See refactor_plan.md section B.1 for the canonical section list.)
+        // =============================================================================
+
         loadVoices() {
             return new Promise((resolve) => {
                 const voices = this.speechSynthesis.getVoices();
@@ -2960,6 +3014,12 @@
             return cap;
         },
 
+        // =============================================================================
+        // SECTION 09: Paragraph Indexing
+        // -----------------------------------------------------------------------------
+        // (See refactor_plan.md section B.1 for the canonical section list.)
+        // =============================================================================
+
         initParagraphObserver() {
             if (this.paragraphObserver) return;
             this.paragraphObserver = new MutationObserver((mutations) => {
@@ -2993,6 +3053,12 @@
             }
             return currentIndex;
         },
+
+        // =============================================================================
+        // SECTION 10: Text & Speech Units
+        // -----------------------------------------------------------------------------
+        // (See refactor_plan.md section B.1 for the canonical section list.)
+        // =============================================================================
 
         cleanTextForTTS(text) {
             return String(text || '')
@@ -3356,6 +3422,12 @@
             return isYouSaidHeading(sectionHeading);
         },
 
+        // =============================================================================
+        // SECTION 11: Selection Seek
+        // -----------------------------------------------------------------------------
+        // (See refactor_plan.md section B.1 for the canonical section list.)
+        // =============================================================================
+
         resolveParagraphIndexForNode(node) {
             if (!node) return -1;
             for (let i = 0; i < this.paragraphsList.length; i++) {
@@ -3509,6 +3581,12 @@
             });
         },
 
+        // =============================================================================
+        // SECTION 12: Highlight & Word Spans
+        // -----------------------------------------------------------------------------
+        // (See refactor_plan.md section B.1 for the canonical section list.)
+        // =============================================================================
+
         clearHighlights(keepFading = false) {
             const selectors = ['.tts-current-sentence', '.tts-current-word'];
             if (!keepFading) {
@@ -3566,6 +3644,12 @@
                 span.parentNode.replaceChild(document.createTextNode(span.textContent || ''), span);
             }
         },
+
+        // =============================================================================
+        // SECTION 13: Prewrap & Revert
+        // -----------------------------------------------------------------------------
+        // (See refactor_plan.md section B.1 for the canonical section list.)
+        // =============================================================================
 
         revertParagraph() {
             const { element, wordSpans } = this.processedParagraph;
@@ -3901,6 +3985,12 @@
             };
             this.navigationTrailAnimationId = requestAnimationFrame(tick);
         },
+
+        // =============================================================================
+        // SECTION 14: Auto-Read Observer
+        // -----------------------------------------------------------------------------
+        // (See refactor_plan.md section B.1 for the canonical section list.)
+        // =============================================================================
 
         initAutoReadObserver() {
             if (this.autoReadObserver) return;
@@ -5719,6 +5809,12 @@
                 });
         },
 
+        // =============================================================================
+        // SECTION 16: Queue & Utterance Lifecycle
+        // -----------------------------------------------------------------------------
+        // (See refactor_plan.md section B.1 for the canonical section list.)
+        // =============================================================================
+
         enqueueParagraph(index) {
             if (!this.continuousReadingActive) return;
             if (this.paragraphsDirty) {
@@ -6000,6 +6096,12 @@
                 this.enqueueParagraph(i);
             }
         },
+
+        // =============================================================================
+        // SECTION 17: Reading Flow & Navigation
+        // -----------------------------------------------------------------------------
+        // (See refactor_plan.md section B.1 for the canonical section list.)
+        // =============================================================================
 
         readFromParagraph(index, options = {}) {
             if (!this.continuousReadingActive) {
@@ -6409,6 +6511,12 @@
             this.readFromParagraph(this.pendingNavIndex);
         },
 
+        // =============================================================================
+        // SECTION 18: Event Listeners
+        // -----------------------------------------------------------------------------
+        // (See refactor_plan.md section B.1 for the canonical section list.)
+        // =============================================================================
+
         setupEventListeners() {
             document.addEventListener('keydown', (e) => {
                 this.markUserInteraction();
@@ -6547,6 +6655,12 @@
         },
 
         // --- UI AND POINTER LOGIC ---
+
+        // =============================================================================
+        // SECTION 19: UI Build (overlay etc.)
+        // -----------------------------------------------------------------------------
+        // (See refactor_plan.md section B.1 for the canonical section list.)
+        // =============================================================================
 
         createUI() {
             document.documentElement.style.setProperty('--tts-focus-fade-ms', `${this.CONFIG.NAV_FOCUS_FADE_MS}ms`);
@@ -6779,6 +6893,12 @@
         },
 
         // MODIFIED: This function is now mostly disabled for TTS reading.
+        // =============================================================================
+        // SECTION 20: Scroll & Pointer
+        // -----------------------------------------------------------------------------
+        // (See refactor_plan.md section B.1 for the canonical section list.)
+        // =============================================================================
+
         gentleScrollToElement(element) {
             if (!element) return;
             const now = Date.now();
@@ -6925,6 +7045,12 @@
         },
 
         // ... (showNotification and makeDraggable are unchanged) ...
+        // =============================================================================
+        // SECTION 21: Notifications & Drag
+        // -----------------------------------------------------------------------------
+        // (See refactor_plan.md section B.1 for the canonical section list.)
+        // =============================================================================
+
         showNotification(message, durationMs = 2500) {
             let existing = document.getElementById('tts-notification-popup');
             if(existing) existing.remove();
@@ -6973,6 +7099,12 @@
             });
         },
     };
+
+    // =============================================================================
+    // SECTION 22: Bottom-Level Bootstrap
+    // -----------------------------------------------------------------------------
+    // (See refactor_plan.md section B.1 for the canonical section list.)
+    // =============================================================================
 
     function getPlaybackState() {
         const synth = TTSReader.speechSynthesis;
