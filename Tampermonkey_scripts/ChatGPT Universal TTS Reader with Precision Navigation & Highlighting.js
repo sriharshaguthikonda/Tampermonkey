@@ -24,6 +24,12 @@
     const SMART_COPY_SETTINGS_KEY = 'tts-smart-copy-settings';
     const START_READ_SETTINGS_KEY = 'tts-start-read-settings';
 
+    // =============================================================================
+    // SECTION 02: TTSReader State & CONFIG
+    // -----------------------------------------------------------------------------
+    // (See refactor_plan.md section B.1 for the canonical section list.)
+    // =============================================================================
+
     const TTSReader = {
         speechSynthesis: window.speechSynthesis,
         ttsActive: false,
@@ -156,6 +162,12 @@
             READING_MODE: 'sentence',
         },
 
+        // =============================================================================
+        // SECTION 03: Lifecycle & Init
+        // -----------------------------------------------------------------------------
+        // (See refactor_plan.md section B.1 for the canonical section list.)
+        // =============================================================================
+
         init() {
             this.detectContext();
             this.loadSmartCopySettings();
@@ -238,6 +250,12 @@
             };
             localStorage.setItem(START_READ_SETTINGS_KEY, JSON.stringify(payload));
         },
+
+        // =============================================================================
+        // SECTION 05: Smart Copy & Transcript
+        // -----------------------------------------------------------------------------
+        // (See refactor_plan.md section B.1 for the canonical section list.)
+        // =============================================================================
 
         initSmartCopyEnhancements() {
             if (!this.copyObserver) {
@@ -1285,6 +1303,12 @@
             }
         },
 
+        // =============================================================================
+        // SECTION 08: Voice Resolution
+        // -----------------------------------------------------------------------------
+        // (See refactor_plan.md section B.1 for the canonical section list.)
+        // =============================================================================
+
         loadVoices() {
             this.loadVoicePreferences();
             return new Promise((resolve) => {
@@ -1783,6 +1807,12 @@
             this.showNotification(`Reading mode: ${mode}`);
         },
 
+        // =============================================================================
+        // SECTION 09: Paragraph Indexing
+        // -----------------------------------------------------------------------------
+        // (See refactor_plan.md section B.1 for the canonical section list.)
+        // =============================================================================
+
         initParagraphObserver() {
             if (this.paragraphObserver) return;
             this.paragraphObserver = new MutationObserver((mutations) => {
@@ -1816,6 +1846,12 @@
             }
             return currentIndex;
         },
+
+        // =============================================================================
+        // SECTION 10: Text & Speech Units
+        // -----------------------------------------------------------------------------
+        // (See refactor_plan.md section B.1 for the canonical section list.)
+        // =============================================================================
 
         cleanTextForTTS(text) {
             return text
@@ -1990,6 +2026,12 @@
             });
         },
 
+        // =============================================================================
+        // SECTION 12: Highlight & Word Spans
+        // -----------------------------------------------------------------------------
+        // (See refactor_plan.md section B.1 for the canonical section list.)
+        // =============================================================================
+
         clearHighlights(keepFading = false) {
             const selectors = ['.tts-current-sentence', '.tts-current-word'];
             if (!keepFading) {
@@ -2018,6 +2060,12 @@
                 span.parentNode.replaceChild(document.createTextNode(span.textContent || ''), span);
             }
         },
+
+        // =============================================================================
+        // SECTION 13: Prewrap & Revert
+        // -----------------------------------------------------------------------------
+        // (See refactor_plan.md section B.1 for the canonical section list.)
+        // =============================================================================
 
         revertParagraph() {
             const { element, wordSpans } = this.processedParagraph;
@@ -2237,6 +2285,12 @@
             this.progressPanel.textContent = `Reading ${current}/${total}`;
             this.progressPanel.style.opacity = '1';
         },
+
+        // =============================================================================
+        // SECTION 14: Auto-Read Observer
+        // -----------------------------------------------------------------------------
+        // (See refactor_plan.md section B.1 for the canonical section list.)
+        // =============================================================================
 
         initAutoReadObserver() {
             if (this.autoReadObserver) return;
@@ -2578,6 +2632,12 @@
             this.speechSynthesis.speak(utterance);
         },
 
+        // =============================================================================
+        // SECTION 16: Queue & Utterance Lifecycle
+        // -----------------------------------------------------------------------------
+        // (See refactor_plan.md section B.1 for the canonical section list.)
+        // =============================================================================
+
         enqueueParagraph(index) {
             if (!this.continuousReadingActive) return;
             if (this.paragraphsDirty) {
@@ -2723,6 +2783,12 @@
                 this.enqueueParagraph(i);
             }
         },
+
+        // =============================================================================
+        // SECTION 15: Server TTS
+        // -----------------------------------------------------------------------------
+        // (See refactor_plan.md section B.1 for the canonical section list.)
+        // =============================================================================
 
         playServerSentence(sentenceText, sentenceIndex, onComplete = null) {
             if (!sentenceText || !this.serverVoiceEnabled) return;
@@ -2962,6 +3028,12 @@
                 this.showNotification('End of page.');
             }
         },
+
+        // =============================================================================
+        // SECTION 17: Reading Flow & Navigation
+        // -----------------------------------------------------------------------------
+        // (See refactor_plan.md section B.1 for the canonical section list.)
+        // =============================================================================
 
         readFromParagraph(index) {
             if (!this.continuousReadingActive) {
@@ -3211,6 +3283,12 @@
             this.triggerTTS(startText, { speakerEmoji: selectionData.speakerEmoji });
         },
 
+        // =============================================================================
+        // SECTION 18: Event Listeners
+        // -----------------------------------------------------------------------------
+        // (See refactor_plan.md section B.1 for the canonical section list.)
+        // =============================================================================
+
         setupEventListeners() {
             document.addEventListener('keydown', (e) => {
                 if (this.handleSmartCopyShortcut(e)) return;
@@ -3290,6 +3368,12 @@
         },
 
         // --- UI AND POINTER LOGIC ---
+
+        // =============================================================================
+        // SECTION 19: UI Build (overlay etc.)
+        // -----------------------------------------------------------------------------
+        // (See refactor_plan.md section B.1 for the canonical section list.)
+        // =============================================================================
 
         createUI() {
             document.documentElement.style.setProperty('--tts-focus-fade-ms', `${this.CONFIG.NAV_FOCUS_FADE_MS}ms`);
@@ -3537,6 +3621,12 @@
         },
 
         // MODIFIED: This function is now mostly disabled for TTS reading.
+        // =============================================================================
+        // SECTION 20: Scroll & Pointer
+        // -----------------------------------------------------------------------------
+        // (See refactor_plan.md section B.1 for the canonical section list.)
+        // =============================================================================
+
         gentleScrollToElement(element) {
             if (!element) return;
             const now = Date.now();
@@ -3683,6 +3773,12 @@
         },
 
         // ... (showNotification and makeDraggable are unchanged) ...
+        // =============================================================================
+        // SECTION 21: Notifications & Drag
+        // -----------------------------------------------------------------------------
+        // (See refactor_plan.md section B.1 for the canonical section list.)
+        // =============================================================================
+
         showNotification(message, durationMs = 2500) {
             let existing = document.getElementById('tts-notification-popup');
             if(existing) existing.remove();
