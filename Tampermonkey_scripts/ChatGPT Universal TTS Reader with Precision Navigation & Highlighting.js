@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         *** ChatGPT Universal TTS Reader with Precision Navigation & Highlighting (Ignore Content Root)
 // @namespace    http://tampermonkey.net/
-// @version      3.10
+// @version      3.11
 // @description  TTS reader skips designated UI elements under #content-root
 // @author       Your Name (updated by AI)
 // @match        https://chat.openai.com/c/*
@@ -2001,11 +2001,27 @@
             this.currentWordSpan = null;
         },
 
-        revertParagraph() {
-            const { element, originalHTML } = this.processedParagraph;
-            if (element && originalHTML) {
-                element.innerHTML = originalHTML;
+        unwrapWordSpans(element, wordSpans) {
+            if (!element || !element.isConnected) return;
+            const targets = (Array.isArray(wordSpans) && wordSpans.length > 0)
+                ? wordSpans
+                : Array.from(element.querySelectorAll('span[data-tts-word="1"]'));
+            for (const span of targets) {
+                if (!span || !span.parentNode || !span.isConnected) continue;
+                if (span.getAttribute && span.getAttribute('data-tts-word') !== '1') continue;
+                const textNode = document.createTextNode(span.textContent || '');
+                span.parentNode.replaceChild(textNode, span);
             }
+            const stragglers = element.querySelectorAll('span[data-tts-word="1"]');
+            for (const span of stragglers) {
+                if (!span.parentNode) continue;
+                span.parentNode.replaceChild(document.createTextNode(span.textContent || ''), span);
+            }
+        },
+
+        revertParagraph() {
+            const { element, wordSpans } = this.processedParagraph;
+            this.unwrapWordSpans(element, wordSpans);
             this.processedParagraph = { element: null, originalHTML: '', wordSpans: [], wordOffsets: [] };
             this.clearHighlights();
         },
@@ -2047,6 +2063,7 @@
                 parts.forEach(part => {
                     if (/\S/.test(part)) {
                         const span = document.createElement('span');
+                        span.setAttribute('data-tts-word', '1');
                         span.textContent = part;
                         fragment.appendChild(span);
                         wordSpans.push(span);
@@ -2088,6 +2105,7 @@
                 parts.forEach(part => {
                     if (/\S/.test(part)) {
                         const span = document.createElement('span');
+                        span.setAttribute('data-tts-word', '1');
                         span.textContent = part;
                         fragment.appendChild(span);
                         wordSpans.push(span);
@@ -2132,9 +2150,7 @@
             for (const [element, data] of this.prewrappedParagraphs.entries()) {
                 const isValid = element && element.isConnected && validElements.has(element);
                 if (!isValid) {
-                    if (element && element.isConnected && data.originalHTML) {
-                        element.innerHTML = data.originalHTML;
-                    }
+                    this.unwrapWordSpans(element, data && data.wordSpans);
                     this.prewrappedParagraphs.delete(element);
                 }
             }
@@ -2143,17 +2159,15 @@
         clearPrewrappedParagraphs() {
             if (this.prewrappedParagraphs.size === 0) return;
             for (const [element, data] of this.prewrappedParagraphs.entries()) {
-                if (element && element.isConnected && data.originalHTML) {
-                    element.innerHTML = data.originalHTML;
-                }
+                this.unwrapWordSpans(element, data && data.wordSpans);
             }
             this.prewrappedParagraphs.clear();
         },
 
         deferProcessedParagraphRevert() {
-            const { element, originalHTML } = this.processedParagraph;
-            if (element && originalHTML) {
-                this.pendingReverts.push({ element, originalHTML });
+            const { element, originalHTML, wordSpans } = this.processedParagraph;
+            if (element) {
+                this.pendingReverts.push({ element, originalHTML, wordSpans });
                 this.schedulePendingRevert();
             }
             this.processedParagraph = { element: null, originalHTML: '', wordSpans: [], wordOffsets: [] };
@@ -2167,8 +2181,8 @@
                 this.pendingRevertUsesIdle = false;
                 if (this.pendingReverts.length === 0) return;
                 const next = this.pendingReverts.shift();
-                if (next && next.element && next.element.isConnected && next.originalHTML) {
-                    next.element.innerHTML = next.originalHTML;
+                if (next && next.element) {
+                    this.unwrapWordSpans(next.element, next.wordSpans);
                 }
                 if (this.pendingReverts.length > 0) {
                     this.schedulePendingRevert();
@@ -2199,8 +2213,8 @@
             this.cancelPendingRevert();
             while (this.pendingReverts.length > 0) {
                 const next = this.pendingReverts.shift();
-                if (next && next.element && next.element.isConnected && next.originalHTML) {
-                    next.element.innerHTML = next.originalHTML;
+                if (next && next.element) {
+                    this.unwrapWordSpans(next.element, next.wordSpans);
                 }
             }
         },
