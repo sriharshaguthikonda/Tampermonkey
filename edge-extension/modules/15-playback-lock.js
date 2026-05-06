@@ -8,7 +8,6 @@
     }
 
     Object.assign(ns.TTSReader, {
-        // =============================================================================
         // SECTION 04: Playback Lock (cross-tab)
         // -----------------------------------------------------------------------------
         // (See refactor_plan.md section B.1 for the canonical section list.)
@@ -305,6 +304,8 @@
             }
             this.checkAndCloseLimitWarnings();
             this.initPromptHistoryObserver();
-        }
+        },
+
+        // =============================================================================
     });
 })();

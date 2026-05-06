@@ -8,7 +8,6 @@
     }
 
     Object.assign(ns.TTSReader, {
-        // =============================================================================
         // SECTION 07: Media Boost
         // -----------------------------------------------------------------------------
         // (See refactor_plan.md section B.1 for the canonical section list.)
@@ -150,6 +149,8 @@
             const level = Number(this.CONFIG.VOLUME_BOOST_LEVEL);
             if (!Number.isFinite(level)) return 0.9;
             return Math.max(0.1, Math.min(1, level));
-        }
+        },
+
+        // =============================================================================
     });
 })();

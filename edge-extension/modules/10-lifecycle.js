@@ -10,7 +10,6 @@
     const { getCurrentProfile } = ns.helpers;
 
     Object.assign(ns.TTSReader, {
-        // =============================================================================
         // SECTION 03: Lifecycle & Init
         // -----------------------------------------------------------------------------
         // (See refactor_plan.md section B.1 for the canonical section list.)
@@ -49,6 +48,8 @@
                 this.CONFIG.WAIT_FOR_MORE_MS = 0;
                 this.CONFIG.LOOP_WAIT_MS = 0;
             }
-        }
+        },
+
+        // =============================================================================
     });
 })();

@@ -8,12 +8,69 @@
     }
 
     Object.assign(ns.TTSReader, {
-        // =============================================================================
         // SECTION 12: Highlight & Word Spans
         // -----------------------------------------------------------------------------
         // (See refactor_plan.md section B.1 for the canonical section list.)
         // =============================================================================
 
-        // Highlight and word span methods will be added here
+        clearHighlights(keepFading = false) {
+            const selectors = ['.tts-current-sentence', '.tts-current-word'];
+            if (!keepFading) {
+                selectors.push('.tts-navigation-focus', '.tts-focus-fade-out');
+            }
+            document.querySelectorAll(selectors.join(', ')).forEach(el => {
+                el.classList.remove(...selectors.map(s => s.substring(1)));
+            });
+            this.currentWordSpan = null;
+            this.clearServerWordHighlightTimers();
+        },
+
+        sanitizeHTMLForRestore(html) {
+            if (typeof html !== 'string' || !html) return '';
+            const tpl = document.createElement('template');
+            tpl.innerHTML = html;
+            const BAD_TAGS = new Set(['SCRIPT', 'IFRAME', 'OBJECT', 'EMBED', 'BASE', 'LINK', 'META']);
+            const URL_ATTRS = new Set(['href', 'src', 'xlink:href', 'action', 'formaction', 'srcdoc']);
+            const walker = document.createTreeWalker(tpl.content, NodeFilter.SHOW_ELEMENT);
+            const toRemove = [];
+            while (walker.nextNode()) {
+                const el = walker.currentNode;
+                if (BAD_TAGS.has(el.tagName)) {
+                    toRemove.push(el);
+                    continue;
+                }
+                for (const attr of Array.from(el.attributes)) {
+                    const name = attr.name.toLowerCase();
+                    const val = attr.value || '';
+                    if (name.startsWith('on')) {
+                        el.removeAttribute(attr.name);
+                    } else if (URL_ATTRS.has(name) && /^\s*(javascript|vbscript):/i.test(val)) {
+                        el.removeAttribute(attr.name);
+                    }
+                }
+            }
+            for (const el of toRemove) el.remove();
+            return tpl.innerHTML;
+        },
+
+        unwrapWordSpans(element, wordSpans) {
+            if (!element || !element.isConnected) return;
+            const targets = (Array.isArray(wordSpans) && wordSpans.length > 0)
+                ? wordSpans
+                : Array.from(element.querySelectorAll('span[data-tts-word="1"]'));
+            for (const span of targets) {
+                if (!span || !span.parentNode || !span.isConnected) continue;
+                if (span.getAttribute && span.getAttribute('data-tts-word') !== '1') continue;
+                const textNode = document.createTextNode(span.textContent || '');
+                span.parentNode.replaceChild(textNode, span);
+            }
+            const stragglers = element.querySelectorAll('span[data-tts-word="1"]');
+            for (const span of stragglers) {
+                if (!span.parentNode) continue;
+                span.parentNode.replaceChild(document.createTextNode(span.textContent || ''), span);
+            }
+        },
+
+        // =============================================================================
     });
 })();

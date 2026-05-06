@@ -8,6 +8,78 @@
     }
 
     Object.assign(ns.TTSReader, {
+        addPromptToHistory(text) {
+            const normalized = this.normalizePromptHistoryText(text);
+            if (!normalized) return;
+            const maxChars = Math.max(500, Number(this.CONFIG.PROMPT_HISTORY_MAX_CHARS) || 6000);
+            if (normalized.length > maxChars) return;
+            const last = this.promptHistory.length > 0 ? this.promptHistory[this.promptHistory.length - 1] : '';
+            if (last === normalized) return;
+
+            this.promptHistory.push(normalized);
+            const maxItems = Math.max(20, Number(this.CONFIG.PROMPT_HISTORY_MAX) || 200);
+            if (this.promptHistory.length > maxItems) {
+                this.promptHistory.splice(0, this.promptHistory.length - maxItems);
+            }
+            this.promptHistoryCursor = -1;
+            this.promptHistoryDraft = '';
+            this.promptHistoryDraftTooLarge = false;
+        },
+
+        extractCleanText(element) {
+            if (!element) return '';
+            const clone = element.cloneNode(true);
+            clone.querySelectorAll('[data-tmx-control], .tmx-copy-row, .tmx-copy-button, [data-tts-ui]').forEach((node) => node.remove());
+            return this.normalizePromptHistoryText(clone.innerText || clone.textContent || '');
+        },
+
+        extractUserMessageText(messageElement) {
+            if (!messageElement || messageElement.getAttribute('data-message-author-role') !== 'user') return '';
+            const preferredNode = messageElement.querySelector('.whitespace-pre-wrap');
+            if (preferredNode) {
+                return this.extractCleanText(preferredNode);
+            }
+            return this.extractCleanText(messageElement);
+        },
+
+        hydratePromptHistoryFromDom() {
+            this.promptHistory = [];
+            const userMessages = Array.from(document.querySelectorAll('[data-message-author-role="user"]'));
+            userMessages.forEach((messageElement) => {
+                const text = this.extractUserMessageText(messageElement);
+                if (text) this.addPromptToHistory(text);
+            });
+            this.promptHistoryCursor = -1;
+            this.promptHistoryDraft = '';
+            this.promptHistoryDraftTooLarge = false;
+        },
+
+        initPromptHistoryObserver() {
+            if (!this.isChatGPTPage || this.promptHistoryObserver) return;
+            this.hydratePromptHistoryFromDom();
+            this.promptHistoryObserver = new MutationObserver((mutations) => {
+                for (const mutation of mutations) {
+                    if (!mutation.addedNodes || mutation.addedNodes.length === 0) continue;
+                    for (const node of mutation.addedNodes) {
+                        if (node.nodeType !== Node.ELEMENT_NODE) continue;
+                        const element = node;
+                        const candidates = [];
+                        if (element.matches && element.matches('[data-message-author-role="user"]')) {
+                            candidates.push(element);
+                        }
+                        if (element.querySelectorAll) {
+                            candidates.push(...element.querySelectorAll('[data-message-author-role="user"]'));
+                        }
+                        candidates.forEach((candidate) => {
+                            const text = this.extractUserMessageText(candidate);
+                            if (text) this.addPromptToHistory(text);
+                        });
+                    }
+                }
+            });
+            this.promptHistoryObserver.observe(document.body, { childList: true, subtree: true });
+        },
+
         setPromptHistoryNavigationEnabled(enabled, silent = false) {
             const nextValue = Boolean(enabled);
             if (this.CONFIG.PROMPT_HISTORY_NAV_ENABLED === nextValue) return;
@@ -166,7 +238,7 @@
             event.stopPropagation();
 
             if (this.CONFIG.NICE_AUTO_PASTE_ENABLED) {
-                const formattedQuery = `According to NICE guidelines, what is answer for following:\n\n${pastedText.trim()}`;
+                const formattedQuery = `According to NICE guidelines, what is the answer for the following:\n\n${pastedText.trim()}`;
                 const success = this.setQueryAndSend(formattedQuery, this.CONFIG.NICE_AUTO_SEND);
                 if (success) {
                     this.showNotification(`NICE query pasted${this.CONFIG.NICE_AUTO_SEND ? ' and sent' : ''}.`);
@@ -205,6 +277,8 @@
                 return;
             }
             this.lastEnterPressTime = now;
-        }
+        },
+
+        // =============================================================================
     });
 })();

@@ -8,7 +8,6 @@
     }
 
     Object.assign(ns.TTSReader, {
-        // =============================================================================
         // SECTION 05: Smart Copy & Transcript
         // -----------------------------------------------------------------------------
         // (See refactor_plan.md section B.1 for the canonical section list.)
@@ -240,84 +239,5 @@
                 });
         },
 
-        buildSmartCopyTranscriptText() {
-            if (this.CONFIG.COPY_FORMAT !== 'dialogue-plus-setup') return '';
-            const entries = this.sortSmartCopyEntries(
-                this.collectSmartCopyEntriesFromMessages(this.getConversationMessageElements())
-            );
-            return this.formatSmartCopyEntries(entries);
-        },
-
-        extractSelectedTextFromNodeWithinRange(node, range) {
-            if (!node || !range) return '';
-            let nodeRange;
-            try {
-                nodeRange = document.createRange();
-                nodeRange.selectNodeContents(node);
-            } catch (_error) {
-                return '';
-            }
-
-            try {
-                if (range.compareBoundaryPoints(Range.END_TO_START, nodeRange) <= 0) return '';
-                if (range.compareBoundaryPoints(Range.START_TO_END, nodeRange) >= 0) return '';
-            } catch (_error) {
-                return '';
-            }
-
-            const clipped = range.cloneRange();
-            try {
-                if (clipped.compareBoundaryPoints(Range.START_TO_START, nodeRange) < 0) {
-                    clipped.setStart(nodeRange.startContainer, nodeRange.startOffset);
-                }
-                if (clipped.compareBoundaryPoints(Range.END_TO_END, nodeRange) > 0) {
-                    clipped.setEnd(nodeRange.endContainer, nodeRange.endOffset);
-                }
-            } catch (_error) {
-                return '';
-            }
-
-            const container = document.createElement('div');
-            container.appendChild(clipped.cloneContents());
-            this.cleanSmartCopyWorkingNode(container);
-            return this.normalizeSmartCopyText(container.innerText || container.textContent || '');
-        },
-
-        buildSmartCopySelectionText(selection = null) {
-            const activeSelection = selection || window.getSelection();
-            if (!activeSelection || activeSelection.rangeCount === 0 || activeSelection.isCollapsed) return '';
-
-            const messages = this.getConversationMessageElements();
-            if (messages.length === 0) return '';
-
-            const entries = [];
-            messages.forEach((messageElement) => {
-                const role = this.getMessageRoleFromElement(messageElement);
-                if (role !== 'assistant' && role !== 'user') return;
-
-                const contentNode = this.getPreferredMessageContentNode(messageElement);
-                const selectedParts = [];
-                for (let i = 0; i < activeSelection.rangeCount; i++) {
-                    const range = activeSelection.getRangeAt(i);
-                    const selectedText = this.extractSelectedTextFromNodeWithinRange(contentNode || messageElement, range);
-                    if (selectedText) selectedParts.push(selectedText);
-                }
-                if (selectedParts.length === 0) return;
-
-                const merged = this.normalizeSmartCopyText(selectedParts.join('\n'));
-                if (!merged) return;
-                entries.push({ role, text: merged });
-            });
-
-            return this.formatSmartCopyEntries(entries);
-        },
-
-        isEditableSelectionContext() {
-            const activeEl = document.activeElement;
-            if (!activeEl) return false;
-            if (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA') return true;
-            if (activeEl.isContentEditable) return true;
-            return false;
-        }
     });
 })();

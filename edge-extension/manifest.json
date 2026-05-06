@@ -42,7 +42,6 @@
         "file:///*"
       ],
       "js": [
-        "profile.js",
         "modules/00-namespace.js",
         "modules/10-lifecycle.js",
         "modules/15-playback-lock.js",

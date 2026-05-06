@@ -8,7 +8,6 @@
     }
 
     Object.assign(ns.TTSReader, {
-        // =============================================================================
         // SECTION 15: Server TTS
         // -----------------------------------------------------------------------------
         // (See refactor_plan.md section B.1 for the canonical section list.)
@@ -74,6 +73,83 @@
             this.scheduledNextSource = null;
         },
 
+        async scheduleNextSentence(state, nextIndex, currentBufferDuration) {
+            // Look-ahead scheduling: schedule next sentence to start exactly when current ends
+            if (!this.serverAudioContext) return;
+            if (state.playbackSessionId !== this.playbackSessionId) return;
+            if (nextIndex >= state.sentences.length) return;
+
+            const context = this.serverAudioContext;
+            const nextStartTime = this.serverPlaybackStartTime + currentBufferDuration;
+
+            // Fetch and prepare next sentence audio
+            let prepared;
+            try {
+                prepared = await this.getOrPrepareServerSentenceAudioElement(state, nextIndex);
+            } catch (error) {
+                this.logPlaybackGuardEvent('lookahead-fetch-error', {
+                    paragraphIndex: state.paragraphIndex,
+                    sentenceIndex: nextIndex,
+                    error: String(error && error.message ? error.message : error)
+                });
+                return;
+            }
+
+            if (state.playbackSessionId !== this.playbackSessionId) return;
+            if (!prepared || !prepared.audioBuffer) return;
+
+            const audioBuffer = prepared.audioBuffer;
+            const payload = prepared.payload || null;
+
+            // Create source for next sentence
+            const nextSource = context.createBufferSource();
+            nextSource.buffer = audioBuffer;
+            nextSource.connect(this.serverAudioGainNode);
+
+            // Schedule to start exactly when current ends
+            try {
+                nextSource.start(nextStartTime);
+                this.scheduledNextSource = nextSource;
+
+                this.logPlaybackGuardEvent('lookahead-scheduled', {
+                    paragraphIndex: state.paragraphIndex,
+                    sentenceIndex: nextIndex,
+                    nextStartTime,
+                    currentTime: context.currentTime,
+                    bufferDuration: audioBuffer.duration
+                });
+
+                // Set up onended for cleanup and triggering the one after
+                nextSource.onended = () => {
+                    if (state.playbackSessionId !== this.playbackSessionId) return;
+                    if (this.scheduledNextSource === nextSource) {
+                        this.scheduledNextSource = null;
+                    }
+                    // Continue the chain
+                    this.playServerSentence(state, nextIndex + 1);
+                };
+
+                // Schedule word highlights for next sentence
+                const sampleRate = Number(payload && payload.sampleRate);
+                const audioLength = Number(payload && payload.audioLength);
+                const durationMs = (Number.isFinite(sampleRate) && sampleRate > 0 && Number.isFinite(audioLength) && audioLength > 0)
+                    ? (audioLength / (sampleRate * 2)) * 1000
+                    : (Number.isFinite(audioBuffer.duration) ? audioBuffer.duration * 1000 : 0);
+
+                const nextSentence = state.sentences[nextIndex];
+                // Offset highlights by the time until next starts
+                const timeUntilNext = Math.max(0, (nextStartTime - context.currentTime) * 1000);
+                this.scheduleServerWordHighlights(nextSentence.text, nextSentence.startOffset, durationMs, timeUntilNext);
+
+            } catch (startError) {
+                this.logPlaybackGuardEvent('lookahead-start-error', {
+                    paragraphIndex: state.paragraphIndex,
+                    sentenceIndex: nextIndex,
+                    error: String(startError && startError.message ? startError.message : startError)
+                });
+            }
+        },
+
         async pauseServerAudioPlayback() {
             if (!this.serverAudioContext) return false;
             if (this.serverAudioContext.state !== 'running') return false;
@@ -132,42 +208,243 @@
 
         getServerHandoffWaitMs() {
             const configured = Math.max(0, Math.round(Number(this.CONFIG.SERVER_HANDOFF_WAIT_MS) || 120));
-            return configured;
+            if (!this.CONFIG.LOW_GAP_MODE) return configured;
+            return Math.max(configured, 220);
         },
 
-        getServerTtsSampleRate() {
-            return Math.max(8000, Math.min(48000, Math.round(Number(this.CONFIG.SERVER_TTS_SAMPLE_RATE) || 24000)));
+        setEnterToSendEnabled(enabled, silent = false) {
+            const nextValue = Boolean(enabled);
+            if (this.CONFIG.ENTER_TO_SEND_ENABLED === nextValue) return;
+            this.CONFIG.ENTER_TO_SEND_ENABLED = nextValue;
+            if (!silent) {
+                this.showNotification(`Enter-to-send ${nextValue ? 'on' : 'off'}`);
+            }
         },
 
-        getServerTtsDefaultBaseUrl() {
-            const configured = String(this.CONFIG.SERVER_TTS_DEFAULT_BASE_URL || this.CONFIG.SERVER_BASE_URL || '').trim();
-            return configured || 'http://127.0.0.1:7860';
+        setGlobalPasteEnabled(enabled, silent = false) {
+            const nextValue = Boolean(enabled);
+            if (this.CONFIG.GLOBAL_PASTE_ENABLED === nextValue) return;
+            this.CONFIG.GLOBAL_PASTE_ENABLED = nextValue;
+            if (!silent) {
+                this.showNotification(`Global paste ${nextValue ? 'on' : 'off'}`);
+            }
         },
 
-        getServerTtsMinSpeed() {
-            return Math.max(0.25, Math.min(2.0, Number(this.CONFIG.SERVER_TTS_MIN_SPEED) || 0.5));
+        setRegularPasteEnabled(enabled, silent = false) {
+            const nextValue = Boolean(enabled);
+            if (this.CONFIG.REGULAR_PASTE_ENABLED === nextValue) return;
+            this.CONFIG.REGULAR_PASTE_ENABLED = nextValue;
+            if (!silent) {
+                this.showNotification(`Regular paste ${nextValue ? 'on' : 'off'}`);
+            }
         },
 
-        getServerTtsMaxSpeed() {
-            return Math.max(0.25, Math.min(4.0, Number(this.CONFIG.SERVER_TTS_MAX_SPEED) || 2.0));
+        setRegularAutoSendEnabled(enabled, silent = false) {
+            const nextValue = Boolean(enabled);
+            if (this.CONFIG.REGULAR_AUTO_SEND === nextValue) return;
+            this.CONFIG.REGULAR_AUTO_SEND = nextValue;
+            if (!silent) {
+                this.showNotification(`Regular auto-send ${nextValue ? 'on' : 'off'}`);
+            }
         },
 
-        normalizeServerQuotePolicy(policy) {
-            const normalized = String(policy || '').toLowerCase().trim();
-            const valid = ['strip', 'quote', 'verbatim'];
-            return valid.includes(normalized) ? normalized : 'strip';
+        setRegularAutoSendInInputEnabled(enabled, silent = false) {
+            const nextValue = Boolean(enabled);
+            if (this.CONFIG.REGULAR_AUTO_SEND_IN_INPUT === nextValue) return;
+            this.CONFIG.REGULAR_AUTO_SEND_IN_INPUT = nextValue;
+            if (!silent) {
+                this.showNotification(`Textbox auto-send ${nextValue ? 'on' : 'off'}`);
+            }
         },
 
-        normalizeServerCustomRemovalMode(mode) {
-            const normalized = String(mode || '').toLowerCase().trim();
-            const valid = ['exact', 'regex'];
-            return valid.includes(normalized) ? normalized : 'exact';
+        setNiceAutoPasteEnabled(enabled, silent = false) {
+            const nextValue = Boolean(enabled);
+            if (this.CONFIG.NICE_AUTO_PASTE_ENABLED === nextValue) return;
+            this.CONFIG.NICE_AUTO_PASTE_ENABLED = nextValue;
+            if (!silent) {
+                this.showNotification(`NICE auto-paste ${nextValue ? 'on' : 'off'}`);
+            }
         },
 
-        normalizeHiddenTabPolicy(policy) {
-            const normalized = String(policy || '').toLowerCase().trim();
-            const valid = ['never', 'immediate', 'delay'];
-            return valid.includes(normalized) ? normalized : 'delay';
-        }
+        setNiceAutoSendEnabled(enabled, silent = false) {
+            const nextValue = Boolean(enabled);
+            if (this.CONFIG.NICE_AUTO_SEND === nextValue) return;
+            this.CONFIG.NICE_AUTO_SEND = nextValue;
+            if (!silent) {
+                this.showNotification(`NICE auto-send ${nextValue ? 'on' : 'off'}`);
+            }
+        },
+
+        hasNativeTurnCopyActions() {
+            if (!this.isChatGPTPage) return false;
+            return Boolean(document.querySelector('[data-testid="copy-turn-action-button"], button[aria-label="Copy message"]'));
+        },
+
+        shouldInjectCustomCopyButtons() {
+            if (!this.CONFIG.COPY_BUTTON_ENABLED) return false;
+            if (!this.isConversationSurfaceAvailable()) return false;
+            if (this.hasNativeTurnCopyActions()) return false;
+            return true;
+        },
+
+        getCopyButtonTargets() {
+            const targets = [];
+            this.getConversationMessageElements().forEach((messageElement) => {
+                const role = this.getMessageRoleFromElement(messageElement);
+                if (role !== 'assistant' && role !== 'user') return;
+                const contentNode = this.getPreferredMessageContentNode(messageElement);
+                if (!contentNode) return;
+                targets.push({ target: contentNode, role });
+            });
+            return targets;
+        },
+
+        addCopyButton(target, role = 'assistant') {
+            if (!target || !target.isConnected) return;
+
+            const adjacentRow = target.nextElementSibling && target.nextElementSibling.classList
+                && target.nextElementSibling.classList.contains('tmx-copy-row')
+                ? target.nextElementSibling
+                : null;
+            if (target.dataset.tmxCopyButtonAttached === '1' && adjacentRow) return;
+            if (adjacentRow) adjacentRow.remove();
+
+            const row = document.createElement('div');
+            row.className = 'tmx-copy-row';
+            row.setAttribute('data-tmx-control', 'copy-row');
+            row.setAttribute('aria-hidden', 'true');
+            row.style.cssText = 'display:flex; justify-content:flex-end; margin-top:8px;';
+            const copyButton = document.createElement('button');
+            copyButton.className = 'tmx-copy-button';
+            copyButton.setAttribute('data-tmx-control', 'copy-button');
+            copyButton.setAttribute('aria-hidden', 'true');
+            copyButton.type = 'button';
+            copyButton.textContent = 'Copy';
+            copyButton.style.cssText = 'padding:3px 8px; font-size:12px; line-height:1.2; border:none; border-radius:6px; background:#0b5ed7; color:#fff; cursor:pointer;';
+            copyButton.addEventListener('click', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                const text = this.extractConversationTextFromNode(target);
+                if (!text) return;
+                const payload = this.formatSmartCopyEntries([{ role, text }]);
+                if (!payload) return;
+                this.copyTextToClipboard(payload)
+                    .then((ok) => this.showNotification(ok ? 'Copied to clipboard.' : 'Copy failed.'));
+            });
+
+            row.appendChild(copyButton);
+            target.insertAdjacentElement('afterend', row);
+            target.dataset.tmxCopyButtonAttached = '1';
+        },
+
+        removeCopyButtons() {
+            document.querySelectorAll('.tmx-copy-row, .tmx-copy-button').forEach((node) => node.remove());
+            document.querySelectorAll('[data-tmx-copy-button-attached]').forEach((node) => {
+                delete node.dataset.tmxCopyButtonAttached;
+            });
+        },
+
+        updateCopyButtons() {
+            if (!this.CONFIG.COPY_BUTTON_ENABLED) {
+                this.removeCopyButtons();
+                return;
+            }
+            this.applySmartCopySelectionAllowlist();
+            if (!this.shouldInjectCustomCopyButtons()) {
+                this.removeCopyButtons();
+                return;
+            }
+            this.getCopyButtonTargets().forEach(({ target, role }) => this.addCopyButton(target, role));
+        },
+
+        setCopyButtonEnabled(enabled, silent = false) {
+            const nextValue = Boolean(enabled);
+            if (this.CONFIG.COPY_BUTTON_ENABLED === nextValue) return;
+            this.CONFIG.COPY_BUTTON_ENABLED = nextValue;
+            this.updateCopyButtons();
+            if (!silent) {
+                this.showNotification(`Copy buttons ${nextValue ? 'on' : 'off'}`);
+            }
+        },
+
+        handleDoubleClickEdit(event) {
+            if (!this.isChatGPTPage || !this.CONFIG.DOUBLE_CLICK_EDIT_ENABLED) return;
+            const messageContainer = event.target.closest('.group\\/conversation-turn, [data-message-author-role="user"]');
+            if (!messageContainer) return;
+            const editButton = messageContainer.querySelector('button[aria-label="Edit message"]');
+            if (!editButton) return;
+            editButton.click();
+            setTimeout(() => {
+                const editor = document.querySelector('textarea, [contenteditable="true"]');
+                if (editor) editor.focus();
+            }, 80);
+        },
+
+        attachDoubleClickListeners() {
+            if (!this.isChatGPTPage) return;
+            const containers = document.querySelectorAll('.group\\/conversation-turn, .group\\/turn-messages, [data-message-author-role]');
+            containers.forEach((container) => {
+                if (container.dataset.tmxEditListener === '1') return;
+                container.dataset.tmxEditListener = '1';
+                container.addEventListener('dblclick', (event) => this.handleDoubleClickEdit(event));
+            });
+        },
+
+        setDoubleClickEditEnabled(enabled, silent = false) {
+            const nextValue = Boolean(enabled);
+            if (this.CONFIG.DOUBLE_CLICK_EDIT_ENABLED === nextValue) return;
+            this.CONFIG.DOUBLE_CLICK_EDIT_ENABLED = nextValue;
+            if (!silent) {
+                this.showNotification(`Double-click edit ${nextValue ? 'on' : 'off'}`);
+            }
+        },
+
+        checkAndCloseLimitWarnings() {
+            if (!this.isChatGPTPage || !this.CONFIG.AUTO_CLOSE_LIMIT_WARNING) return;
+            const closeButtons = Array.from(document.querySelectorAll('button[data-testid="close-button"]'));
+            closeButtons.forEach((button) => {
+                if (button.dataset.tmxLimitCloseScheduled === '1') return;
+                const text = (button.closest('div')?.textContent || '').toLowerCase();
+                if (!/(limit|usage|cap|plan)/.test(text)) return;
+                button.dataset.tmxLimitCloseScheduled = '1';
+                setTimeout(() => {
+                    if (this.CONFIG.AUTO_CLOSE_LIMIT_WARNING && button.isConnected) {
+                        button.click();
+                    }
+                    delete button.dataset.tmxLimitCloseScheduled;
+                }, this.CONFIG.LIMIT_WARNING_DELAY_MS);
+            });
+        },
+
+        setAutoCloseLimitWarningEnabled(enabled, silent = false) {
+            const nextValue = Boolean(enabled);
+            if (this.CONFIG.AUTO_CLOSE_LIMIT_WARNING === nextValue) return;
+            this.CONFIG.AUTO_CLOSE_LIMIT_WARNING = nextValue;
+            if (nextValue) this.checkAndCloseLimitWarnings();
+            if (!silent) {
+                this.showNotification(`Auto-close warning ${nextValue ? 'on' : 'off'}`);
+            }
+        },
+
+        setLimitWarningDelay(delayMs, silent = false) {
+            const parsed = Number(delayMs);
+            if (!Number.isFinite(parsed)) return;
+            const clamped = Math.max(100, Math.round(parsed));
+            this.CONFIG.LIMIT_WARNING_DELAY_MS = clamped;
+            if (!silent) {
+                this.showNotification(`Warning delay ${clamped} ms`);
+            }
+        },
+
+        // ... (All functions from waitForPageLoad to triggerTTS are unchanged) ...
+        waitForPageLoad() {
+            if (document.readyState === 'complete') {
+                setTimeout(() => { this.pageFullyLoaded = true; }, 1000);
+            } else {
+                window.addEventListener('load', () => setTimeout(() => { this.pageFullyLoaded = true; }, 2000));
+            }
+        },
+
+        // =============================================================================
     });
 })();
