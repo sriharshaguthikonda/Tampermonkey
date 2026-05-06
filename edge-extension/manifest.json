@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ChatGPT TTS Reader",
-  "version": "1.33",
+  "version": "1.34",
   "description": "An intelligent, content-aware TTS reader with highlighting and navigation for ChatGPT",
   "permissions": [
     "activeTab",
@@ -41,7 +41,33 @@
         "https://127.0.0.1/*",
         "file:///*"
       ],
-      "js": ["content.js"],
+      "js": [
+        "profile.js",
+        "modules/00-namespace.js",
+        "modules/10-lifecycle.js",
+        "modules/15-playback-lock.js",
+        "modules/20-smart-copy-part1.js",
+        "modules/20-smart-copy-part2.js",
+        "modules/20-smart-copy-part3.js",
+        "modules/25-prompt-send-part1.js",
+        "modules/25-prompt-send-part2.js",
+        "modules/30-media-boost.js",
+        "modules/35-server-tts.js",
+        "modules/40-voice.js",
+        "modules/45-paragraph.js",
+        "modules/50-text.js",
+        "modules/55-selection.js",
+        "modules/60-highlight.js",
+        "modules/65-prewrap.js",
+        "modules/70-auto-read.js",
+        "modules/75-queue.js",
+        "modules/80-flow.js",
+        "modules/85-events.js",
+        "modules/87-ui.js",
+        "modules/90-scroll.js",
+        "modules/92-notify.js",
+        "modules/99-bootstrap.js"
+      ],
       "css": ["content.css"],
       "run_at": "document_idle"
     }
