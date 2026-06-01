@@ -1,0 +1,119 @@
+{
+  "schemaVersion": "0.1.0",
+  "repo": {
+    "id": "sriharshaguthikonda__Tampermonkey",
+    "root": ".",
+    "remoteUrl": "https://github.com/sriharshaguthikonda/Tampermonkey.git",
+    "defaultBranch": "fix-highlight-styles",
+    "localPaths": [
+      ".gitignore",
+      "AGENTS.md",
+      "ChatGPT Universal TTS Reader with Precision Navigation & Highlighting.js",
+      "Plab 2 Feedback v3 - Think deeper.html",
+      "Tampermonkey.code-workspace",
+      "chatgpt Lighthouse Keeper's Promise.html",
+      "chatgpt Lighthouse Keeper's Promise_files",
+      "chatgpt.html",
+      "edge-extension",
+      "old Highlight and Trigger TTS from Cursor with Auto-Reading.js",
+      "v2 Lighthouse keeper's promise story.html",
+      "v2 Lighthouse keeper's promise story_files"
+    ]
+  },
+  "sourceState": {
+    "commit": "5c9d3bb9e7eba91adb6e9ae5170e785b5af5449e",
+    "branch": "fix-highlight-styles",
+    "dirty": false,
+    "generatedForCommit": "5c9d3bb9e7eba91adb6e9ae5170e785b5af5449e"
+  },
+  "policy": {
+    "profile": "basic",
+    "sensitivity": "private",
+    "committedArtifacts": [
+      "manifest"
+    ],
+    "allowMemoryPointer": false,
+    "allowGraphPilots": false,
+    "runOnPush": false
+  },
+  "generatedAt": "2026-06-01T05:38:50.230198Z",
+  "toolRuns": [
+    {
+      "id": "repomix.basic",
+      "tool": "repomix",
+      "mode": "basic",
+      "status": "skipped",
+      "outputRef": "artifacts/repomix/repo-map.json",
+      "warnings": [
+        "Repomix is unavailable on PATH.",
+        "Suggested command: `npx repomix --output artifacts/repomix/repo-map.json`.",
+        "Repomix output is a native artifact and is not committed by default.",
+        "Bare `npx` does not prove Repomix is installed; install `repomix` or verify it explicitly."
+      ]
+    },
+    {
+      "id": "aider.basic",
+      "tool": "aider",
+      "mode": "basic",
+      "status": "skipped",
+      "outputRef": "artifacts/aider/repo-map-guidance.md",
+      "warnings": [
+        "Aider records repo-map guidance without forcing an interactive run.",
+        "Aider is unavailable on PATH.",
+        "Baseline guidance output lives in an artifact path and is not committed by default."
+      ]
+    },
+    {
+      "id": "serena.basic",
+      "tool": "serena",
+      "mode": "basic",
+      "status": "skipped",
+      "outputRef": "artifacts/serena/symbols.json",
+      "warnings": [
+        "Serena records symbol-navigation guidance without auto-configuring global state.",
+        "Serena is unavailable on PATH and no command override is configured.",
+        "Symbol-navigation output lives in an artifact path and is not committed by default."
+      ]
+    }
+  ],
+  "artifacts": {
+    "manifestPath": ".repo-intel/manifest.json",
+    "summaryPath": ".repo-intel/summary.md",
+    "nativeOutputs": [
+      {
+        "name": "repomix",
+        "path": "artifacts/repomix/repo-map.json",
+        "kind": "native"
+      },
+      {
+        "name": "aider",
+        "path": "artifacts/aider/repo-map-guidance.md",
+        "kind": "native"
+      },
+      {
+        "name": "serena",
+        "path": "artifacts/serena/symbols.json",
+        "kind": "native"
+      },
+      {
+        "name": "repo-map-full",
+        "path": "artifacts/repo-map/repo-map-full.json",
+        "kind": "native"
+      }
+    ],
+    "workflowArtifacts": []
+  },
+  "contextLevels": {
+    "level0": "identity",
+    "level1": "summary",
+    "level2": "importantFiles",
+    "level3": "symbols",
+    "level4": "fullExport"
+  },
+  "staleness": "current",
+  "security": {
+    "ignorePolicy": ".repo-map-ignore",
+    "secretScanStatus": "skipped",
+    "sizeGateStatus": "skipped"
+  }
+}

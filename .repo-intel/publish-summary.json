@@ -1,0 +1,102 @@
+﻿{
+    "schemaVersion":  "repo-map-artifact-branch/v1",
+    "repo":  "sriharshaguthikonda/Tampermonkey",
+    "generatedAt":  "2026-06-01T06:12:14.8824747Z",
+    "source":  "Repo_maps GitHub footprint publish runner",
+    "publishBranch":  "repo-intel-artifacts",
+    "mapCount":  13,
+    "totalBytes":  3905023,
+    "maps":  [
+                 {
+                     "name":  "codex/diagnostics-nav-fix",
+                     "ref":  "refs/remotes/origin/codex/diagnostics-nav-fix",
+                     "commit":  "e155d524e5fba09200fadd3734845adbd9ba91af",
+                     "path":  ".repo-intel/branches/remote-origin/codex-diagnostics-nav-fix__e155d524e5fb/repo-map-full.json",
+                     "bytes":  234504
+                 },
+                 {
+                     "name":  "codex/fix-domexception-in-word-highlighting",
+                     "ref":  "refs/remotes/origin/codex/fix-domexception-in-word-highlighting",
+                     "commit":  "5d6ff9af8f9d4385d6e2c440ad6bb3505f7e8521",
+                     "path":  ".repo-intel/branches/remote-origin/codex-fix-domexception-in-word-highlighting__5d6ff9af8f9d/repo-map-full.json",
+                     "bytes":  234656
+                 },
+                 {
+                     "name":  "codex/tts-thread-optimizations",
+                     "ref":  "refs/remotes/origin/codex/tts-thread-optimizations",
+                     "commit":  "0e477252cf2c65dedb34bde55cdbac24ecd4e30d",
+                     "path":  ".repo-intel/branches/remote-origin/codex-tts-thread-optimizations__0e477252cf2c/repo-map-full.json",
+                     "bytes":  219819
+                 },
+                 {
+                     "name":  "enhance-tts-functionality",
+                     "ref":  "refs/remotes/origin/enhance-tts-functionality",
+                     "commit":  "40348a9ec72f85aea61d5623777b737ae7d449c4",
+                     "path":  ".repo-intel/branches/remote-origin/enhance-tts-functionality__40348a9ec72f/repo-map-full.json",
+                     "bytes":  939611
+                 },
+                 {
+                     "name":  "final-enhancements",
+                     "ref":  "refs/remotes/origin/final-enhancements",
+                     "commit":  "fe2a612964e4969be0eb8c1ff0a359c749919b24",
+                     "path":  ".repo-intel/branches/remote-origin/final-enhancements__fe2a612964e4/repo-map-full.json",
+                     "bytes":  445256
+                 },
+                 {
+                     "name":  "fix-highlight-styles",
+                     "ref":  "refs/remotes/origin/fix-highlight-styles",
+                     "commit":  "5c9d3bb9e7eba91adb6e9ae5170e785b5af5449e",
+                     "path":  ".repo-intel/branches/remote-origin/fix-highlight-styles__5c9d3bb9e7eb/repo-map-full.json",
+                     "bytes":  316021
+                 },
+                 {
+                     "name":  "gemini-version",
+                     "ref":  "refs/remotes/origin/gemini-version",
+                     "commit":  "cd88318e56f9476cdd38076fbb29497afae8a37b",
+                     "path":  ".repo-intel/branches/remote-origin/gemini-version__cd88318e56f9/repo-map-full.json",
+                     "bytes":  46055
+                 },
+                 {
+                     "name":  "gemini-version-2",
+                     "ref":  "refs/remotes/origin/gemini-version-2",
+                     "commit":  "0cc371892654c61d837d43421bb9a67747b6e4ac",
+                     "path":  ".repo-intel/branches/remote-origin/gemini-version-2__0cc371892654/repo-map-full.json",
+                     "bytes":  73217
+                 },
+                 {
+                     "name":  "gemini-version-3",
+                     "ref":  "refs/remotes/origin/gemini-version-3",
+                     "commit":  "82a846dc189a490965b53eec1fd2cfa9010b9dbf",
+                     "path":  ".repo-intel/branches/remote-origin/gemini-version-3__82a846dc189a/repo-map-full.json",
+                     "bytes":  118602
+                 },
+                 {
+                     "name":  "gemini-version-4",
+                     "ref":  "refs/remotes/origin/gemini-version-4",
+                     "commit":  "5e122a95c7011daaff491d461afe8de2fbc6cb78",
+                     "path":  ".repo-intel/branches/remote-origin/gemini-version-4__5e122a95c701/repo-map-full.json",
+                     "bytes":  51257
+                 },
+                 {
+                     "name":  "master",
+                     "ref":  "refs/remotes/origin/master",
+                     "commit":  "2eb4520eb1fd7cb0372afccd1aec03beb58b0c36",
+                     "path":  ".repo-intel/branches/remote-origin/master__2eb4520eb1fd/repo-map-full.json",
+                     "bytes":  488053
+                 },
+                 {
+                     "name":  "nav-trail-redo",
+                     "ref":  "refs/remotes/origin/nav-trail-redo",
+                     "commit":  "0404ea5931ddef7577c257b03c43c39418961a02",
+                     "path":  ".repo-intel/branches/remote-origin/nav-trail-redo__0404ea5931dd/repo-map-full.json",
+                     "bytes":  640435
+                 },
+                 {
+                     "name":  "speeding-b/w-paras",
+                     "ref":  "refs/remotes/origin/speeding-b/w-paras",
+                     "commit":  "911d10a012965a00a6c0ed89c9d9367b1a564cf2",
+                     "path":  ".repo-intel/branches/remote-origin/speeding-b-w-paras__911d10a01296/repo-map-full.json",
+                     "bytes":  51576
+                 }
+             ]
+}
