@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         *** ChatGPT Universal TTS Reader with Precision Navigation & Highlighting (Ignore Content Root)
 // @namespace    http://tampermonkey.net/
-// @version      3.11
+// @version      3.12
 // @description  TTS reader skips designated UI elements under #content-root
 // @author       Your Name (updated by AI)
 // @match        https://chat.openai.com/c/*
@@ -13,8 +13,8 @@
 // @match        https://chatgpt.com/?*
 // @match        https://chatgpt.com/* 
 // @match        file:///*
-// @updateURL    https://raw.githubusercontent.com/sriharshaguthikonda/Tampermonkey/codex/auto-read-streaming/ChatGPT%20Universal%20TTS%20Reader%20with%20Precision%20Navigation%20%26%20Highlighting.js
-// @downloadURL  https://raw.githubusercontent.com/sriharshaguthikonda/Tampermonkey/codex/auto-read-streaming/ChatGPT%20Universal%20TTS%20Reader%20with%20Precision%20Navigation%20%26%20Highlighting.js
+// @updateURL    https://raw.githubusercontent.com/sriharshaguthikonda/Tampermonkey/enhance-tts-functionality/ChatGPT%20Universal%20TTS%20Reader%20with%20Precision%20Navigation%20%26%20Highlighting.js
+// @downloadURL  https://raw.githubusercontent.com/sriharshaguthikonda/Tampermonkey/enhance-tts-functionality/ChatGPT%20Universal%20TTS%20Reader%20with%20Precision%20Navigation%20%26%20Highlighting.js
 // @grant        none
 // ==/UserScript==
 
@@ -90,6 +90,9 @@
         autoReadDebounceId: null,
         lastAutoReadMessageElement: null,
         lastAutoReadTriggeredAt: 0,
+        activeAutoReadMessageElement: null,
+        activeAutoReadStartParagraphIndex: -1,
+        activeAutoReadStartCharIndex: 0,
         autoReadMessageActivity: new WeakMap(),
         waitingForMoreContent: false,
         waitForMoreTimeoutId: null,
@@ -100,6 +103,7 @@
         isChatGPTPage: false,
         processedParagraph: { element: null, originalHTML: '', wordSpans: [], wordOffsets: [] },
         pendingStartWordOffset: null,
+        pendingStartCharOffset: null,
         serverVoiceEnabled: false,
         serverBaseUrl: null,
         currentServerAudio: null,
@@ -127,6 +131,9 @@
             NAV_FOCUS_HOLD_MS: 800,
             NAV_KEYUP_READ_DELAY_MS: 150,
             NAV_FOCUS_FADE_MS: 800,
+            NAV_ARROW_JUMP_SEGMENTS: 1,
+            NAV_CTRL_JUMP_SEGMENTS: 5,
+            SPEED_STEP: 0.2,
             SCROLL_THROTTLE_MS: 250,
             SCROLL_EDGE_PADDING: 80,
             CLICK_START_SKIP_WORDS: 0,
@@ -143,6 +150,9 @@
             DEFERRED_REVERT_IDLE_MS: 250,
             SHOW_DIAGNOSTICS_PANEL: true,
             AUTO_READ_NEW_MESSAGES: false,
+            AUTO_READ_START_SKIP_AMOUNT: 0,
+            AUTO_READ_START_SKIP_UNIT: 'character',
+            AUTO_READ_LOOP_CURRENT_MESSAGE: false,
             AUTO_READ_COOLDOWN_MS: 1500,
             AUTO_READ_STABLE_MS: 800,
             AUTO_READ_MIN_PARAGRAPHS: 3,
@@ -156,7 +166,21 @@
             COPY_FORMAT: 'dialogue-plus-setup',
             SMART_COPY_USER_LABEL: 'Doctor',
             SMART_COPY_ASSISTANT_LABEL: 'ChatGPT',
-            HOTKEYS: { ACTIVATE: 'U', PAUSE_RESUME: 'P', NAV_NEXT: 'ArrowRight', NAV_PREV: 'ArrowLeft', STOP: 'Escape' },
+            HOTKEYS: {
+                ACTIVATE: 'U',
+                PAUSE_RESUME: 'P',
+                NAV_NEXT: 'ArrowRight',
+                NAV_PREV: 'ArrowLeft',
+                STOP: 'Escape',
+                BOUNDARY_START: 'Home',
+                BOUNDARY_END: 'End',
+                SESSION_PAUSE: 'Space',
+                SPEED_DOWN: '[',
+                SPEED_UP: ']',
+                REPLAY: 'R',
+                LOOP_TOGGLE: 'L',
+                AUTOSCROLL_TOGGLE: 'A'
+            },
             EMOJI_REGEX: /[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{FE0F}]/ug,
             SPEAKER_EMOJI_REGEX: /^\s*((?:\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?(?:\u200D\p{Extended_Pictographic}(?:\uFE0F|\uFE0E)?)*))/u,
             VOICE_PREFERENCES: {
@@ -259,8 +283,25 @@
                 const raw = localStorage.getItem(START_READ_SETTINGS_KEY);
                 if (!raw) return;
                 const parsed = JSON.parse(raw);
+                if (typeof parsed?.autoRead === 'boolean') {
+                    this.CONFIG.AUTO_READ_NEW_MESSAGES = parsed.autoRead;
+                }
+                if (typeof parsed?.loopOnEnd === 'boolean') {
+                    this.CONFIG.LOOP_ON_END = parsed.loopOnEnd;
+                }
                 const skip = Number.parseInt(parsed?.clickStartSkipWords, 10);
                 this.CONFIG.CLICK_START_SKIP_WORDS = Number.isFinite(skip) && skip > 0 ? skip : 0;
+                const autoReadSkip = Number.parseInt(parsed?.autoReadStartSkipAmount, 10);
+                this.CONFIG.AUTO_READ_START_SKIP_AMOUNT = Number.isFinite(autoReadSkip) && autoReadSkip > 0 ? autoReadSkip : 0;
+                this.CONFIG.AUTO_READ_START_SKIP_UNIT = this.normalizeAutoReadStartSkipUnit(parsed?.autoReadStartSkipUnit);
+                this.CONFIG.AUTO_READ_LOOP_CURRENT_MESSAGE = Boolean(parsed?.autoReadLoopCurrentMessage);
+                const arrowJump = Number.parseInt(parsed?.navArrowJumpSegments, 10);
+                this.CONFIG.NAV_ARROW_JUMP_SEGMENTS = Number.isFinite(arrowJump) && arrowJump > 0 ? arrowJump : 1;
+                const ctrlJump = Number.parseInt(parsed?.navCtrlJumpSegments, 10);
+                this.CONFIG.NAV_CTRL_JUMP_SEGMENTS = Number.isFinite(ctrlJump) && ctrlJump > 0 ? ctrlJump : 5;
+                if (parsed?.hotkeys && typeof parsed.hotkeys === 'object') {
+                    this.setHotkeys(parsed.hotkeys, true);
+                }
             } catch (error) {
                 console.warn('Unable to restore start-read settings.', error);
             }
@@ -268,7 +309,29 @@
 
         saveStartReadSettings() {
             const payload = {
-                clickStartSkipWords: this.CONFIG.CLICK_START_SKIP_WORDS
+                clickStartSkipWords: this.CONFIG.CLICK_START_SKIP_WORDS,
+                autoRead: this.CONFIG.AUTO_READ_NEW_MESSAGES,
+                loopOnEnd: this.CONFIG.LOOP_ON_END,
+                autoReadStartSkipAmount: this.CONFIG.AUTO_READ_START_SKIP_AMOUNT,
+                autoReadStartSkipUnit: this.CONFIG.AUTO_READ_START_SKIP_UNIT,
+                autoReadLoopCurrentMessage: this.CONFIG.AUTO_READ_LOOP_CURRENT_MESSAGE,
+                navArrowJumpSegments: this.CONFIG.NAV_ARROW_JUMP_SEGMENTS,
+                navCtrlJumpSegments: this.CONFIG.NAV_CTRL_JUMP_SEGMENTS,
+                hotkeys: {
+                    activate: this.CONFIG.HOTKEYS.ACTIVATE,
+                    pauseResume: this.CONFIG.HOTKEYS.PAUSE_RESUME,
+                    navNext: this.CONFIG.HOTKEYS.NAV_NEXT,
+                    navPrev: this.CONFIG.HOTKEYS.NAV_PREV,
+                    stop: this.CONFIG.HOTKEYS.STOP,
+                    boundaryStart: this.CONFIG.HOTKEYS.BOUNDARY_START,
+                    boundaryEnd: this.CONFIG.HOTKEYS.BOUNDARY_END,
+                    sessionPause: this.CONFIG.HOTKEYS.SESSION_PAUSE,
+                    speedDown: this.CONFIG.HOTKEYS.SPEED_DOWN,
+                    speedUp: this.CONFIG.HOTKEYS.SPEED_UP,
+                    replay: this.CONFIG.HOTKEYS.REPLAY,
+                    loopToggle: this.CONFIG.HOTKEYS.LOOP_TOGGLE,
+                    autoScrollToggle: this.CONFIG.HOTKEYS.AUTOSCROLL_TOGGLE
+                }
             };
             localStorage.setItem(START_READ_SETTINGS_KEY, JSON.stringify(payload));
         },
@@ -1893,6 +1956,83 @@
             return boundaries;
         },
 
+        getNonNegativeInteger(value, fallback = 0) {
+            const parsed = Number(value);
+            if (!Number.isFinite(parsed)) return fallback;
+            return Math.max(0, Math.round(parsed));
+        },
+
+        normalizeAutoReadStartSkipUnit(unit) {
+            const next = typeof unit === 'string' ? unit.trim().toLowerCase() : '';
+            if (next === 'character' || next === 'grapheme' || next === 'word' || next === 'sentence') return next;
+            return 'character';
+        },
+
+        getGraphemeBoundaries(text) {
+            const source = String(text || '');
+            if (!source) return [];
+            if (typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function') {
+                const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+                return Array.from(segmenter.segment(source), segment => ({
+                    start: segment.index,
+                    end: segment.index + segment.segment.length
+                }));
+            }
+            const boundaries = [];
+            let offset = 0;
+            for (const part of Array.from(source)) {
+                boundaries.push({ start: offset, end: offset + part.length });
+                offset += part.length;
+            }
+            return boundaries;
+        },
+
+        getSentenceBoundaries(text) {
+            const source = String(text || '');
+            if (!source.trim()) return [];
+            if (typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function') {
+                const segmenter = new Intl.Segmenter(undefined, { granularity: 'sentence' });
+                return Array.from(segmenter.segment(source))
+                    .filter(segment => String(segment.segment || '').trim())
+                    .map(segment => ({
+                        start: segment.index,
+                        end: segment.index + segment.segment.length
+                    }));
+            }
+            const boundaries = [];
+            const pattern = /[^.!?]+[.!?]*/g;
+            let match;
+            while ((match = pattern.exec(source)) !== null) {
+                if (!match[0].trim()) continue;
+                const leadingWhitespace = match[0].match(/^\s*/)[0].length;
+                boundaries.push({
+                    start: match.index + leadingWhitespace,
+                    end: match.index + match[0].length
+                });
+            }
+            return boundaries;
+        },
+
+        getTextUnitBoundaries(text, unit) {
+            const normalizedUnit = this.normalizeAutoReadStartSkipUnit(unit);
+            if (normalizedUnit === 'word') return this.getWordBoundaries(text);
+            if (normalizedUnit === 'grapheme') return this.getGraphemeBoundaries(text);
+            if (normalizedUnit === 'sentence') return this.getSentenceBoundaries(text);
+            const source = String(text || '');
+            return Array.from({ length: source.length }, (_, index) => ({ start: index, end: index + 1 }));
+        },
+
+        getCharIndexByTextUnitOffset(text, unit, unitOffset) {
+            const source = String(text || '');
+            const boundaries = this.getTextUnitBoundaries(source, unit);
+            if (boundaries.length === 0) return { startCharIndex: 0, totalUnits: 0 };
+            const safeOffset = this.getNonNegativeInteger(unitOffset, 0);
+            if (safeOffset >= boundaries.length) {
+                return { startCharIndex: source.length, totalUnits: boundaries.length };
+            }
+            return { startCharIndex: boundaries[safeOffset].start, totalUnits: boundaries.length };
+        },
+
         findWordIndexByCharFromText(text, charIndex) {
             const boundaries = this.getWordBoundaries(text);
             if (boundaries.length === 0) return -1;
@@ -2388,6 +2528,74 @@
             return this.paragraphsList.filter(p => messageElement.contains(p.element));
         },
 
+        resolveAutoReadStartForMessage(messageElement) {
+            const messageParagraphs = this.getAssistantParagraphs(messageElement);
+            if (messageParagraphs.length === 0) return null;
+
+            const unit = this.normalizeAutoReadStartSkipUnit(this.CONFIG.AUTO_READ_START_SKIP_UNIT);
+            let remainingUnits = this.getNonNegativeInteger(this.CONFIG.AUTO_READ_START_SKIP_AMOUNT, 0);
+            for (const paragraph of messageParagraphs) {
+                const paragraphIndex = this.paragraphsList.indexOf(paragraph);
+                if (paragraphIndex === -1) continue;
+                const text = typeof paragraph.text === 'string' ? paragraph.text : '';
+                if (!text) continue;
+                const charData = this.getCharIndexByTextUnitOffset(text, unit, remainingUnits);
+                if (charData.totalUnits === 0) continue;
+                if (remainingUnits < charData.totalUnits) {
+                    return { paragraphIndex, startCharIndex: charData.startCharIndex };
+                }
+                remainingUnits -= charData.totalUnits;
+            }
+            return null;
+        },
+
+        setActiveAutoReadScope(messageElement, paragraphIndex, startCharIndex) {
+            this.activeAutoReadMessageElement = messageElement || null;
+            this.activeAutoReadStartParagraphIndex = Number.isInteger(paragraphIndex) ? paragraphIndex : -1;
+            this.activeAutoReadStartCharIndex = this.getNonNegativeInteger(startCharIndex, 0);
+        },
+
+        clearActiveAutoReadScope() {
+            this.activeAutoReadMessageElement = null;
+            this.activeAutoReadStartParagraphIndex = -1;
+            this.activeAutoReadStartCharIndex = 0;
+        },
+
+        isCurrentAutoReadLoopActive() {
+            return Boolean(this.CONFIG.AUTO_READ_LOOP_CURRENT_MESSAGE && this.activeAutoReadMessageElement);
+        },
+
+        isParagraphInCurrentAutoReadLoop(index) {
+            if (!this.isCurrentAutoReadLoopActive()) return true;
+            const paragraph = this.paragraphsList[index];
+            return Boolean(paragraph && paragraph.element && this.activeAutoReadMessageElement.contains(paragraph.element));
+        },
+
+        shouldLoopCurrentAutoReadMessageAfterIndex(index) {
+            if (!this.isCurrentAutoReadLoopActive()) return false;
+            for (let i = index + 1; i < this.paragraphsList.length; i += 1) {
+                if (this.isParagraphInCurrentAutoReadLoop(i)) return false;
+            }
+            return true;
+        },
+
+        getActiveAutoReadLoopStart() {
+            if (!this.isCurrentAutoReadLoopActive()) return null;
+            const startIndex = this.paragraphsList.findIndex(p => p.element && this.activeAutoReadMessageElement.contains(p.element));
+            if (startIndex === -1) return null;
+            if (
+                this.activeAutoReadStartParagraphIndex >= 0 &&
+                this.activeAutoReadStartParagraphIndex < this.paragraphsList.length &&
+                this.isParagraphInCurrentAutoReadLoop(this.activeAutoReadStartParagraphIndex)
+            ) {
+                return {
+                    paragraphIndex: this.activeAutoReadStartParagraphIndex,
+                    startCharIndex: this.activeAutoReadStartCharIndex
+                };
+            }
+            return { paragraphIndex: startIndex, startCharIndex: 0 };
+        },
+
         isAutoReadEligibleMessage(messageElement) {
             if (!messageElement) return false;
             if (messageElement.getAttribute('data-message-author-role') !== 'assistant') return false;
@@ -2422,13 +2630,17 @@
                 return;
             }
 
-            const startIndex = this.paragraphsList.findIndex(p => messageElement.contains(p.element));
-            if (startIndex === -1) return;
+            const start = this.resolveAutoReadStartForMessage(messageElement);
+            if (!start) {
+                this.showNotification('Auto-read skip reached end of message.');
+                return;
+            }
 
             this.lastAutoReadMessageElement = messageElement;
             this.lastAutoReadTriggeredAt = now;
+            this.setActiveAutoReadScope(messageElement, start.paragraphIndex, start.startCharIndex);
             this.continuousReadingActive = true;
-            this.readFromParagraph(startIndex);
+            this.readFromParagraph(start.paragraphIndex, { startCharIndex: start.startCharIndex });
         },
 
         waitForMoreParagraphs(nextIndex) {
@@ -2471,6 +2683,10 @@
                 const nextIndex = this.waitForMoreNextIndex;
                 this.waitingForMoreContent = false;
                 this.waitForMoreNextIndex = -1;
+                if (!this.isParagraphInCurrentAutoReadLoop(nextIndex)) {
+                    this.loopToTop();
+                    return;
+                }
                 this.readFromParagraph(nextIndex);
                 return;
             }
@@ -2485,6 +2701,9 @@
             clearTimeout(this.waitForMoreTimeoutId);
             this.waitForMoreTimeoutId = null;
 
+            this.refreshParagraphsIfNeeded(true);
+            const loopTarget = this.getActiveAutoReadLoopStart();
+
             this.stopTTS(false);
             this.refreshParagraphsIfNeeded(true);
             if (this.paragraphsList.length === 0) {
@@ -2492,6 +2711,11 @@
                 return;
             }
             this.continuousReadingActive = true;
+            if (loopTarget) {
+                this.showNotification('Looping current message.');
+                this.readFromParagraph(loopTarget.paragraphIndex, { startCharIndex: loopTarget.startCharIndex });
+                return;
+            }
             this.showNotification('Looping to top.');
             this.readFromParagraph(0);
         },
@@ -2530,7 +2754,26 @@
                 this.autoReadDebounceId = null;
                 this.lastAutoReadMessageElement = null;
                 this.lastAutoReadTriggeredAt = 0;
+                this.clearActiveAutoReadScope();
             }
+            this.saveStartReadSettings();
+        },
+
+        setAutoReadStartSkipAmount(value) {
+            const nextValue = this.getNonNegativeInteger(value, 0);
+            this.CONFIG.AUTO_READ_START_SKIP_AMOUNT = nextValue;
+            this.saveStartReadSettings();
+        },
+
+        setAutoReadStartSkipUnit(unit) {
+            this.CONFIG.AUTO_READ_START_SKIP_UNIT = this.normalizeAutoReadStartSkipUnit(unit);
+            this.saveStartReadSettings();
+        },
+
+        setAutoReadLoopCurrentMessage(enabled) {
+            this.CONFIG.AUTO_READ_LOOP_CURRENT_MESSAGE = Boolean(enabled);
+            this.saveStartReadSettings();
+            this.showNotification(`Auto-read message loop ${this.CONFIG.AUTO_READ_LOOP_CURRENT_MESSAGE ? 'on' : 'off'}`);
         },
 
         setReadUserMessagesEnabled(enabled) {
@@ -2559,6 +2802,7 @@
             const nextValue = Boolean(enabled);
             if (this.CONFIG.LOOP_ON_END === nextValue) return;
             this.CONFIG.LOOP_ON_END = nextValue;
+            this.saveStartReadSettings();
             this.showNotification(`Loop ${this.CONFIG.LOOP_ON_END ? 'on' : 'off'}`);
         },
 
@@ -2666,6 +2910,7 @@
                 this.refreshParagraphsIfNeeded(true);
             }
             if (index < 0 || index >= this.paragraphsList.length) return;
+            if (!this.isParagraphInCurrentAutoReadLoop(index)) return;
             if (this.queuedParagraphs.has(index)) return;
 
             const para = this.paragraphsList[index];
@@ -2673,7 +2918,15 @@
 
             let textToSpeak = para.text;
             let startCharOffset = 0;
-            if (this.pendingStartWordOffset && this.pendingStartWordOffset.paragraphIndex === index) {
+            if (this.pendingStartCharOffset && this.pendingStartCharOffset.paragraphIndex === index) {
+                const requestedOffset = this.getNonNegativeInteger(this.pendingStartCharOffset.charOffset, 0);
+                this.pendingStartCharOffset = null;
+                const sliced = String(para.text || '').slice(requestedOffset);
+                const trimmed = sliced.trimStart();
+                if (!trimmed) return;
+                textToSpeak = trimmed;
+                startCharOffset = requestedOffset + (sliced.length - trimmed.length);
+            } else if (this.pendingStartWordOffset && this.pendingStartWordOffset.paragraphIndex === index) {
                 const sliced = this.sliceTextByWordOffset(para.text, this.pendingStartWordOffset.wordOffset);
                 this.pendingStartWordOffset = null;
                 if (!sliced.text) return;
@@ -2752,6 +3005,10 @@
             if (!this.continuousReadingActive) return;
 
             const refreshedIndex = this.refreshParagraphIndex(index);
+            if (this.shouldLoopCurrentAutoReadMessageAfterIndex(refreshedIndex)) {
+                this.loopToTop();
+                return;
+            }
             const lastIndex = this.paragraphsList.length - 1;
             if (refreshedIndex >= lastIndex) {
                 if (!this.isChatGPTPage) {
@@ -2802,6 +3059,7 @@
             // Top up the lookahead window without clearing pending entries.
             const maxIndex = Math.min(this.paragraphsList.length - 1, currentIndex + this.CONFIG.QUEUE_LOOKAHEAD);
             for (let i = currentIndex + 1; i <= maxIndex; i++) {
+                if (!this.isParagraphInCurrentAutoReadLoop(i)) break;
                 this.enqueueParagraph(i);
             }
         },
@@ -3057,7 +3315,7 @@
         // (See refactor_plan.md section B.1 for the canonical section list.)
         // =============================================================================
 
-        readFromParagraph(index) {
+        readFromParagraph(index, options = {}) {
             if (!this.continuousReadingActive) {
                 this.revertParagraph();
                 return;
@@ -3067,7 +3325,19 @@
                 this.stopTTS(false);
                 return;
             }
+            if (!this.isParagraphInCurrentAutoReadLoop(index)) {
+                this.loopToTop();
+                return;
+            }
 
+            const requestedStartCharIndex = Number(options && options.startCharIndex);
+            if (Number.isFinite(requestedStartCharIndex) && requestedStartCharIndex > 0) {
+                this.pendingStartCharOffset = {
+                    paragraphIndex: index,
+                    charOffset: Math.max(0, Math.floor(requestedStartCharIndex))
+                };
+                this.pendingStartWordOffset = null;
+            }
             this.queueFromIndex(index);
         },
 
@@ -3088,6 +3358,7 @@
             this.isNavigating = false;
             this.continuousReadingActive = false;
             this.pendingStartWordOffset = null;
+            this.pendingStartCharOffset = null;
             this.pendingNavIndex = -1;
             this.navKeyHeld = false;
             clearTimeout(this.navigationTimeoutId);
@@ -3172,10 +3443,59 @@
             return this.isPlaybackSessionActive();
         },
 
+        getNavigationJumpStep(multiplier = 1) {
+            const parsed = Number(this.CONFIG.NAV_CTRL_JUMP_SEGMENTS);
+            const base = Number.isFinite(parsed) ? Math.max(1, Math.round(parsed)) : 5;
+            return Math.max(1, Math.round(base * Number(multiplier || 1)));
+        },
+
+        getArrowNavigationStep(multiplier = 1) {
+            const parsed = Number(this.CONFIG.NAV_ARROW_JUMP_SEGMENTS);
+            const base = Number.isFinite(parsed) ? Math.max(1, Math.round(parsed)) : 1;
+            return Math.max(1, Math.round(base * Number(multiplier || 1)));
+        },
+
+        getSpeedStep() {
+            const parsed = Number(this.CONFIG.SPEED_STEP);
+            return Number.isFinite(parsed) ? Math.max(0.1, parsed) : 0.2;
+        },
+
+        setSpeechRate(rate) {
+            const parsed = Number(rate);
+            if (!Number.isFinite(parsed)) return;
+            this.CONFIG.SPEECH_RATE = Math.min(5, Math.max(0.5, parsed));
+            const speedValue = document.getElementById('speed-value');
+            if (speedValue) speedValue.textContent = this.CONFIG.SPEECH_RATE.toFixed(1);
+            const speedInput = document.getElementById('tts-speed');
+            if (speedInput) speedInput.value = String(this.CONFIG.SPEECH_RATE);
+            this.showNotification(`Speed ${this.CONFIG.SPEECH_RATE.toFixed(1)}x`);
+        },
+
+        adjustSpeechRateByStep(direction) {
+            const delta = this.getSpeedStep() * (direction < 0 ? -1 : 1);
+            this.setSpeechRate(this.CONFIG.SPEECH_RATE + delta);
+        },
+
+        replayCurrentParagraph() {
+            const index = this.currentParagraphIndex;
+            if (!Number.isInteger(index) || index < 0) return;
+            this.stopTTS(false);
+            this.continuousReadingActive = true;
+            this.readFromParagraph(index);
+        },
+
+        setAutoScrollEnabled(enabled) {
+            const nextValue = Boolean(enabled);
+            this.CONFIG.AUTO_SCROLL_ENABLED = nextValue;
+            if (!nextValue) this.stopAutoScroll();
+            this.showNotification(`Auto-scroll ${nextValue ? 'on' : 'off'}`);
+        },
+
         navigate(direction, options = {}) {
             const previewOnly = options.previewOnly === true;
             if (this.isNavigating) return;
             this.isNavigating = true;
+            this.clearActiveAutoReadScope();
             setTimeout(() => { this.isNavigating = false; }, this.CONFIG.NAV_THROTTLE_MS);
 
             this.stopTTS(false);
@@ -3226,6 +3546,27 @@
             }
         },
 
+        jumpToBoundary(boundary, options = {}) {
+            this.clearActiveAutoReadScope();
+            this.stopTTS(false);
+            this.refreshParagraphsIfNeeded(false);
+            if (this.paragraphsList.length === 0) {
+                this.showNotification('No readable text found.');
+                return;
+            }
+            const targetIndex = boundary === 'start' ? 0 : this.paragraphsList.length - 1;
+            const targetElement = this.paragraphsList[targetIndex].element;
+            this.clearHighlights(true);
+            targetElement.classList.add('tts-navigation-focus');
+            this.gentleScrollToElement(targetElement);
+            this.lastSpokenElement = targetElement;
+            this.pendingNavIndex = targetIndex;
+            if (options.previewOnly === false) {
+                this.continuousReadingActive = true;
+                this.readFromParagraph(targetIndex);
+            }
+        },
+
         startReadingFromPendingNav() {
             if (this.pendingNavIndex === -1) return;
             clearTimeout(this.navigationTimeoutId);
@@ -3237,6 +3578,7 @@
         },
 
         startReadingOnClick(event) {
+            this.clearActiveAutoReadScope();
             if (event.target.closest('#thread-bottom-container')) return;
 
             this.stopTTS(false);
@@ -3275,6 +3617,7 @@
         },
 
         startReadingFromTop() {
+            this.clearActiveAutoReadScope();
             this.stopTTS(false);
             this.refreshParagraphsIfNeeded(true);
             if (this.paragraphsList.length === 0) {
@@ -3286,6 +3629,7 @@
         },
 
         startReadingFromSelection() {
+            this.clearActiveAutoReadScope();
             const selection = window.getSelection();
             const selectedText = selection ? selection.toString() : '';
             const selectionData = this.extractTTSMetadata(selectedText);
@@ -3305,6 +3649,53 @@
             this.triggerTTS(startText, { speakerEmoji: selectionData.speakerEmoji });
         },
 
+        normalizeHotkeyValue(value) {
+            return typeof value === 'string' ? value.trim() : '';
+        },
+
+        keyMatchesHotkey(event, hotkeyName, options = {}) {
+            const configured = this.normalizeHotkeyValue(this.CONFIG.HOTKEYS && this.CONFIG.HOTKEYS[hotkeyName]);
+            if (!configured) return false;
+            const eventKey = String(event && event.key ? event.key : '');
+            if (configured === 'Space') {
+                return eventKey === ' ' || eventKey === 'Spacebar' || eventKey === 'Space';
+            }
+            if (options.caseInsensitive === true) {
+                return eventKey.toLowerCase() === configured.toLowerCase();
+            }
+            return eventKey === configured;
+        },
+
+        setHotkeys(hotkeys, silent = false) {
+            const source = hotkeys && typeof hotkeys === 'object' ? hotkeys : {};
+            const map = {
+                activate: 'ACTIVATE',
+                pauseResume: 'PAUSE_RESUME',
+                navNext: 'NAV_NEXT',
+                navPrev: 'NAV_PREV',
+                stop: 'STOP',
+                boundaryStart: 'BOUNDARY_START',
+                boundaryEnd: 'BOUNDARY_END',
+                sessionPause: 'SESSION_PAUSE',
+                speedDown: 'SPEED_DOWN',
+                speedUp: 'SPEED_UP',
+                replay: 'REPLAY',
+                loopToggle: 'LOOP_TOGGLE',
+                autoScrollToggle: 'AUTOSCROLL_TOGGLE'
+            };
+            const nextHotkeys = { ...(this.CONFIG.HOTKEYS || {}) };
+            Object.entries(map).forEach(([storageKey, configKey]) => {
+                if (Object.prototype.hasOwnProperty.call(source, storageKey)) {
+                    nextHotkeys[configKey] = this.normalizeHotkeyValue(source[storageKey]);
+                }
+            });
+            this.CONFIG.HOTKEYS = nextHotkeys;
+            this.saveStartReadSettings();
+            if (!silent) {
+                this.showNotification('Shortcuts updated');
+            }
+        },
+
         // =============================================================================
         // SECTION 18: Event Listeners
         // -----------------------------------------------------------------------------
@@ -3318,32 +3709,74 @@
                 if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable)) return;
 
                 this.markUserInteraction();
-                const key = e.key;
                 const shiftOnly = e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey;
                 const ctrlShift = e.ctrlKey && e.shiftKey;
-                const KEY = this.CONFIG.HOTKEYS;
-                const isNavKey = key === KEY.NAV_NEXT || key === KEY.NAV_PREV;
+                const ctrlOrMeta = e.ctrlKey || e.metaKey;
+                const isNavNext = this.keyMatchesHotkey(e, 'NAV_NEXT');
+                const isNavPrev = this.keyMatchesHotkey(e, 'NAV_PREV');
+                const isNavKey = isNavNext || isNavPrev;
 
                 if (isNavKey && !this.shouldHandleNavigationHotkeys()) {
                     this.navKeyHeld = false;
                     return;
                 }
 
-                switch (key) {
-                    case KEY.NAV_NEXT:
-                        e.preventDefault();
-                        this.navKeyHeld = true;
-                        this.navigate(1, { previewOnly: true });
-                        break;
-                    case KEY.NAV_PREV:
-                        e.preventDefault();
-                        this.navKeyHeld = true;
-                        this.navigate(-1, { previewOnly: true });
-                        break;
-                    case KEY.STOP: e.preventDefault(); this.stopTTS(); break;
+                if ((this.keyMatchesHotkey(e, 'BOUNDARY_START') || this.keyMatchesHotkey(e, 'BOUNDARY_END')) && this.shouldHandleNavigationHotkeys()) {
+                    e.preventDefault();
+                    this.navKeyHeld = false;
+                    this.jumpToBoundary(this.keyMatchesHotkey(e, 'BOUNDARY_START') ? 'start' : 'end', { previewOnly: !ctrlOrMeta });
+                    return;
                 }
 
-                if (shiftOnly && key.toUpperCase() === KEY.ACTIVATE) {
+                if (this.keyMatchesHotkey(e, 'SESSION_PAUSE') && this.shouldHandleNavigationHotkeys()) {
+                    e.preventDefault();
+                    this.pauseResumeTTS();
+                    return;
+                }
+
+                if ((this.keyMatchesHotkey(e, 'SPEED_DOWN') || this.keyMatchesHotkey(e, 'SPEED_UP')) && this.shouldHandleNavigationHotkeys() && !ctrlOrMeta && !e.altKey) {
+                    e.preventDefault();
+                    this.adjustSpeechRateByStep(this.keyMatchesHotkey(e, 'SPEED_DOWN') ? -1 : 1);
+                    return;
+                }
+
+                if (this.shouldHandleNavigationHotkeys() && !ctrlOrMeta && !e.altKey) {
+                    if (this.keyMatchesHotkey(e, 'REPLAY', { caseInsensitive: true })) {
+                        e.preventDefault();
+                        this.replayCurrentParagraph();
+                        return;
+                    }
+                    if (this.keyMatchesHotkey(e, 'LOOP_TOGGLE', { caseInsensitive: true })) {
+                        e.preventDefault();
+                        this.setLoopEnabled(!this.CONFIG.LOOP_ON_END);
+                        return;
+                    }
+                    if (this.keyMatchesHotkey(e, 'AUTOSCROLL_TOGGLE', { caseInsensitive: true })) {
+                        e.preventDefault();
+                        this.setAutoScrollEnabled(!this.CONFIG.AUTO_SCROLL_ENABLED);
+                        return;
+                    }
+                }
+
+                if (isNavNext) {
+                    e.preventDefault();
+                    this.navKeyHeld = true;
+                    this.navigate(ctrlOrMeta ? this.getNavigationJumpStep() : this.getArrowNavigationStep(), { previewOnly: true });
+                    return;
+                }
+                if (isNavPrev) {
+                    e.preventDefault();
+                    this.navKeyHeld = true;
+                    this.navigate(ctrlOrMeta ? -this.getNavigationJumpStep() : -this.getArrowNavigationStep(), { previewOnly: true });
+                    return;
+                }
+                if (this.keyMatchesHotkey(e, 'STOP')) {
+                    e.preventDefault();
+                    this.stopTTS();
+                    return;
+                }
+
+                if (shiftOnly && this.keyMatchesHotkey(e, 'ACTIVATE', { caseInsensitive: true })) {
                     e.preventDefault();
                     this.clearStalePlaybackFlagsIfIdle();
                     if (this.isPlaybackSessionActive()) { this.stopTTS(); return; }
@@ -3357,7 +3790,7 @@
                         this.startReadingOnClick(ev);
                     };
                     document.addEventListener('click', clickHandler, { once: true, capture: true });
-                } else if (ctrlShift && key.toUpperCase() === KEY.PAUSE_RESUME) {
+                } else if (ctrlShift && this.keyMatchesHotkey(e, 'PAUSE_RESUME', { caseInsensitive: true })) {
                     e.preventDefault();
                     this.pauseResumeTTS();
                 }
@@ -3366,9 +3799,7 @@
                 const activeEl = document.activeElement;
                 if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable)) return;
 
-                const key = e.key;
-                const KEY = this.CONFIG.HOTKEYS;
-                if (key === KEY.NAV_NEXT || key === KEY.NAV_PREV) {
+                if (this.keyMatchesHotkey(e, 'NAV_NEXT') || this.keyMatchesHotkey(e, 'NAV_PREV')) {
                     if (!this.navKeyHeld) return;
                     e.preventDefault();
                     this.navKeyHeld = false;
@@ -3503,12 +3934,45 @@
                     <label for="tts-saved-html-detection-toggle" style="display:flex; align-items:center; gap:6px; cursor:pointer;"><input type="checkbox" id="tts-saved-html-detection-toggle" ${this.CONFIG.SAVED_HTML_USER_DETECTION ? 'checked' : ''} style="margin:0;">Saved HTML detection</label>
                     <label for="tts-auto-read-toggle" style="display:flex; align-items:center; gap:6px; cursor:pointer;"><input type="checkbox" id="tts-auto-read-toggle" ${this.CONFIG.AUTO_READ_NEW_MESSAGES ? 'checked' : ''} style="margin:0;">Auto-read new</label>
                     <label for="tts-loop-toggle" style="display:flex; align-items:center; gap:6px; cursor:pointer;"><input type="checkbox" id="tts-loop-toggle" ${this.CONFIG.LOOP_ON_END ? 'checked' : ''} style="margin:0;">Loop to top</label>
+                    <label for="tts-auto-read-loop-message" style="display:flex; align-items:center; gap:6px; cursor:pointer;"><input type="checkbox" id="tts-auto-read-loop-message" ${this.CONFIG.AUTO_READ_LOOP_CURRENT_MESSAGE ? 'checked' : ''} style="margin:0;">Loop current message</label>
                     <label for="tts-smart-copy-toggle" style="display:flex; align-items:center; gap:6px; cursor:pointer;"><input type="checkbox" id="tts-smart-copy-toggle" ${this.CONFIG.SMART_COPY_ENABLED ? 'checked' : ''} style="margin:0;">Smart copy</label>
+                </div>
+                <div style="display:flex; align-items:center; gap:6px; margin-top:6px;">
+                    <label for="tts-auto-read-skip-amount" style="flex:1; min-width:0;">Auto-read skip</label>
+                    <input type="number" id="tts-auto-read-skip-amount" min="0" step="1" value="${this.CONFIG.AUTO_READ_START_SKIP_AMOUNT}" style="width:64px; padding:2px; background: rgba(0,0,0,0.8); color:#fff; border:1px solid rgba(255,255,255,0.25); border-radius:3px;">
+                    <select id="tts-auto-read-skip-unit" style="width:96px; padding:2px; background: rgba(0,0,0,0.8); color:#fff; border:1px solid rgba(255,255,255,0.25); border-radius:3px;">
+                        <option value="character" ${this.CONFIG.AUTO_READ_START_SKIP_UNIT === 'character' ? 'selected' : ''}>chars</option>
+                        <option value="grapheme" ${this.CONFIG.AUTO_READ_START_SKIP_UNIT === 'grapheme' ? 'selected' : ''}>graphemes</option>
+                        <option value="word" ${this.CONFIG.AUTO_READ_START_SKIP_UNIT === 'word' ? 'selected' : ''}>words</option>
+                        <option value="sentence" ${this.CONFIG.AUTO_READ_START_SKIP_UNIT === 'sentence' ? 'selected' : ''}>sentences</option>
+                    </select>
                 </div>
                 <div style="display:flex; align-items:center; gap:6px; margin-top:6px;">
                     <label for="tts-click-skip-words" style="flex:1; min-width:0;">Start reading +X words</label>
                     <input type="number" id="tts-click-skip-words" min="0" step="1" value="${this.CONFIG.CLICK_START_SKIP_WORDS}" style="width:86px; padding:2px; background: rgba(0,0,0,0.8); color:#fff; border:1px solid rgba(255,255,255,0.25); border-radius:3px;">
                 </div>
+                <div style="display:flex; align-items:center; gap:6px; margin-top:6px;">
+                    <label for="tts-arrow-jump-segments" style="flex:1; min-width:0;">Arrow jump segments</label>
+                    <input type="number" id="tts-arrow-jump-segments" min="1" step="1" value="${this.CONFIG.NAV_ARROW_JUMP_SEGMENTS}" style="width:86px; padding:2px; background: rgba(0,0,0,0.8); color:#fff; border:1px solid rgba(255,255,255,0.25); border-radius:3px;">
+                </div>
+                <details style="margin-top:6px;">
+                    <summary style="cursor:pointer;">Shortcuts</summary>
+                    <div style="display:grid; grid-template-columns: 1fr 86px; gap:4px 6px; margin-top:6px; align-items:center;">
+                        <label for="tts-hotkey-activate">Shift + start</label><input id="tts-hotkey-activate" value="${this.CONFIG.HOTKEYS.ACTIVATE}" style="min-width:0; padding:2px;">
+                        <label for="tts-hotkey-pause">Ctrl+Shift pause</label><input id="tts-hotkey-pause" value="${this.CONFIG.HOTKEYS.PAUSE_RESUME}" style="min-width:0; padding:2px;">
+                        <label for="tts-hotkey-prev">Previous</label><input id="tts-hotkey-prev" value="${this.CONFIG.HOTKEYS.NAV_PREV}" style="min-width:0; padding:2px;">
+                        <label for="tts-hotkey-next">Next</label><input id="tts-hotkey-next" value="${this.CONFIG.HOTKEYS.NAV_NEXT}" style="min-width:0; padding:2px;">
+                        <label for="tts-hotkey-stop">Stop</label><input id="tts-hotkey-stop" value="${this.CONFIG.HOTKEYS.STOP}" style="min-width:0; padding:2px;">
+                        <label for="tts-hotkey-start-boundary">Jump start</label><input id="tts-hotkey-start-boundary" value="${this.CONFIG.HOTKEYS.BOUNDARY_START}" style="min-width:0; padding:2px;">
+                        <label for="tts-hotkey-end-boundary">Jump end</label><input id="tts-hotkey-end-boundary" value="${this.CONFIG.HOTKEYS.BOUNDARY_END}" style="min-width:0; padding:2px;">
+                        <label for="tts-hotkey-space">Session pause</label><input id="tts-hotkey-space" value="${this.CONFIG.HOTKEYS.SESSION_PAUSE}" style="min-width:0; padding:2px;">
+                        <label for="tts-hotkey-speed-down">Speed down</label><input id="tts-hotkey-speed-down" value="${this.CONFIG.HOTKEYS.SPEED_DOWN}" style="min-width:0; padding:2px;">
+                        <label for="tts-hotkey-speed-up">Speed up</label><input id="tts-hotkey-speed-up" value="${this.CONFIG.HOTKEYS.SPEED_UP}" style="min-width:0; padding:2px;">
+                        <label for="tts-hotkey-replay">Replay</label><input id="tts-hotkey-replay" value="${this.CONFIG.HOTKEYS.REPLAY}" style="min-width:0; padding:2px;">
+                        <label for="tts-hotkey-loop">Loop toggle</label><input id="tts-hotkey-loop" value="${this.CONFIG.HOTKEYS.LOOP_TOGGLE}" style="min-width:0; padding:2px;">
+                        <label for="tts-hotkey-autoscroll">Auto-scroll toggle</label><input id="tts-hotkey-autoscroll" value="${this.CONFIG.HOTKEYS.AUTOSCROLL_TOGGLE}" style="min-width:0; padding:2px;">
+                    </div>
+                </details>
                 <div style="display:flex; gap:6px; margin-top:6px;">
                     <button id="tts-copy-transcript-btn" type="button" style="flex:1; padding:4px 8px; background: rgba(255,255,255,0.2); border: none; color: #fff; cursor: pointer; border-radius: 3px;">Copy transcript</button>
                     <button id="tts-copy-selection-btn" type="button" style="flex:1; padding:4px 8px; background: rgba(255,255,255,0.2); border: none; color: #fff; cursor: pointer; border-radius: 3px;">Copy selection</button>
@@ -3592,11 +4056,27 @@
                 this.setLoopEnabled(e.target.checked);
             });
             loopToggle.addEventListener('mousedown', e => e.stopPropagation());
+            const autoReadLoopMessageToggle = document.getElementById('tts-auto-read-loop-message');
+            autoReadLoopMessageToggle.addEventListener('change', e => {
+                this.setAutoReadLoopCurrentMessage(e.target.checked);
+            });
+            autoReadLoopMessageToggle.addEventListener('mousedown', e => e.stopPropagation());
             const smartCopyToggle = document.getElementById('tts-smart-copy-toggle');
             smartCopyToggle.addEventListener('change', e => {
                 this.setSmartCopyEnabled(e.target.checked);
             });
             smartCopyToggle.addEventListener('mousedown', e => e.stopPropagation());
+            const autoReadSkipAmount = document.getElementById('tts-auto-read-skip-amount');
+            autoReadSkipAmount.addEventListener('input', e => {
+                this.setAutoReadStartSkipAmount(e.target.value);
+                e.target.value = String(this.CONFIG.AUTO_READ_START_SKIP_AMOUNT);
+            });
+            autoReadSkipAmount.addEventListener('mousedown', e => e.stopPropagation());
+            const autoReadSkipUnit = document.getElementById('tts-auto-read-skip-unit');
+            autoReadSkipUnit.addEventListener('change', e => {
+                this.setAutoReadStartSkipUnit(e.target.value);
+            });
+            autoReadSkipUnit.addEventListener('mousedown', e => e.stopPropagation());
             const clickSkipWordsInput = document.getElementById('tts-click-skip-words');
             clickSkipWordsInput.addEventListener('input', e => {
                 this.setClickStartSkipWords(e.target.value);
@@ -3607,6 +4087,50 @@
                 e.target.value = String(this.CONFIG.CLICK_START_SKIP_WORDS);
             });
             clickSkipWordsInput.addEventListener('mousedown', e => e.stopPropagation());
+            const arrowJumpInput = document.getElementById('tts-arrow-jump-segments');
+            arrowJumpInput.addEventListener('input', e => {
+                const nextValue = this.getNonNegativeInteger(e.target.value, 1);
+                this.CONFIG.NAV_ARROW_JUMP_SEGMENTS = Math.max(1, nextValue);
+                this.saveStartReadSettings();
+                e.target.value = String(this.CONFIG.NAV_ARROW_JUMP_SEGMENTS);
+            });
+            arrowJumpInput.addEventListener('mousedown', e => e.stopPropagation());
+            const hotkeyInputs = {
+                activate: document.getElementById('tts-hotkey-activate'),
+                pauseResume: document.getElementById('tts-hotkey-pause'),
+                navPrev: document.getElementById('tts-hotkey-prev'),
+                navNext: document.getElementById('tts-hotkey-next'),
+                stop: document.getElementById('tts-hotkey-stop'),
+                boundaryStart: document.getElementById('tts-hotkey-start-boundary'),
+                boundaryEnd: document.getElementById('tts-hotkey-end-boundary'),
+                sessionPause: document.getElementById('tts-hotkey-space'),
+                speedDown: document.getElementById('tts-hotkey-speed-down'),
+                speedUp: document.getElementById('tts-hotkey-speed-up'),
+                replay: document.getElementById('tts-hotkey-replay'),
+                loopToggle: document.getElementById('tts-hotkey-loop'),
+                autoScrollToggle: document.getElementById('tts-hotkey-autoscroll')
+            };
+            const persistHotkeysFromUi = () => {
+                this.setHotkeys({
+                    activate: hotkeyInputs.activate.value,
+                    pauseResume: hotkeyInputs.pauseResume.value,
+                    navPrev: hotkeyInputs.navPrev.value,
+                    navNext: hotkeyInputs.navNext.value,
+                    stop: hotkeyInputs.stop.value,
+                    boundaryStart: hotkeyInputs.boundaryStart.value,
+                    boundaryEnd: hotkeyInputs.boundaryEnd.value,
+                    sessionPause: hotkeyInputs.sessionPause.value,
+                    speedDown: hotkeyInputs.speedDown.value,
+                    speedUp: hotkeyInputs.speedUp.value,
+                    replay: hotkeyInputs.replay.value,
+                    loopToggle: hotkeyInputs.loopToggle.value,
+                    autoScrollToggle: hotkeyInputs.autoScrollToggle.value
+                }, true);
+            };
+            Object.values(hotkeyInputs).forEach(input => {
+                input.addEventListener('input', persistHotkeysFromUi);
+                input.addEventListener('mousedown', e => e.stopPropagation());
+            });
             const copyTranscriptButton = document.getElementById('tts-copy-transcript-btn');
             copyTranscriptButton.addEventListener('click', e => {
                 e.preventDefault();
