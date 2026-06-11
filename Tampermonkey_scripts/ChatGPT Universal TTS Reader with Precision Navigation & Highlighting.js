@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         *** ChatGPT Universal TTS Reader with Precision Navigation & Highlighting (Ignore Content Root)
 // @namespace    http://tampermonkey.net/
-// @version      3.12
+// @version      3.13
 // @description  TTS reader skips designated UI elements under #content-root
 // @author       Your Name (updated by AI)
 // @match        https://chat.openai.com/c/*
@@ -152,6 +152,7 @@
             AUTO_READ_NEW_MESSAGES: false,
             AUTO_READ_START_SKIP_AMOUNT: 0,
             AUTO_READ_START_SKIP_UNIT: 'character',
+            APPLY_START_SKIP_TO_NAVIGATION_STARTS: false,
             AUTO_READ_LOOP_CURRENT_MESSAGE: false,
             AUTO_READ_COOLDOWN_MS: 1500,
             AUTO_READ_STABLE_MS: 800,
@@ -294,6 +295,7 @@
                 const autoReadSkip = Number.parseInt(parsed?.autoReadStartSkipAmount, 10);
                 this.CONFIG.AUTO_READ_START_SKIP_AMOUNT = Number.isFinite(autoReadSkip) && autoReadSkip > 0 ? autoReadSkip : 0;
                 this.CONFIG.AUTO_READ_START_SKIP_UNIT = this.normalizeAutoReadStartSkipUnit(parsed?.autoReadStartSkipUnit);
+                this.CONFIG.APPLY_START_SKIP_TO_NAVIGATION_STARTS = Boolean(parsed?.applyStartSkipToNavigationStarts);
                 this.CONFIG.AUTO_READ_LOOP_CURRENT_MESSAGE = Boolean(parsed?.autoReadLoopCurrentMessage);
                 const arrowJump = Number.parseInt(parsed?.navArrowJumpSegments, 10);
                 this.CONFIG.NAV_ARROW_JUMP_SEGMENTS = Number.isFinite(arrowJump) && arrowJump > 0 ? arrowJump : 1;
@@ -314,6 +316,7 @@
                 loopOnEnd: this.CONFIG.LOOP_ON_END,
                 autoReadStartSkipAmount: this.CONFIG.AUTO_READ_START_SKIP_AMOUNT,
                 autoReadStartSkipUnit: this.CONFIG.AUTO_READ_START_SKIP_UNIT,
+                applyStartSkipToNavigationStarts: this.CONFIG.APPLY_START_SKIP_TO_NAVIGATION_STARTS,
                 autoReadLoopCurrentMessage: this.CONFIG.AUTO_READ_LOOP_CURRENT_MESSAGE,
                 navArrowJumpSegments: this.CONFIG.NAV_ARROW_JUMP_SEGMENTS,
                 navCtrlJumpSegments: this.CONFIG.NAV_CTRL_JUMP_SEGMENTS,
@@ -2033,6 +2036,99 @@
             return { startCharIndex: boundaries[safeOffset].start, totalUnits: boundaries.length };
         },
 
+        getTextUnitIndexAtOrAfterChar(text, unit, charIndex) {
+            const source = String(text || '');
+            const boundaries = this.getTextUnitBoundaries(source, unit);
+            if (boundaries.length === 0) return { unitIndex: -1, totalUnits: 0 };
+            const safeCharIndex = Math.max(0, Math.floor(Number(charIndex) || 0));
+            for (let i = 0; i < boundaries.length; i += 1) {
+                const boundary = boundaries[i];
+                if (safeCharIndex <= boundary.start) return { unitIndex: i, totalUnits: boundaries.length };
+                if (safeCharIndex < boundary.end) return { unitIndex: i, totalUnits: boundaries.length };
+            }
+            return { unitIndex: boundaries.length, totalUnits: boundaries.length };
+        },
+
+        resolveStartPositionWithUnitSkip(startParagraphIndex, startCharIndex = 0, options = {}) {
+            let paragraphIndex = Number.parseInt(startParagraphIndex, 10);
+            if (!Number.isFinite(paragraphIndex) || paragraphIndex < 0) return null;
+
+            const unit = this.normalizeAutoReadStartSkipUnit(
+                Object.prototype.hasOwnProperty.call(options, 'unit')
+                    ? options.unit
+                    : this.CONFIG.AUTO_READ_START_SKIP_UNIT
+            );
+            let remainingUnits = this.getNonNegativeInteger(
+                Object.prototype.hasOwnProperty.call(options, 'amount')
+                    ? options.amount
+                    : this.CONFIG.AUTO_READ_START_SKIP_AMOUNT,
+                0
+            );
+            let baseCharIndex = this.getNonNegativeInteger(startCharIndex, 0);
+
+            while (paragraphIndex < this.paragraphsList.length) {
+                const paragraph = this.paragraphsList[paragraphIndex];
+                const text = typeof paragraph?.text === 'string' ? paragraph.text : '';
+                if (!text) {
+                    paragraphIndex += 1;
+                    baseCharIndex = 0;
+                    continue;
+                }
+
+                if (remainingUnits <= 0) {
+                    return {
+                        paragraphIndex,
+                        startCharIndex: Math.min(baseCharIndex, text.length)
+                    };
+                }
+
+                const unitData = this.getTextUnitIndexAtOrAfterChar(text, unit, baseCharIndex);
+                if (unitData.totalUnits === 0 || unitData.unitIndex >= unitData.totalUnits) {
+                    paragraphIndex += 1;
+                    baseCharIndex = 0;
+                    continue;
+                }
+
+                const availableUnits = unitData.totalUnits - unitData.unitIndex;
+                if (remainingUnits < availableUnits) {
+                    const charData = this.getCharIndexByTextUnitOffset(text, unit, unitData.unitIndex + remainingUnits);
+                    return {
+                        paragraphIndex,
+                        startCharIndex: charData.startCharIndex
+                    };
+                }
+
+                remainingUnits -= availableUnits;
+                paragraphIndex += 1;
+                baseCharIndex = 0;
+            }
+
+            return null;
+        },
+
+        getNavigationStartReadTarget(paragraphIndex, startCharIndex = 0) {
+            if (!this.CONFIG.APPLY_START_SKIP_TO_NAVIGATION_STARTS) {
+                return {
+                    paragraphIndex,
+                    startCharIndex: this.getNonNegativeInteger(startCharIndex, 0)
+                };
+            }
+            return this.resolveStartPositionWithUnitSkip(paragraphIndex, startCharIndex);
+        },
+
+        readFromParagraphWithNavigationStartSkip(paragraphIndex, startCharIndex = 0) {
+            const target = this.getNavigationStartReadTarget(paragraphIndex, startCharIndex);
+            if (!target) {
+                this.showNotification('Start skip reached end of readable text.');
+                return false;
+            }
+            const options = target.startCharIndex > 0
+                ? { startCharIndex: target.startCharIndex }
+                : {};
+            this.readFromParagraph(target.paragraphIndex, options);
+            return true;
+        },
+
         findWordIndexByCharFromText(text, charIndex) {
             const boundaries = this.getWordBoundaries(text);
             if (boundaries.length === 0) return -1;
@@ -2112,6 +2208,102 @@
             prefixRange.setEnd(range.startContainer, range.startOffset);
             const prefixText = this.cleanTextForTTS(prefixRange.toString());
             return this.findWordIndexByCharFromText(text, prefixText.length);
+        },
+
+        resolveParagraphIndexForNode(node) {
+            if (!node) return -1;
+            for (let i = 0; i < this.paragraphsList.length; i += 1) {
+                const para = this.paragraphsList[i];
+                if (!para || !para.element) continue;
+                if (para.element === node) return i;
+                if (para.element.contains(node)) return i;
+            }
+            return -1;
+        },
+
+        computeCharIndexWithinParagraphFromRange(paragraphElement, range) {
+            if (!paragraphElement || !range) return 0;
+            try {
+                const beforeRange = document.createRange();
+                beforeRange.selectNodeContents(paragraphElement);
+                beforeRange.setEnd(range.startContainer, range.startOffset);
+                const beforeText = this.cleanTextForTTS(beforeRange.toString() || '');
+                const maxIndex = Math.max(0, this.getTextFromElement(paragraphElement).length - 1);
+                const index = Math.max(0, Math.min(maxIndex, beforeText.length));
+                return Number.isFinite(index) ? index : 0;
+            } catch (_error) {
+                return 0;
+            }
+        },
+
+        getSelectionJumpTarget(event) {
+            this.refreshParagraphsIfNeeded(false);
+            if (this.paragraphsList.length === 0) return null;
+
+            const selection = window.getSelection();
+            let range = null;
+            if (selection && selection.rangeCount > 0) {
+                range = selection.getRangeAt(0);
+            }
+
+            let startNode = range ? range.startContainer : null;
+            if (!startNode && event) {
+                const pointedRange = this.getCaretRangeFromPoint(event.clientX, event.clientY);
+                if (pointedRange) {
+                    range = pointedRange;
+                    startNode = pointedRange.startContainer;
+                }
+            }
+            if (!startNode) return null;
+
+            const paragraphIndex = this.resolveParagraphIndexForNode(startNode);
+            if (paragraphIndex === -1) return null;
+            const paragraph = this.paragraphsList[paragraphIndex];
+            if (!paragraph || !paragraph.element) return null;
+
+            const charIndex = this.computeCharIndexWithinParagraphFromRange(paragraph.element, range);
+            return { paragraphIndex, charIndex };
+        },
+
+        jumpReadingToSelectionTarget(target) {
+            if (!target) return false;
+            const paragraphIndex = Number.isInteger(target.paragraphIndex) ? target.paragraphIndex : -1;
+            const charIndex = Number.isFinite(target.charIndex) ? Math.max(0, Math.floor(target.charIndex)) : 0;
+            if (paragraphIndex < 0 || paragraphIndex >= this.paragraphsList.length) return false;
+            const paragraph = this.paragraphsList[paragraphIndex];
+            if (this.CONFIG.APPLY_START_SKIP_TO_NAVIGATION_STARTS) {
+                const resolvedTarget = this.getNavigationStartReadTarget(paragraphIndex, charIndex);
+                if (!resolvedTarget) return false;
+                this.stopTTS(false);
+                this.continuousReadingActive = true;
+                this.readFromParagraph(
+                    resolvedTarget.paragraphIndex,
+                    resolvedTarget.startCharIndex > 0 ? { startCharIndex: resolvedTarget.startCharIndex } : {}
+                );
+                return true;
+            }
+
+            const baseWordOffset = Math.max(0, this.findWordIndexByCharFromText(paragraph && paragraph.text ? paragraph.text : '', charIndex));
+            const totalWordOffset = baseWordOffset + this.CONFIG.CLICK_START_SKIP_WORDS;
+            const resolved = this.resolveParagraphStartByWordOffset(paragraphIndex, totalWordOffset);
+            if (!resolved) return false;
+
+            this.stopTTS(false);
+            this.continuousReadingActive = true;
+            this.startReadingFromParagraphWordOffset(resolved.paragraphIndex, resolved.wordOffset);
+            return true;
+        },
+
+        handleSelectionSeek(event) {
+            if (!(this.ttsActive || this.continuousReadingActive || this.isPaused)) return;
+            if (!event || event.type !== 'dblclick') return;
+            if (!event || event.button !== 0) return;
+            if (event.target && event.target.closest && event.target.closest('[data-tts-ui]')) return;
+            if (event.target && event.target.closest && event.target.closest('input, textarea, [role="textbox"], [contenteditable=""], [contenteditable="true"]')) return;
+
+            const target = this.getSelectionJumpTarget(event);
+            if (!target) return;
+            this.jumpReadingToSelectionTarget(target);
         },
 
         trimGapForParagraphEnd(text) {
@@ -2776,6 +2968,14 @@
             this.showNotification(`Auto-read message loop ${this.CONFIG.AUTO_READ_LOOP_CURRENT_MESSAGE ? 'on' : 'off'}`);
         },
 
+        setApplyStartSkipToNavigationStarts(enabled, silent = false) {
+            this.CONFIG.APPLY_START_SKIP_TO_NAVIGATION_STARTS = Boolean(enabled);
+            this.saveStartReadSettings();
+            if (!silent) {
+                this.showNotification(`Navigation start skip ${this.CONFIG.APPLY_START_SKIP_TO_NAVIGATION_STARTS ? 'on' : 'off'}`);
+            }
+        },
+
         setReadUserMessagesEnabled(enabled) {
             const nextValue = Boolean(enabled);
             if (this.CONFIG.READ_USER_MESSAGES === nextValue) return;
@@ -3395,9 +3595,8 @@
         shouldHighlightWordsForElement(element) {
             if (!this.CONFIG.WORD_HIGHLIGHT_ENABLED) return false;
             if (!element) return false;
-            const rect = element.getBoundingClientRect();
-            const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
-            return rect.bottom > 0 && rect.top < viewportHeight;
+            if (element.isConnected === false) return false;
+            return true;
         },
 
         // ... (pauseResumeTTS, navigate, startReadingOnClick, setupEventListeners are unchanged) ...
@@ -3538,7 +3737,7 @@
                     this.navigationTimeoutId = setTimeout(() => {
                         if (this.pendingNavIndex === -1) return;
                         this.continuousReadingActive = true;
-                        this.readFromParagraph(this.pendingNavIndex);
+                        this.readFromParagraphWithNavigationStartSkip(this.pendingNavIndex);
                     }, this.CONFIG.NAV_FOCUS_HOLD_MS);
                 }
             } else {
@@ -3563,7 +3762,7 @@
             this.pendingNavIndex = targetIndex;
             if (options.previewOnly === false) {
                 this.continuousReadingActive = true;
-                this.readFromParagraph(targetIndex);
+                this.readFromParagraphWithNavigationStartSkip(targetIndex);
             }
         },
 
@@ -3573,7 +3772,7 @@
             this.navigationTimeoutId = setTimeout(() => {
                 if (this.pendingNavIndex === -1) return;
                 this.continuousReadingActive = true;
-                this.readFromParagraph(this.pendingNavIndex);
+                this.readFromParagraphWithNavigationStartSkip(this.pendingNavIndex);
             }, this.CONFIG.NAV_KEYUP_READ_DELAY_MS);
         },
 
@@ -3810,6 +4009,7 @@
                 this.smartCopyCopyHandler = (event) => this.handleSmartCopyCopyEvent(event);
                 document.addEventListener('copy', this.smartCopyCopyHandler, true);
             }
+            document.addEventListener('dblclick', (event) => this.handleSelectionSeek(event), true);
             const interactionHandler = () => this.markUserInteraction();
             window.addEventListener('wheel', interactionHandler, { passive: true });
             window.addEventListener('touchstart', interactionHandler, { passive: true });
@@ -3947,6 +4147,7 @@
                         <option value="sentence" ${this.CONFIG.AUTO_READ_START_SKIP_UNIT === 'sentence' ? 'selected' : ''}>sentences</option>
                     </select>
                 </div>
+                <label for="tts-nav-start-skip-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-nav-start-skip-toggle" ${this.CONFIG.APPLY_START_SKIP_TO_NAVIGATION_STARTS ? 'checked' : ''} style="margin:0;">Apply skip on arrow/double-click</label>
                 <div style="display:flex; align-items:center; gap:6px; margin-top:6px;">
                     <label for="tts-click-skip-words" style="flex:1; min-width:0;">Start reading +X words</label>
                     <input type="number" id="tts-click-skip-words" min="0" step="1" value="${this.CONFIG.CLICK_START_SKIP_WORDS}" style="width:86px; padding:2px; background: rgba(0,0,0,0.8); color:#fff; border:1px solid rgba(255,255,255,0.25); border-radius:3px;">
@@ -4077,6 +4278,11 @@
                 this.setAutoReadStartSkipUnit(e.target.value);
             });
             autoReadSkipUnit.addEventListener('mousedown', e => e.stopPropagation());
+            const navStartSkipToggle = document.getElementById('tts-nav-start-skip-toggle');
+            navStartSkipToggle.addEventListener('change', e => {
+                this.setApplyStartSkipToNavigationStarts(e.target.checked, true);
+            });
+            navStartSkipToggle.addEventListener('mousedown', e => e.stopPropagation());
             const clickSkipWordsInput = document.getElementById('tts-click-skip-words');
             clickSkipWordsInput.addEventListener('input', e => {
                 this.setClickStartSkipWords(e.target.value);
