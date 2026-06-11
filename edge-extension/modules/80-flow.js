@@ -106,9 +106,8 @@
         shouldHighlightWordsForElement(element) {
             if (!this.CONFIG.WORD_HIGHLIGHT_ENABLED) return false;
             if (!element) return false;
-            const rect = element.getBoundingClientRect();
-            const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
-            return rect.bottom > 0 && rect.top < viewportHeight;
+            if (element.isConnected === false) return false;
+            return true;
         },
 
         // ... (pauseResumeTTS, navigate, startReadingOnClick, setupEventListeners are unchanged) ...
@@ -239,7 +238,7 @@
                 this.navigationTimeoutId = setTimeout(() => {
                     if (this.pendingNavIndex === -1) return;
                     this.continuousReadingActive = true;
-                    this.readFromParagraph(this.pendingNavIndex);
+                    this.readFromParagraphWithNavigationStartSkip(this.pendingNavIndex);
                 }, this.CONFIG.NAV_FOCUS_HOLD_MS);
             }
             return true;
@@ -320,7 +319,7 @@
             this.navigationTimeoutId = setTimeout(() => {
                 if (this.pendingNavIndex === -1) return;
                 this.continuousReadingActive = true;
-                this.readFromParagraph(this.pendingNavIndex);
+                this.readFromParagraphWithNavigationStartSkip(this.pendingNavIndex);
             }, this.CONFIG.NAV_KEYUP_READ_DELAY_MS);
         },
 
@@ -430,7 +429,7 @@
             this.navigate(direction < 0 ? -step : step, { previewOnly: true });
             if (this.pendingNavIndex === -1) return;
             this.continuousReadingActive = true;
-            this.readFromParagraph(this.pendingNavIndex);
+            this.readFromParagraphWithNavigationStartSkip(this.pendingNavIndex);
         },
 
         // =============================================================================

@@ -9,7 +9,8 @@ function makeRuntime(reader) {
     const listeners = {};
     const document = {
         activeElement: null,
-        body: { style: {} },
+        body: { style: {}, appendChild() {} },
+        documentElement: { clientHeight: 1000 },
         addEventListener(type, handler) {
             listeners[type] = handler;
         },
@@ -29,6 +30,7 @@ function makeRuntime(reader) {
         clearTimeout,
         performance: { now: () => 0 },
         Node: { ELEMENT_NODE: 1, TEXT_NODE: 3 },
+        NodeFilter: { SHOW_TEXT: 4 },
         document,
         window: {
             __TTSNS: {
@@ -43,6 +45,7 @@ function makeRuntime(reader) {
         }
     };
     context.window.document = document;
+    context.window.getComputedStyle = () => ({ visibility: 'visible', display: 'block' });
     vm.createContext(context);
     return { context, listeners };
 }
@@ -219,6 +222,26 @@ function testAutoReadStartsAfterConfiguredWords() {
     assert.strictEqual(calls[0].options.startCharIndex, 13);
 }
 
+function testAutoReadStartsAfterConfiguredSentences() {
+    const { reader, calls } = makeAutoReadReader({
+        CONFIG: {
+            AUTO_READ_START_SKIP_CHARS: 0,
+            AUTO_READ_START_SKIP_AMOUNT: 1,
+            AUTO_READ_START_SKIP_UNIT: 'sentence'
+        },
+        reader: {
+            paragraphsList: [
+                { element: { inMessage: true, id: 'p0' }, text: 'First sentence. Second sentence. Third sentence.' }
+            ]
+        }
+    });
+    reader.startAutoReadFromLatestAssistant();
+
+    assert.strictEqual(calls.length, 1);
+    assert.strictEqual(calls[0].index, 0);
+    assert.strictEqual(calls[0].options.startCharIndex, 'First sentence. '.length);
+}
+
 function testAutoReadCanLoopOnlyCurrentMessage() {
     const { reader, calls, message } = makeAutoReadReader({
         CONFIG: {
@@ -238,6 +261,91 @@ function testAutoReadCanLoopOnlyCurrentMessage() {
     assert.strictEqual(calls[0].options.startCharIndex, 4);
 }
 
+function makeFlowReader(config = {}) {
+    const calls = [];
+    const makeElement = (id) => ({
+        id,
+        classList: { add() {}, remove() {} },
+        getBoundingClientRect: () => ({ top: 10, bottom: 40 }),
+        isConnected: true
+    });
+    const reader = {
+        CONFIG: {
+            AUTO_READ_START_SKIP_CHARS: 0,
+            AUTO_READ_START_SKIP_AMOUNT: 0,
+            AUTO_READ_START_SKIP_UNIT: 'character',
+            APPLY_START_SKIP_TO_NAVIGATION_STARTS: false,
+            NAV_KEYUP_READ_DELAY_MS: 0,
+            NAV_FOCUS_HOLD_MS: 0,
+            NAV_FOCUS_FADE_MS: 0,
+            NAV_THROTTLE_MS: 0,
+            NAV_ARROW_JUMP_SEGMENTS: 1,
+            NAV_CTRL_JUMP_SEGMENTS: 5,
+            WORD_HIGHLIGHT_ENABLED: true,
+            ...config
+        },
+        continuousReadingActive: false,
+        pendingNavIndex: 1,
+        paragraphsDirty: false,
+        paragraphsList: [
+            { element: makeElement('p0'), text: 'zero paragraph' },
+            { element: makeElement('p1'), text: 'alpha beta gamma delta' },
+            { element: makeElement('p2'), text: 'epsilon zeta' }
+        ],
+        stopTTS() {},
+        clearActiveAutoReadScope() {},
+        refreshParagraphsIfNeeded() {},
+        showNotification() {},
+        clearHighlights() {},
+        gentleScrollToElement() {},
+        addNavigationTrailPoint() {},
+        logPlaybackGuardEvent() {},
+        requestPlaybackLock(_label, callback) { callback(true); },
+        isServerVoiceSelected: () => false,
+        shouldUseEmojiVoiceRoutingForParagraph: () => false,
+        queueFromIndex() {},
+        startServerPlaybackFromParagraph() {},
+        revertParagraph() {}
+    };
+    loadModule(reader, 'edge-extension/modules/50-text.js');
+    loadModule(reader, 'edge-extension/modules/70-auto-read.js');
+    loadModule(reader, 'edge-extension/modules/80-flow.js');
+    reader.readFromParagraph = (index, options) => {
+        calls.push({ index, options: options || {} });
+    };
+    return { reader, calls };
+}
+
+async function testArrowPendingReadDoesNotApplySkipWhenDisabled() {
+    const { reader, calls } = makeFlowReader({
+        AUTO_READ_START_SKIP_AMOUNT: 2,
+        AUTO_READ_START_SKIP_UNIT: 'word',
+        APPLY_START_SKIP_TO_NAVIGATION_STARTS: false
+    });
+
+    reader.startReadingFromPendingNav();
+    await new Promise(resolve => setTimeout(resolve, 5));
+
+    assert.strictEqual(calls.length, 1);
+    assert.strictEqual(calls[0].index, 1);
+    assert.strictEqual(calls[0].options.startCharIndex, undefined);
+}
+
+async function testArrowPendingReadAppliesConfiguredSkipWhenEnabled() {
+    const { reader, calls } = makeFlowReader({
+        AUTO_READ_START_SKIP_AMOUNT: 2,
+        AUTO_READ_START_SKIP_UNIT: 'word',
+        APPLY_START_SKIP_TO_NAVIGATION_STARTS: true
+    });
+
+    reader.startReadingFromPendingNav();
+    await new Promise(resolve => setTimeout(resolve, 5));
+
+    assert.strictEqual(calls.length, 1);
+    assert.strictEqual(calls[0].index, 1);
+    assert.strictEqual(calls[0].options.startCharIndex, 'alpha beta '.length);
+}
+
 function testArrowKeysUseSeparateArrowJumpSegments() {
     const { navigateCalls, listeners } = makeEventReader();
     listeners.keydown(makeKeyEvent('ArrowRight'));
@@ -253,15 +361,94 @@ function testEmptyHotkeyDoesNotMatch() {
     assert.deepStrictEqual(navigateCalls, []);
 }
 
+function makeSelectionSeekReader(config = {}) {
+    const calls = [];
+    const element = {
+        contains: () => true,
+        isConnected: true
+    };
+    const reader = {
+        CONFIG: {
+            CLICK_START_SKIP_WORDS: 0,
+            AUTO_READ_START_SKIP_AMOUNT: 0,
+            AUTO_READ_START_SKIP_UNIT: 'character',
+            APPLY_START_SKIP_TO_NAVIGATION_STARTS: false,
+            ...config
+        },
+        paragraphsList: [
+            { element, text: 'alpha beta gamma delta' }
+        ],
+        stopTTS() {},
+        logPlaybackGuardEvent() {},
+        showNotification() {},
+        readFromParagraph(index, options) {
+            calls.push({ index, options: options || {} });
+        }
+    };
+    loadModule(reader, 'edge-extension/modules/50-text.js');
+    loadModule(reader, 'edge-extension/modules/70-auto-read.js');
+    loadModule(reader, 'edge-extension/modules/55-selection.js');
+    return { reader, calls };
+}
+
+function testDoubleClickSelectionSeekAppliesConfiguredSkipWhenEnabled() {
+    const { reader, calls } = makeSelectionSeekReader({
+        AUTO_READ_START_SKIP_AMOUNT: 1,
+        AUTO_READ_START_SKIP_UNIT: 'word',
+        APPLY_START_SKIP_TO_NAVIGATION_STARTS: true
+    });
+
+    const jumped = reader.jumpReadingToSelectionTarget({
+        paragraphIndex: 0,
+        charIndex: 'alpha '.length
+    });
+
+    assert.strictEqual(jumped, true);
+    assert.strictEqual(calls.length, 1);
+    assert.strictEqual(calls[0].index, 0);
+    assert.strictEqual(calls[0].options.startCharIndex, 'alpha beta '.length);
+}
+
+function testOffscreenConnectedParagraphCanStillHighlightWords() {
+    const { reader } = makeFlowReader();
+    const element = {
+        isConnected: true,
+        getBoundingClientRect: () => ({ top: 2500, bottom: 2600 })
+    };
+
+    assert.strictEqual(reader.shouldHighlightWordsForElement(element), true);
+}
+
+function testDisconnectedParagraphDoesNotHighlightWords() {
+    const { reader } = makeFlowReader();
+    const element = {
+        isConnected: false,
+        getBoundingClientRect: () => ({ top: 10, bottom: 40 })
+    };
+
+    assert.strictEqual(reader.shouldHighlightWordsForElement(element), false);
+}
+
 const tests = [
     testAutoReadStartsAfterConfiguredCharacters,
     testAutoReadStartsAfterConfiguredWords,
+    testAutoReadStartsAfterConfiguredSentences,
     testAutoReadCanLoopOnlyCurrentMessage,
+    testArrowPendingReadDoesNotApplySkipWhenDisabled,
+    testArrowPendingReadAppliesConfiguredSkipWhenEnabled,
     testArrowKeysUseSeparateArrowJumpSegments,
-    testEmptyHotkeyDoesNotMatch
+    testEmptyHotkeyDoesNotMatch,
+    testDoubleClickSelectionSeekAppliesConfiguredSkipWhenEnabled,
+    testOffscreenConnectedParagraphCanStillHighlightWords,
+    testDisconnectedParagraphDoesNotHighlightWords
 ];
 
-for (const test of tests) {
-    test();
-    console.log(`PASS ${test.name}`);
-}
+(async () => {
+    for (const test of tests) {
+        await test();
+        console.log(`PASS ${test.name}`);
+    }
+})().catch((error) => {
+    console.error(error);
+    process.exit(1);
+});

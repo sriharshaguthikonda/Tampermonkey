@@ -92,6 +92,26 @@
             const charIndex = Number.isFinite(target.charIndex) ? Math.max(0, Math.floor(target.charIndex)) : 0;
             if (paragraphIndex < 0 || paragraphIndex >= this.paragraphsList.length) return false;
             const paragraph = this.paragraphsList[paragraphIndex];
+            if (this.CONFIG.APPLY_START_SKIP_TO_NAVIGATION_STARTS) {
+                const resolvedTarget = this.getNavigationStartReadTarget(paragraphIndex, charIndex);
+                if (!resolvedTarget) return false;
+
+                this.logPlaybackGuardEvent('selection-seek-jump', {
+                    paragraphIndex: resolvedTarget.paragraphIndex,
+                    charIndex,
+                    startCharIndex: resolvedTarget.startCharIndex,
+                    currentParagraphIndex: this.currentParagraphIndex
+                });
+
+                this.stopTTS(false);
+                this.continuousReadingActive = true;
+                this.readFromParagraph(
+                    resolvedTarget.paragraphIndex,
+                    resolvedTarget.startCharIndex > 0 ? { startCharIndex: resolvedTarget.startCharIndex } : {}
+                );
+                return true;
+            }
+
             const baseWordOffset = Math.max(0, this.findWordIndexByCharFromText(paragraph && paragraph.text ? paragraph.text : '', charIndex));
             const totalWordOffset = baseWordOffset + this.CONFIG.CLICK_START_SKIP_WORDS;
             const resolved = this.resolveParagraphStartByWordOffset(paragraphIndex, totalWordOffset);

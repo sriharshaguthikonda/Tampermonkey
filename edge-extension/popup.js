@@ -48,6 +48,7 @@ document.addEventListener('DOMContentLoaded', () => {
         autoReadStartSkipChars: 0,
         autoReadStartSkipAmount: 0,
         autoReadStartSkipUnit: 'character',
+        applyStartSkipToNavigationStarts: false,
         autoReadLoopCurrentMessage: false,
         autoCloseLimitWarning: true,
         limitWarningDelay: 1500,

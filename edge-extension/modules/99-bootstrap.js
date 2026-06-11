@@ -257,6 +257,9 @@
         if (typeof settings.autoReadLoopCurrentMessage === 'boolean') {
             TTSReader.setAutoReadLoopCurrentMessage(settings.autoReadLoopCurrentMessage, silent);
         }
+        if (typeof settings.applyStartSkipToNavigationStarts === 'boolean') {
+            TTSReader.setApplyStartSkipToNavigationStarts(settings.applyStartSkipToNavigationStarts, silent);
+        }
         if (settings.hotkeys && typeof settings.hotkeys === 'object') {
             TTSReader.setHotkeys(settings.hotkeys, true);
         }
@@ -407,6 +410,7 @@
                             autoReadStartSkipAmount: TTSReader.CONFIG.AUTO_READ_START_SKIP_AMOUNT,
                             autoReadStartSkipUnit: TTSReader.CONFIG.AUTO_READ_START_SKIP_UNIT,
                             autoReadLoopCurrentMessage: TTSReader.CONFIG.AUTO_READ_LOOP_CURRENT_MESSAGE,
+                            applyStartSkipToNavigationStarts: TTSReader.CONFIG.APPLY_START_SKIP_TO_NAVIGATION_STARTS,
                             loopOnEnd: TTSReader.CONFIG.LOOP_ON_END,
                             autoScrollEnabled: TTSReader.CONFIG.AUTO_SCROLL_ENABLED,
                             idleArrowNavigation: TTSReader.CONFIG.IDLE_ARROW_NAVIGATION,

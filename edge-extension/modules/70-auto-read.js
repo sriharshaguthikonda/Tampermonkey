@@ -172,6 +172,99 @@
             return { startCharIndex: boundaries[safeOffset].start, totalUnits: boundaries.length };
         },
 
+        getTextUnitIndexAtOrAfterChar(text, unit, charIndex) {
+            const source = String(text || '');
+            const boundaries = this.getTextUnitBoundaries(source, unit);
+            if (boundaries.length === 0) return { unitIndex: -1, totalUnits: 0 };
+            const safeCharIndex = Math.max(0, Math.floor(Number(charIndex) || 0));
+            for (let i = 0; i < boundaries.length; i += 1) {
+                const boundary = boundaries[i];
+                if (safeCharIndex <= boundary.start) return { unitIndex: i, totalUnits: boundaries.length };
+                if (safeCharIndex < boundary.end) return { unitIndex: i, totalUnits: boundaries.length };
+            }
+            return { unitIndex: boundaries.length, totalUnits: boundaries.length };
+        },
+
+        resolveStartPositionWithUnitSkip(startParagraphIndex, startCharIndex = 0, options = {}) {
+            let paragraphIndex = Number.parseInt(startParagraphIndex, 10);
+            if (!Number.isFinite(paragraphIndex) || paragraphIndex < 0) return null;
+
+            const unit = this.normalizeAutoReadStartSkipUnit(
+                Object.prototype.hasOwnProperty.call(options, 'unit')
+                    ? options.unit
+                    : this.CONFIG.AUTO_READ_START_SKIP_UNIT
+            );
+            let remainingUnits = this.getNonNegativeInteger(
+                Object.prototype.hasOwnProperty.call(options, 'amount')
+                    ? options.amount
+                    : this.getAutoReadStartSkipAmount(),
+                0
+            );
+            let baseCharIndex = this.getNonNegativeInteger(startCharIndex, 0);
+
+            while (paragraphIndex < this.paragraphsList.length) {
+                const paragraph = this.paragraphsList[paragraphIndex];
+                const text = typeof paragraph?.text === 'string' ? paragraph.text : '';
+                if (!text) {
+                    paragraphIndex += 1;
+                    baseCharIndex = 0;
+                    continue;
+                }
+
+                if (remainingUnits <= 0) {
+                    return {
+                        paragraphIndex,
+                        startCharIndex: Math.min(baseCharIndex, text.length)
+                    };
+                }
+
+                const unitData = this.getTextUnitIndexAtOrAfterChar(text, unit, baseCharIndex);
+                if (unitData.totalUnits === 0 || unitData.unitIndex >= unitData.totalUnits) {
+                    paragraphIndex += 1;
+                    baseCharIndex = 0;
+                    continue;
+                }
+
+                const availableUnits = unitData.totalUnits - unitData.unitIndex;
+                if (remainingUnits < availableUnits) {
+                    const charData = this.getCharIndexByTextUnitOffset(text, unit, unitData.unitIndex + remainingUnits);
+                    return {
+                        paragraphIndex,
+                        startCharIndex: charData.startCharIndex
+                    };
+                }
+
+                remainingUnits -= availableUnits;
+                paragraphIndex += 1;
+                baseCharIndex = 0;
+            }
+
+            return null;
+        },
+
+        getNavigationStartReadTarget(paragraphIndex, startCharIndex = 0) {
+            if (!this.CONFIG.APPLY_START_SKIP_TO_NAVIGATION_STARTS) {
+                return {
+                    paragraphIndex,
+                    startCharIndex: this.getNonNegativeInteger(startCharIndex, 0)
+                };
+            }
+            return this.resolveStartPositionWithUnitSkip(paragraphIndex, startCharIndex);
+        },
+
+        readFromParagraphWithNavigationStartSkip(paragraphIndex, startCharIndex = 0) {
+            const target = this.getNavigationStartReadTarget(paragraphIndex, startCharIndex);
+            if (!target) {
+                this.showNotification('Start skip reached end of readable text.');
+                return false;
+            }
+            const options = target.startCharIndex > 0
+                ? { startCharIndex: target.startCharIndex }
+                : {};
+            this.readFromParagraph(target.paragraphIndex, options);
+            return true;
+        },
+
         resolveAutoReadStartForMessage(messageElement) {
             const messageParagraphs = this.getAssistantParagraphs(messageElement);
             if (messageParagraphs.length === 0) return null;
@@ -478,6 +571,15 @@
             this.CONFIG.AUTO_READ_LOOP_CURRENT_MESSAGE = nextValue;
             if (!silent) {
                 this.showNotification(`Auto-read message loop ${nextValue ? 'on' : 'off'}`);
+            }
+        },
+
+        setApplyStartSkipToNavigationStarts(enabled, silent = false) {
+            const nextValue = Boolean(enabled);
+            if (this.CONFIG.APPLY_START_SKIP_TO_NAVIGATION_STARTS === nextValue) return;
+            this.CONFIG.APPLY_START_SKIP_TO_NAVIGATION_STARTS = nextValue;
+            if (!silent) {
+                this.showNotification(`Navigation start skip ${nextValue ? 'on' : 'off'}`);
             }
         },
 

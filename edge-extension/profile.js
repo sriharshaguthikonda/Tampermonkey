@@ -54,6 +54,7 @@
         autoReadStartSkipChars: 0,
         autoReadStartSkipAmount: 0,
         autoReadStartSkipUnit: 'character',
+        applyStartSkipToNavigationStarts: false,
         autoReadLoopCurrentMessage: false,
         doubleClickEditEnabled: true,
         autoCloseLimitWarning: true,

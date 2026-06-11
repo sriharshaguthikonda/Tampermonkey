@@ -117,6 +117,7 @@
                 <label for="tts-loop-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-loop-toggle" ${this.CONFIG.LOOP_ON_END ? 'checked' : ''} style="margin:0;">🔁 Loop to top</label>
                 <label for="tts-autoscroll-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-autoscroll-toggle" ${this.CONFIG.AUTO_SCROLL_ENABLED ? 'checked' : ''} style="margin:0;">📜 Auto-scroll</label>
                 <label for="tts-smart-copy-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-smart-copy-toggle" ${this.CONFIG.SMART_COPY_ENABLED ? 'checked' : ''} style="margin:0;">Smart copy</label>
+                <label for="tts-nav-start-skip-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-nav-start-skip-toggle" ${this.CONFIG.APPLY_START_SKIP_TO_NAVIGATION_STARTS ? 'checked' : ''} style="margin:0;">Apply skip on nav</label>
                 <div style="display:flex; align-items:center; gap:6px; margin-top:6px;">
                     <label for="tts-click-skip-words" style="flex:1; min-width:0;">Start +X words</label>
                     <input type="number" id="tts-click-skip-words" min="0" step="1" value="${this.CONFIG.CLICK_START_SKIP_WORDS}" style="width:72px; padding:2px; background: rgba(0,0,0,0.8); color:#fff; border:1px solid rgba(255,255,255,0.25); border-radius:3px;">
@@ -194,6 +195,12 @@
                 persistProfileSetting(this.settingsProfile, 'smartCopyEnabled', this.CONFIG.SMART_COPY_ENABLED);
             });
             smartCopyToggle.addEventListener('mousedown', (e) => e.stopPropagation());
+            const navStartSkipToggle = document.getElementById('tts-nav-start-skip-toggle');
+            navStartSkipToggle.addEventListener('change', (e) => {
+                this.setApplyStartSkipToNavigationStarts(e.target.checked, true);
+                persistProfileSetting(this.settingsProfile, 'applyStartSkipToNavigationStarts', this.CONFIG.APPLY_START_SKIP_TO_NAVIGATION_STARTS);
+            });
+            navStartSkipToggle.addEventListener('mousedown', (e) => e.stopPropagation());
             const clickSkipWordsInput = document.getElementById('tts-click-skip-words');
             clickSkipWordsInput.addEventListener('input', (e) => {
                 this.setClickStartSkipWords(e.target.value, true);
