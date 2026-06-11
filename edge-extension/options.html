@@ -152,8 +152,17 @@
                 <input id="autoReadLoopCurrentMessage" type="checkbox" />
             </div>
             <div class="field">
-                <label for="autoReadStartSkipChars">Auto-read start skip (characters)</label>
-                <input id="autoReadStartSkipChars" type="number" min="0" step="1" />
+                <label for="autoReadStartSkipAmount">Auto-read start skip count</label>
+                <input id="autoReadStartSkipAmount" type="number" min="0" step="1" />
+            </div>
+            <div class="field">
+                <label for="autoReadStartSkipUnit">Auto-read start skip unit</label>
+                <select id="autoReadStartSkipUnit">
+                    <option value="character">Characters</option>
+                    <option value="grapheme">Graphemes</option>
+                    <option value="word">Words</option>
+                    <option value="sentence">Sentences</option>
+                </select>
             </div>
             <div class="field toggle">
                 <label for="autoScrollEnabled">📜 Auto-scroll while reading</label>

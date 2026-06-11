@@ -95,20 +95,100 @@
             return Math.max(0, Math.round(parsed));
         },
 
+        normalizeAutoReadStartSkipUnit(unit) {
+            const next = typeof unit === 'string' ? unit.trim().toLowerCase() : '';
+            if (next === 'character' || next === 'grapheme' || next === 'word' || next === 'sentence') return next;
+            return 'character';
+        },
+
+        getAutoReadStartSkipAmount() {
+            const amount = this.getNonNegativeInteger(this.CONFIG.AUTO_READ_START_SKIP_AMOUNT, 0);
+            if (amount > 0) return amount;
+            return this.getNonNegativeInteger(this.CONFIG.AUTO_READ_START_SKIP_CHARS, 0);
+        },
+
+        getGraphemeBoundaries(text) {
+            const source = String(text || '');
+            if (!source) return [];
+            if (typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function') {
+                const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+                return Array.from(segmenter.segment(source), segment => ({
+                    start: segment.index,
+                    end: segment.index + segment.segment.length
+                }));
+            }
+            const boundaries = [];
+            let offset = 0;
+            for (const part of Array.from(source)) {
+                boundaries.push({ start: offset, end: offset + part.length });
+                offset += part.length;
+            }
+            return boundaries;
+        },
+
+        getSentenceBoundaries(text) {
+            const source = String(text || '');
+            if (!source.trim()) return [];
+            if (typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function') {
+                const segmenter = new Intl.Segmenter(undefined, { granularity: 'sentence' });
+                return Array.from(segmenter.segment(source))
+                    .filter(segment => String(segment.segment || '').trim())
+                    .map(segment => ({
+                        start: segment.index,
+                        end: segment.index + segment.segment.length
+                    }));
+            }
+            const boundaries = [];
+            const pattern = /[^.!?]+[.!?]*/g;
+            let match;
+            while ((match = pattern.exec(source)) !== null) {
+                if (!match[0].trim()) continue;
+                const leadingWhitespace = match[0].match(/^\s*/)[0].length;
+                boundaries.push({
+                    start: match.index + leadingWhitespace,
+                    end: match.index + match[0].length
+                });
+            }
+            return boundaries;
+        },
+
+        getTextUnitBoundaries(text, unit) {
+            const normalizedUnit = this.normalizeAutoReadStartSkipUnit(unit);
+            if (normalizedUnit === 'word') return this.getWordBoundaries(text);
+            if (normalizedUnit === 'grapheme') return this.getGraphemeBoundaries(text);
+            if (normalizedUnit === 'sentence') return this.getSentenceBoundaries(text);
+            const source = String(text || '');
+            return Array.from({ length: source.length }, (_, index) => ({ start: index, end: index + 1 }));
+        },
+
+        getCharIndexByTextUnitOffset(text, unit, unitOffset) {
+            const source = String(text || '');
+            const boundaries = this.getTextUnitBoundaries(source, unit);
+            if (boundaries.length === 0) return { startCharIndex: 0, totalUnits: 0 };
+            const safeOffset = this.getNonNegativeInteger(unitOffset, 0);
+            if (safeOffset >= boundaries.length) {
+                return { startCharIndex: source.length, totalUnits: boundaries.length };
+            }
+            return { startCharIndex: boundaries[safeOffset].start, totalUnits: boundaries.length };
+        },
+
         resolveAutoReadStartForMessage(messageElement) {
             const messageParagraphs = this.getAssistantParagraphs(messageElement);
             if (messageParagraphs.length === 0) return null;
 
-            let remainingChars = this.getNonNegativeInteger(this.CONFIG.AUTO_READ_START_SKIP_CHARS, 0);
+            const unit = this.normalizeAutoReadStartSkipUnit(this.CONFIG.AUTO_READ_START_SKIP_UNIT);
+            let remainingUnits = this.getAutoReadStartSkipAmount();
             for (const paragraph of messageParagraphs) {
                 const paragraphIndex = this.paragraphsList.indexOf(paragraph);
                 if (paragraphIndex === -1) continue;
                 const text = typeof paragraph.text === 'string' ? paragraph.text : '';
                 if (text.length === 0) continue;
-                if (remainingChars < text.length) {
-                    return { paragraphIndex, startCharIndex: remainingChars };
+                const charData = this.getCharIndexByTextUnitOffset(text, unit, remainingUnits);
+                if (charData.totalUnits === 0) continue;
+                if (remainingUnits < charData.totalUnits) {
+                    return { paragraphIndex, startCharIndex: charData.startCharIndex };
                 }
-                remainingChars -= text.length;
+                remainingUnits -= charData.totalUnits;
             }
             return null;
         },
@@ -364,8 +444,31 @@
             const nextValue = this.getNonNegativeInteger(value, 0);
             if (this.CONFIG.AUTO_READ_START_SKIP_CHARS === nextValue) return;
             this.CONFIG.AUTO_READ_START_SKIP_CHARS = nextValue;
+            this.CONFIG.AUTO_READ_START_SKIP_AMOUNT = nextValue;
+            this.CONFIG.AUTO_READ_START_SKIP_UNIT = 'character';
             if (!silent) {
                 this.showNotification(`Auto-read starts +${nextValue} chars`);
+            }
+        },
+
+        setAutoReadStartSkipAmount(value, silent = false) {
+            const nextValue = this.getNonNegativeInteger(value, 0);
+            if (this.CONFIG.AUTO_READ_START_SKIP_AMOUNT === nextValue) return;
+            this.CONFIG.AUTO_READ_START_SKIP_AMOUNT = nextValue;
+            if (this.CONFIG.AUTO_READ_START_SKIP_UNIT === 'character') {
+                this.CONFIG.AUTO_READ_START_SKIP_CHARS = nextValue;
+            }
+            if (!silent) {
+                this.showNotification(`Auto-read skip count ${nextValue}`);
+            }
+        },
+
+        setAutoReadStartSkipUnit(unit, silent = false) {
+            const nextUnit = this.normalizeAutoReadStartSkipUnit(unit);
+            if (this.CONFIG.AUTO_READ_START_SKIP_UNIT === nextUnit) return;
+            this.CONFIG.AUTO_READ_START_SKIP_UNIT = nextUnit;
+            if (!silent) {
+                this.showNotification(`Auto-read skip unit ${nextUnit}`);
             }
         },
 

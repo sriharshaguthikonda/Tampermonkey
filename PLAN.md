@@ -10,11 +10,14 @@ Codepaths:
 
 1. Add Edge defaults, settings UI, storage plumbing, and content-script config for:
    - `autoReadStartSkipChars`
+   - `autoReadStartSkipAmount`
+   - `autoReadStartSkipUnit`
    - `autoReadLoopCurrentMessage`
    - `navArrowJumpSegments`
    - editable hotkey fields
 2. Add Edge runtime behavior:
    - auto-read starts from message-local character offset
+   - auto-read skip unit resolves character, grapheme, word, and sentence counts to the existing character-offset playback API
    - optional loop is limited to the current assistant message
    - left/right arrows use `navArrowJumpSegments`
    - empty hotkeys do not match

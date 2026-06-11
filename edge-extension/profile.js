@@ -52,6 +52,8 @@
         copyFormat: 'dialogue-plus-setup',
         clickStartSkipWords: 0,
         autoReadStartSkipChars: 0,
+        autoReadStartSkipAmount: 0,
+        autoReadStartSkipUnit: 'character',
         autoReadLoopCurrentMessage: false,
         doubleClickEditEnabled: true,
         autoCloseLimitWarning: true,

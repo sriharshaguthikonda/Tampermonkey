@@ -248,6 +248,12 @@
         if (typeof settings.autoReadStartSkipChars !== 'undefined') {
             TTSReader.setAutoReadStartSkipChars(settings.autoReadStartSkipChars, true);
         }
+        if (typeof settings.autoReadStartSkipAmount !== 'undefined') {
+            TTSReader.setAutoReadStartSkipAmount(settings.autoReadStartSkipAmount, true);
+        }
+        if (typeof settings.autoReadStartSkipUnit !== 'undefined') {
+            TTSReader.setAutoReadStartSkipUnit(settings.autoReadStartSkipUnit, true);
+        }
         if (typeof settings.autoReadLoopCurrentMessage === 'boolean') {
             TTSReader.setAutoReadLoopCurrentMessage(settings.autoReadLoopCurrentMessage, silent);
         }
@@ -398,6 +404,8 @@
                             serverCustomRemovalMode: TTSReader.CONFIG.SERVER_CUSTOM_REMOVAL_MODE,
                             autoRead: TTSReader.CONFIG.AUTO_READ_NEW_MESSAGES,
                             autoReadStartSkipChars: TTSReader.CONFIG.AUTO_READ_START_SKIP_CHARS,
+                            autoReadStartSkipAmount: TTSReader.CONFIG.AUTO_READ_START_SKIP_AMOUNT,
+                            autoReadStartSkipUnit: TTSReader.CONFIG.AUTO_READ_START_SKIP_UNIT,
                             autoReadLoopCurrentMessage: TTSReader.CONFIG.AUTO_READ_LOOP_CURRENT_MESSAGE,
                             loopOnEnd: TTSReader.CONFIG.LOOP_ON_END,
                             autoScrollEnabled: TTSReader.CONFIG.AUTO_SCROLL_ENABLED,

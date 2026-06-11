@@ -47,6 +47,8 @@ document.addEventListener('DOMContentLoaded', () => {
         copyButtonEnabled: true,
         doubleClickEditEnabled: true,
         autoReadStartSkipChars: 0,
+        autoReadStartSkipAmount: 0,
+        autoReadStartSkipUnit: 'character',
         autoReadLoopCurrentMessage: false,
         autoCloseLimitWarning: true,
         limitWarningDelay: 1500,
@@ -135,7 +137,8 @@ document.addEventListener('DOMContentLoaded', () => {
         serverCustomRegexRemovals: document.getElementById('serverCustomRegexRemovals'),
         autoRead: document.getElementById('autoRead'),
         loopOnEnd: document.getElementById('loopOnEnd'),
-        autoReadStartSkipChars: document.getElementById('autoReadStartSkipChars'),
+        autoReadStartSkipAmount: document.getElementById('autoReadStartSkipAmount'),
+        autoReadStartSkipUnit: document.getElementById('autoReadStartSkipUnit'),
         autoReadLoopCurrentMessage: document.getElementById('autoReadLoopCurrentMessage'),
         autoScrollEnabled: document.getElementById('autoScrollEnabled'),
         idleArrowNavigation: document.getElementById('idleArrowNavigation'),
@@ -205,7 +208,7 @@ document.addEventListener('DOMContentLoaded', () => {
         'autoReadCooldownMs',
         'autoReadStableMs',
         'autoReadMinParagraphs',
-        'autoReadStartSkipChars',
+        'autoReadStartSkipAmount',
         'autoPauseHiddenDelayMs'
     ];
 
@@ -289,6 +292,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const next = typeof value === 'string' ? value.trim().toLowerCase() : '';
         if (next === 'exact' || next === 'regex' || next === 'both') return next;
         return 'exact';
+    }
+
+    function normalizeSkipUnit(value) {
+        const next = typeof value === 'string' ? value.trim().toLowerCase() : '';
+        if (next === 'character' || next === 'grapheme' || next === 'word' || next === 'sentence') return next;
+        return 'character';
     }
 
     function normalizeMultilineValue(value) {
@@ -536,6 +545,9 @@ document.addEventListener('DOMContentLoaded', () => {
         elements.serverCustomRegexRemovals.value = typeof merged.serverCustomRegexRemovals === 'string'
             ? merged.serverCustomRegexRemovals
             : '';
+        if (elements.autoReadStartSkipUnit) {
+            elements.autoReadStartSkipUnit.value = normalizeSkipUnit(merged.autoReadStartSkipUnit);
+        }
 
         toggleFields.forEach((key) => {
             if (elements[key]) elements[key].checked = Boolean(merged[key]);
@@ -568,6 +580,7 @@ document.addEventListener('DOMContentLoaded', () => {
         settings.serverCustomRemovalMode = normalizeRemovalMode(elements.serverCustomRemovalMode.value || defaults.serverCustomRemovalMode);
         settings.serverCustomExactRemovals = normalizeMultilineValue(elements.serverCustomExactRemovals.value);
         settings.serverCustomRegexRemovals = normalizeMultilineValue(elements.serverCustomRegexRemovals.value);
+        settings.autoReadStartSkipUnit = normalizeSkipUnit(elements.autoReadStartSkipUnit.value || defaults.autoReadStartSkipUnit);
 
         toggleFields.forEach((key) => {
             settings[key] = Boolean(elements[key].checked);
@@ -689,6 +702,11 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.serverCustomRegexRemovals.addEventListener('input', () => {
         scheduleSave();
     });
+    if (elements.autoReadStartSkipUnit) {
+        elements.autoReadStartSkipUnit.addEventListener('change', () => {
+            scheduleSave();
+        });
+    }
 
     numberFields.forEach((key) => {
         if (key === 'speechRate' || key === 'volumeBoostLevel') return;

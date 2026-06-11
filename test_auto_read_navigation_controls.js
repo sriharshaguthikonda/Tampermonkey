@@ -204,6 +204,21 @@ function testAutoReadStartsAfterConfiguredCharacters() {
     assert.strictEqual(calls[0].options.startCharIndex, 6);
 }
 
+function testAutoReadStartsAfterConfiguredWords() {
+    const { reader, calls } = makeAutoReadReader({
+        CONFIG: {
+            AUTO_READ_START_SKIP_CHARS: 0,
+            AUTO_READ_START_SKIP_AMOUNT: 2,
+            AUTO_READ_START_SKIP_UNIT: 'word'
+        }
+    });
+    reader.startAutoReadFromLatestAssistant();
+
+    assert.strictEqual(calls.length, 1);
+    assert.strictEqual(calls[0].index, 0);
+    assert.strictEqual(calls[0].options.startCharIndex, 13);
+}
+
 function testAutoReadCanLoopOnlyCurrentMessage() {
     const { reader, calls, message } = makeAutoReadReader({
         CONFIG: {
@@ -240,6 +255,7 @@ function testEmptyHotkeyDoesNotMatch() {
 
 const tests = [
     testAutoReadStartsAfterConfiguredCharacters,
+    testAutoReadStartsAfterConfiguredWords,
     testAutoReadCanLoopOnlyCurrentMessage,
     testArrowKeysUseSeparateArrowJumpSegments,
     testEmptyHotkeyDoesNotMatch

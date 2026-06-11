@@ -46,6 +46,8 @@ document.addEventListener('DOMContentLoaded', () => {
         copyButtonEnabled: true,
         doubleClickEditEnabled: true,
         autoReadStartSkipChars: 0,
+        autoReadStartSkipAmount: 0,
+        autoReadStartSkipUnit: 'character',
         autoReadLoopCurrentMessage: false,
         autoCloseLimitWarning: true,
         limitWarningDelay: 1500,
