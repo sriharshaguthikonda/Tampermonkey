@@ -1921,6 +1921,8 @@
             this.currentParagraphIndex = index;
             this.lastSpokenElement = para.element;
             this.wordHighlightActiveForCurrent = this.shouldHighlightWordsForElement(para.element);
+            this.startAutoScroll();
+            this.maybeAutoScrollOnStart();
             const wrapStart = performance.now();
             const textToRead = this.prepareParagraphForReading(para.element);
             this.lastWrapMs = performance.now() - wrapStart;

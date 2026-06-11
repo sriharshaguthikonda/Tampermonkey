@@ -113,7 +113,51 @@ function testUserscriptSelectionSeekAppliesNavigationSkip() {
     assert.strictEqual(calls[0].options.startCharIndex, 'alpha beta '.length);
 }
 
+function testUserscriptServerPlaybackScrollsBeforePreparingWordSpans() {
+    const reader = loadUserscriptForTest();
+    const calls = [];
+    const element = {
+        isConnected: true,
+        classList: {
+            add() {
+                calls.push('class-add');
+            }
+        }
+    };
+    reader.CONFIG.WORD_HIGHLIGHT_ENABLED = true;
+    reader.CONFIG.SERVER_PRECACHE_ENABLED = false;
+    reader.serverVoiceEnabled = true;
+    reader.paragraphsList = [
+        { text: 'alpha beta gamma', element }
+    ];
+    reader.shouldHighlightWordsForElement = () => true;
+    reader.startAutoScroll = function startAutoScroll() {
+        calls.push('start-scroll');
+        assert.strictEqual(this.lastSpokenElement, element);
+    };
+    reader.maybeAutoScrollOnStart = function maybeAutoScrollOnStart() {
+        calls.push('center-target');
+        assert.strictEqual(this.lastSpokenElement, element);
+    };
+    reader.prepareParagraphForReading = function prepareParagraphForReading(targetElement) {
+        calls.push('prepare');
+        assert.strictEqual(targetElement, element);
+        assert.strictEqual(this.lastSpokenElement, element);
+        return 'alpha beta gamma';
+    };
+    reader.clearHighlights = () => {};
+    reader.updatePointerArrow = () => {};
+    reader.prefetchParagraphSentences = (_text, _index, onComplete) => onComplete();
+    reader.playFirstSentenceFromCache = () => {};
+
+    reader.startServerPlaybackFromParagraph(0);
+
+    assert.deepStrictEqual(calls.slice(0, 3), ['start-scroll', 'center-target', 'prepare']);
+}
+
 testUserscriptResolvesNavigationSkipLikeEdge();
 console.log('PASS testUserscriptResolvesNavigationSkipLikeEdge');
 testUserscriptSelectionSeekAppliesNavigationSkip();
 console.log('PASS testUserscriptSelectionSeekAppliesNavigationSkip');
+testUserscriptServerPlaybackScrollsBeforePreparingWordSpans();
+console.log('PASS testUserscriptServerPlaybackScrollsBeforePreparingWordSpans');

@@ -429,6 +429,84 @@ function testDisconnectedParagraphDoesNotHighlightWords() {
     assert.strictEqual(reader.shouldHighlightWordsForElement(element), false);
 }
 
+function testServerPlaybackScrollsBeforePreparingWordSpans() {
+    const calls = [];
+    const element = {
+        isConnected: true,
+        classList: {
+            add() {
+                calls.push('class-add');
+            }
+        }
+    };
+    const reader = {
+        CONFIG: {
+            LOOP_ON_END: false,
+            SERVER_PRECACHE_MODE: false,
+            WORD_HIGHLIGHT_ENABLED: true
+        },
+        playbackSessionId: 1,
+        continuousReadingActive: true,
+        serverVoiceEnabled: true,
+        speechSynthesis: {
+            speaking: false,
+            pending: false,
+            cancel() {}
+        },
+        queuedParagraphs: new Set(),
+        queuedStartOffsets: new Map(),
+        chunkedParagraphState: new Map(),
+        paragraphRetryAttempts: new Map(),
+        serverWordHighlightTimers: [],
+        paragraphsList: [
+            { element, text: 'alpha beta gamma' }
+        ],
+        stopTTS() {},
+        logPlaybackGuardEvent() {},
+        stopCurrentServerSource() {},
+        cancelScheduledNext() {},
+        cancelActiveSpeechQueue() {},
+        buildServerSentencePlan() {
+            return [{ text: 'alpha beta gamma', startCharIndex: 0, endCharIndex: 16 }];
+        },
+        shouldHighlightWordsForElement() {
+            return true;
+        },
+        startAutoScroll() {
+            calls.push('start-scroll');
+            assert.strictEqual(this.lastSpokenElement, element);
+        },
+        maybeAutoScrollOnStart() {
+            calls.push('center-target');
+            assert.strictEqual(this.lastSpokenElement, element);
+        },
+        prepareParagraphForReading(targetElement) {
+            calls.push('prepare');
+            assert.strictEqual(targetElement, element);
+            assert.strictEqual(this.lastSpokenElement, element);
+            return 'alpha beta gamma';
+        },
+        updateDiagnosticsPanel() {},
+        updateProgressPanel() {},
+        clearHighlights() {},
+        updatePointerArrow() {},
+        getOrPrepareServerSentenceAudioElement() {
+            return Promise.resolve();
+        },
+        playServerSentence() {}
+    };
+    loadModule(reader, 'edge-extension/modules/50-text.js');
+    loadModule(reader, 'edge-extension/modules/70-auto-read.js');
+    reader.stopServerAudioPlayback = () => {};
+    reader.cancelActiveSpeechQueue = () => {};
+    reader.getOrPrepareServerSentenceAudioElement = () => new Promise(() => {});
+    reader.playServerSentence = () => {};
+
+    reader.startServerPlaybackFromParagraph(0);
+
+    assert.deepStrictEqual(calls.slice(0, 3), ['start-scroll', 'center-target', 'prepare']);
+}
+
 const tests = [
     testAutoReadStartsAfterConfiguredCharacters,
     testAutoReadStartsAfterConfiguredWords,
@@ -440,7 +518,8 @@ const tests = [
     testEmptyHotkeyDoesNotMatch,
     testDoubleClickSelectionSeekAppliesConfiguredSkipWhenEnabled,
     testOffscreenConnectedParagraphCanStillHighlightWords,
-    testDisconnectedParagraphDoesNotHighlightWords
+    testDisconnectedParagraphDoesNotHighlightWords,
+    testServerPlaybackScrollsBeforePreparingWordSpans
 ];
 
 (async () => {

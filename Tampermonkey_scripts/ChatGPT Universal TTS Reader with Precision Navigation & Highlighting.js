@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         *** ChatGPT Universal TTS Reader with Precision Navigation & Highlighting (Ignore Content Root)
 // @namespace    http://tampermonkey.net/
-// @version      3.13
+// @version      3.14
 // @description  TTS reader skips designated UI elements under #content-root
 // @author       Your Name (updated by AI)
 // @match        https://chat.openai.com/c/*
@@ -3393,6 +3393,8 @@
             this.currentParagraphIndex = paragraphIndex;
             this.lastSpokenElement = para.element;
             this.wordHighlightActiveForCurrent = this.shouldHighlightWordsForElement(para.element);
+            this.startAutoScroll();
+            this.maybeAutoScrollOnStart();
             
             // Prepare paragraph for reading (word highlighting)
             const textToRead = this.prepareParagraphForReading(para.element);
@@ -3400,8 +3402,6 @@
             
             this.clearHighlights(true);
             para.element.classList.add('tts-current-sentence');
-            this.startAutoScroll();
-            this.maybeAutoScrollOnStart();
             
             if (this.pointerLoopId) cancelAnimationFrame(this.pointerLoopId);
             this.updatePointerArrow();
