@@ -51,6 +51,8 @@
         smartCopyMode: 'selection-first',
         copyFormat: 'dialogue-plus-setup',
         clickStartSkipWords: 0,
+        autoReadStartSkipChars: 0,
+        autoReadLoopCurrentMessage: false,
         doubleClickEditEnabled: true,
         autoCloseLimitWarning: true,
         limitWarningDelay: 1500,
@@ -58,6 +60,7 @@
         navFocusHoldMs: 800,
         navKeyupReadDelayMs: 150,
         navThrottleMs: 20,
+        navArrowJumpSegments: 1,
         navCtrlJumpSegments: 5,
         speedStep: 0.2,
         scrollThrottleMs: 250,
@@ -66,7 +69,22 @@
         waitForMoreMs: 8000,
         autoReadCooldownMs: 1500,
         autoReadStableMs: 800,
-        autoReadMinParagraphs: 3
+        autoReadMinParagraphs: 3,
+        hotkeys: {
+            activate: 'U',
+            pauseResume: 'P',
+            navNext: 'ArrowRight',
+            navPrev: 'ArrowLeft',
+            stop: 'Escape',
+            boundaryStart: 'Home',
+            boundaryEnd: 'End',
+            sessionPause: 'Space',
+            speedDown: '[',
+            speedUp: ']',
+            replay: 'R',
+            loopToggle: 'L',
+            autoScrollToggle: 'A'
+        }
     };
 
     const PROFILE_DEFAULT_SETTINGS = {

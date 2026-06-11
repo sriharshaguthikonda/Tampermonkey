@@ -148,6 +148,14 @@
                 <input id="loopOnEnd" type="checkbox" />
             </div>
             <div class="field toggle">
+                <label for="autoReadLoopCurrentMessage">🔂 Auto-read loops current message only</label>
+                <input id="autoReadLoopCurrentMessage" type="checkbox" />
+            </div>
+            <div class="field">
+                <label for="autoReadStartSkipChars">Auto-read start skip (characters)</label>
+                <input id="autoReadStartSkipChars" type="number" min="0" step="1" />
+            </div>
+            <div class="field toggle">
                 <label for="autoScrollEnabled">📜 Auto-scroll while reading</label>
                 <input id="autoScrollEnabled" type="checkbox" />
             </div>
@@ -252,6 +260,10 @@
                     <input id="navThrottleMs" type="number" min="0" step="5" />
                 </div>
                 <div class="field">
+                    <label for="navArrowJumpSegments">Left/right arrow jump segments</label>
+                    <input id="navArrowJumpSegments" type="number" min="1" max="50" step="1" />
+                </div>
+                <div class="field">
                     <label for="navCtrlJumpSegments">Ctrl+Arrow jump segments</label>
                     <input id="navCtrlJumpSegments" type="number" min="1" max="50" step="1" />
                 </div>
@@ -292,19 +304,23 @@
         </section>
 
         <section class="card">
-            <h2>Keyboard Shortcuts (While TTS Session Is Active)</h2>
-            <ul class="note-list">
-                <li><strong>Arrow Left/Right</strong>: Move by 1 segment</li>
-                <li><strong>Ctrl + Arrow Left/Right</strong>: Jump by configured segments</li>
-                <li><strong>Home/End</strong>: Jump to first/last segment (preview)</li>
-                <li><strong>Ctrl + Home/End</strong>: Jump to first/last and resume reading</li>
-                <li><strong>Space</strong>: Pause/resume</li>
-                <li><strong>[ / ]</strong>: Decrease/increase speech rate by configured step</li>
-                <li><strong>R</strong>: Replay current segment</li>
-                <li><strong>L</strong>: Toggle loop-to-top</li>
-                <li><strong>A</strong>: Toggle auto-scroll</li>
-                <li><strong>Ctrl + Up/Down</strong>: Cycle sent prompts when prompt box is focused</li>
-            </ul>
+            <h2>Keyboard Shortcuts</h2>
+            <div class="grid">
+                <div class="field"><label for="hotkeyActivate">Shift + start click mode</label><input id="hotkeyActivate" type="text" /></div>
+                <div class="field"><label for="hotkeyPauseResume">Ctrl+Shift + pause/resume</label><input id="hotkeyPauseResume" type="text" /></div>
+                <div class="field"><label for="hotkeyNavPrev">Previous segment</label><input id="hotkeyNavPrev" type="text" /></div>
+                <div class="field"><label for="hotkeyNavNext">Next segment</label><input id="hotkeyNavNext" type="text" /></div>
+                <div class="field"><label for="hotkeyStop">Stop reading</label><input id="hotkeyStop" type="text" /></div>
+                <div class="field"><label for="hotkeyBoundaryStart">Jump start</label><input id="hotkeyBoundaryStart" type="text" /></div>
+                <div class="field"><label for="hotkeyBoundaryEnd">Jump end</label><input id="hotkeyBoundaryEnd" type="text" /></div>
+                <div class="field"><label for="hotkeySessionPause">Session pause/resume</label><input id="hotkeySessionPause" type="text" /></div>
+                <div class="field"><label for="hotkeySpeedDown">Speed down</label><input id="hotkeySpeedDown" type="text" /></div>
+                <div class="field"><label for="hotkeySpeedUp">Speed up</label><input id="hotkeySpeedUp" type="text" /></div>
+                <div class="field"><label for="hotkeyReplay">Replay segment</label><input id="hotkeyReplay" type="text" /></div>
+                <div class="field"><label for="hotkeyLoopToggle">Toggle loop</label><input id="hotkeyLoopToggle" type="text" /></div>
+                <div class="field"><label for="hotkeyAutoScrollToggle">Toggle auto-scroll</label><input id="hotkeyAutoScrollToggle" type="text" /></div>
+            </div>
+            <p class="note">Use browser `KeyboardEvent.key` names such as `ArrowRight`, `Escape`, `Space`, or `R`. Empty disables that shortcut.</p>
         </section>
 
         <section class="actions">

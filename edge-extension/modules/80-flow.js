@@ -183,6 +183,12 @@
             return scaled;
         },
 
+        getArrowNavigationStep(multiplier = 1) {
+            const parsed = Number(this.CONFIG.NAV_ARROW_JUMP_SEGMENTS);
+            const base = Number.isFinite(parsed) ? Math.max(1, Math.round(parsed)) : 1;
+            return Math.max(1, Math.round(base * Number(multiplier || 1)));
+        },
+
         getSpeedStep() {
             const parsed = Number(this.CONFIG.SPEED_STEP);
             return Number.isFinite(parsed) ? Math.max(0.1, parsed) : 0.2;
@@ -242,6 +248,7 @@
         navigate(direction, options = {}) {
             const previewOnly = options.previewOnly === true;
             this.isNavigating = true;
+            this.clearActiveAutoReadScope();
             if (this.navigationStateTimeoutId) {
                 clearTimeout(this.navigationStateTimeoutId);
             }
@@ -318,6 +325,7 @@
         },
 
         startReadingOnClick(event) {
+            this.clearActiveAutoReadScope();
             if (event.target.closest('#thread-bottom-container')) return;
 
             this.stopTTS(false);
@@ -368,6 +376,7 @@
         },
 
         startReadingFromTop() {
+            this.clearActiveAutoReadScope();
             this.stopTTS(false);
             this.refreshParagraphsIfNeeded(true);
             if (this.paragraphsList.length === 0) {
@@ -379,6 +388,7 @@
         },
 
         startReadingFromSelection() {
+            this.clearActiveAutoReadScope();
             const selection = window.getSelection();
             const selectedText = selection ? selection.toString() : '';
             const selectionData = this.extractTTSMetadata(selectedText);
@@ -399,6 +409,7 @@
         },
 
         startReadingFromViewport() {
+            this.clearActiveAutoReadScope();
             this.stopTTS(false);
             this.refreshParagraphsIfNeeded(true);
             if (this.paragraphsList.length === 0) {
@@ -415,7 +426,8 @@
         },
 
         navigateImmediate(direction) {
-            this.navigate(direction, { previewOnly: true });
+            const step = this.getArrowNavigationStep();
+            this.navigate(direction < 0 ? -step : step, { previewOnly: true });
             if (this.pendingNavIndex === -1) return;
             this.continuousReadingActive = true;
             this.readFromParagraph(this.pendingNavIndex);

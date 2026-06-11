@@ -45,10 +45,28 @@ document.addEventListener('DOMContentLoaded', () => {
         niceAutoSend: false,
         copyButtonEnabled: true,
         doubleClickEditEnabled: true,
+        autoReadStartSkipChars: 0,
+        autoReadLoopCurrentMessage: false,
         autoCloseLimitWarning: true,
         limitWarningDelay: 1500,
+        navArrowJumpSegments: 1,
         navCtrlJumpSegments: 5,
-        speedStep: 0.2
+        speedStep: 0.2,
+        hotkeys: {
+            activate: 'U',
+            pauseResume: 'P',
+            navNext: 'ArrowRight',
+            navPrev: 'ArrowLeft',
+            stop: 'Escape',
+            boundaryStart: 'Home',
+            boundaryEnd: 'End',
+            sessionPause: 'Space',
+            speedDown: '[',
+            speedUp: ']',
+            replay: 'R',
+            loopToggle: 'L',
+            autoScrollToggle: 'A'
+        }
     };
 
     const PROFILE_DEFAULT_SETTINGS = {

@@ -89,6 +89,77 @@
             return this.paragraphsList.filter(p => messageElement.contains(p.element));
         },
 
+        getNonNegativeInteger(value, fallback = 0) {
+            const parsed = Number(value);
+            if (!Number.isFinite(parsed)) return fallback;
+            return Math.max(0, Math.round(parsed));
+        },
+
+        resolveAutoReadStartForMessage(messageElement) {
+            const messageParagraphs = this.getAssistantParagraphs(messageElement);
+            if (messageParagraphs.length === 0) return null;
+
+            let remainingChars = this.getNonNegativeInteger(this.CONFIG.AUTO_READ_START_SKIP_CHARS, 0);
+            for (const paragraph of messageParagraphs) {
+                const paragraphIndex = this.paragraphsList.indexOf(paragraph);
+                if (paragraphIndex === -1) continue;
+                const text = typeof paragraph.text === 'string' ? paragraph.text : '';
+                if (text.length === 0) continue;
+                if (remainingChars < text.length) {
+                    return { paragraphIndex, startCharIndex: remainingChars };
+                }
+                remainingChars -= text.length;
+            }
+            return null;
+        },
+
+        setActiveAutoReadScope(messageElement, paragraphIndex, startCharIndex) {
+            this.activeAutoReadMessageElement = messageElement || null;
+            this.activeAutoReadStartParagraphIndex = Number.isInteger(paragraphIndex) ? paragraphIndex : -1;
+            this.activeAutoReadStartCharIndex = this.getNonNegativeInteger(startCharIndex, 0);
+        },
+
+        clearActiveAutoReadScope() {
+            this.activeAutoReadMessageElement = null;
+            this.activeAutoReadStartParagraphIndex = -1;
+            this.activeAutoReadStartCharIndex = 0;
+        },
+
+        isCurrentAutoReadLoopActive() {
+            return Boolean(this.CONFIG.AUTO_READ_LOOP_CURRENT_MESSAGE && this.activeAutoReadMessageElement);
+        },
+
+        isParagraphInCurrentAutoReadLoop(index) {
+            if (!this.isCurrentAutoReadLoopActive()) return true;
+            const paragraph = this.paragraphsList[index];
+            return Boolean(paragraph && paragraph.element && this.activeAutoReadMessageElement.contains(paragraph.element));
+        },
+
+        shouldLoopCurrentAutoReadMessageAfterIndex(index) {
+            if (!this.isCurrentAutoReadLoopActive()) return false;
+            for (let i = index + 1; i < this.paragraphsList.length; i += 1) {
+                if (this.isParagraphInCurrentAutoReadLoop(i)) return false;
+            }
+            return true;
+        },
+
+        getActiveAutoReadLoopStart() {
+            if (!this.isCurrentAutoReadLoopActive()) return null;
+            const startIndex = this.paragraphsList.findIndex(p => p.element && this.activeAutoReadMessageElement.contains(p.element));
+            if (startIndex === -1) return null;
+            if (
+                this.activeAutoReadStartParagraphIndex >= 0 &&
+                this.activeAutoReadStartParagraphIndex < this.paragraphsList.length &&
+                this.isParagraphInCurrentAutoReadLoop(this.activeAutoReadStartParagraphIndex)
+            ) {
+                return {
+                    paragraphIndex: this.activeAutoReadStartParagraphIndex,
+                    startCharIndex: this.activeAutoReadStartCharIndex
+                };
+            }
+            return { paragraphIndex: startIndex, startCharIndex: 0 };
+        },
+
         isAutoReadEligibleMessage(messageElement) {
             if (!messageElement) return false;
             if (messageElement.getAttribute('data-message-author-role') !== 'assistant') return false;
@@ -123,13 +194,17 @@
                 return;
             }
 
-            const startIndex = this.paragraphsList.findIndex(p => messageElement.contains(p.element));
-            if (startIndex === -1) return;
+            const start = this.resolveAutoReadStartForMessage(messageElement);
+            if (!start) {
+                this.showNotification('Auto-read skip reached end of message.');
+                return;
+            }
 
             this.lastAutoReadMessageElement = messageElement;
             this.lastAutoReadTriggeredAt = now;
+            this.setActiveAutoReadScope(messageElement, start.paragraphIndex, start.startCharIndex);
             this.continuousReadingActive = true;
-            this.readFromParagraph(startIndex);
+            this.readFromParagraph(start.paragraphIndex, { startCharIndex: start.startCharIndex });
         },
 
         waitForMoreParagraphs(nextIndex) {
@@ -172,6 +247,10 @@
                 const nextIndex = this.waitForMoreNextIndex;
                 this.waitingForMoreContent = false;
                 this.waitForMoreNextIndex = -1;
+                if (!this.isParagraphInCurrentAutoReadLoop(nextIndex)) {
+                    this.loopToTop();
+                    return;
+                }
                 this.readFromParagraph(nextIndex);
                 return;
             }
@@ -186,6 +265,9 @@
             clearTimeout(this.waitForMoreTimeoutId);
             this.waitForMoreTimeoutId = null;
 
+            this.refreshParagraphsIfNeeded(true);
+            const loopTarget = this.getActiveAutoReadLoopStart();
+
             this.stopTTS(false);
             this.refreshParagraphsIfNeeded(true);
             if (this.paragraphsList.length === 0) {
@@ -193,6 +275,11 @@
                 return;
             }
             this.continuousReadingActive = true;
+            if (loopTarget) {
+                this.showNotification('Looping current message.');
+                this.readFromParagraph(loopTarget.paragraphIndex, { startCharIndex: loopTarget.startCharIndex });
+                return;
+            }
             this.showNotification('Looping to top.');
             this.readFromParagraph(0);
         },
@@ -269,6 +356,25 @@
                 this.autoReadDebounceId = null;
                 this.lastAutoReadMessageElement = null;
                 this.lastAutoReadTriggeredAt = 0;
+                this.clearActiveAutoReadScope();
+            }
+        },
+
+        setAutoReadStartSkipChars(value, silent = false) {
+            const nextValue = this.getNonNegativeInteger(value, 0);
+            if (this.CONFIG.AUTO_READ_START_SKIP_CHARS === nextValue) return;
+            this.CONFIG.AUTO_READ_START_SKIP_CHARS = nextValue;
+            if (!silent) {
+                this.showNotification(`Auto-read starts +${nextValue} chars`);
+            }
+        },
+
+        setAutoReadLoopCurrentMessage(enabled, silent = false) {
+            const nextValue = Boolean(enabled);
+            if (this.CONFIG.AUTO_READ_LOOP_CURRENT_MESSAGE === nextValue) return;
+            this.CONFIG.AUTO_READ_LOOP_CURRENT_MESSAGE = nextValue;
+            if (!silent) {
+                this.showNotification(`Auto-read message loop ${nextValue ? 'on' : 'off'}`);
             }
         },
 
@@ -1579,6 +1685,14 @@
                 this.stopTTS(false);
                 return;
             }
+            if (!this.isParagraphInCurrentAutoReadLoop(index)) {
+                if (this.isCurrentAutoReadLoopActive()) {
+                    this.loopToTop();
+                } else {
+                    this.stopTTS(false);
+                }
+                return;
+            }
 
             const para = this.paragraphsList[index];
             if (!para || !para.element || !para.text) {
@@ -1660,6 +1774,10 @@
             this.updateProgressPanel();
 
             const refreshedIndex = this.refreshParagraphIndex(state.paragraphIndex);
+            if (this.shouldLoopCurrentAutoReadMessageAfterIndex(refreshedIndex)) {
+                this.loopToTop();
+                return;
+            }
             const lastIndex = this.paragraphsList.length - 1;
             if (refreshedIndex >= lastIndex) {
                 if (!this.isChatGPTPage) {
@@ -1691,6 +1809,7 @@
         _prefetchNextParagraphSentences(currentIndex, sessionId) {
             const nextIndex = currentIndex + 1;
             if (nextIndex >= this.paragraphsList.length) return;
+            if (!this.isParagraphInCurrentAutoReadLoop(nextIndex)) return;
             const nextPara = this.paragraphsList[nextIndex];
             if (!nextPara || !nextPara.text) return;
             if (this.shouldUseEmojiVoiceRoutingForParagraph(nextPara)) return;

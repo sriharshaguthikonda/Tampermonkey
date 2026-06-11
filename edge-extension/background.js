@@ -402,12 +402,15 @@ const BASE_DEFAULT_SETTINGS = {
     niceAutoSend: false,
     copyButtonEnabled: true,
     doubleClickEditEnabled: true,
+    autoReadStartSkipChars: 0,
+    autoReadLoopCurrentMessage: false,
     autoCloseLimitWarning: true,
     limitWarningDelay: 1500,
     queueLookahead: 3,
     navFocusHoldMs: 800,
     navKeyupReadDelayMs: 150,
     navThrottleMs: 20,
+    navArrowJumpSegments: 1,
     scrollThrottleMs: 250,
     scrollEdgePadding: 80,
     loopWaitMs: 1200,
@@ -420,7 +423,15 @@ const BASE_DEFAULT_SETTINGS = {
         pauseResume: 'P',
         navNext: 'ArrowRight',
         navPrev: 'ArrowLeft',
-        stop: 'Escape'
+        stop: 'Escape',
+        boundaryStart: 'Home',
+        boundaryEnd: 'End',
+        sessionPause: 'Space',
+        speedDown: '[',
+        speedUp: ']',
+        replay: 'R',
+        loopToggle: 'L',
+        autoScrollToggle: 'A'
     }
 };
 

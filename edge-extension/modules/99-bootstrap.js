@@ -205,6 +205,10 @@
             const next = Number(settings.navThrottleMs);
             if (Number.isFinite(next)) TTSReader.CONFIG.NAV_THROTTLE_MS = next;
         }
+        if (typeof settings.navArrowJumpSegments !== 'undefined') {
+            const next = Number(settings.navArrowJumpSegments);
+            if (Number.isFinite(next)) TTSReader.CONFIG.NAV_ARROW_JUMP_SEGMENTS = Math.max(1, Math.round(next));
+        }
         if (typeof settings.navCtrlJumpSegments !== 'undefined') {
             const next = Number(settings.navCtrlJumpSegments);
             if (Number.isFinite(next)) TTSReader.CONFIG.NAV_CTRL_JUMP_SEGMENTS = Math.max(1, Math.round(next));
@@ -240,6 +244,15 @@
         if (typeof settings.autoReadMinParagraphs !== 'undefined') {
             const next = Number(settings.autoReadMinParagraphs);
             if (Number.isFinite(next)) TTSReader.CONFIG.AUTO_READ_MIN_PARAGRAPHS = next;
+        }
+        if (typeof settings.autoReadStartSkipChars !== 'undefined') {
+            TTSReader.setAutoReadStartSkipChars(settings.autoReadStartSkipChars, true);
+        }
+        if (typeof settings.autoReadLoopCurrentMessage === 'boolean') {
+            TTSReader.setAutoReadLoopCurrentMessage(settings.autoReadLoopCurrentMessage, silent);
+        }
+        if (settings.hotkeys && typeof settings.hotkeys === 'object') {
+            TTSReader.setHotkeys(settings.hotkeys, true);
         }
     }
 
@@ -384,6 +397,8 @@
                             serverRemoveMarkdownMarkers: TTSReader.CONFIG.SERVER_REMOVE_MARKDOWN_MARKERS,
                             serverCustomRemovalMode: TTSReader.CONFIG.SERVER_CUSTOM_REMOVAL_MODE,
                             autoRead: TTSReader.CONFIG.AUTO_READ_NEW_MESSAGES,
+                            autoReadStartSkipChars: TTSReader.CONFIG.AUTO_READ_START_SKIP_CHARS,
+                            autoReadLoopCurrentMessage: TTSReader.CONFIG.AUTO_READ_LOOP_CURRENT_MESSAGE,
                             loopOnEnd: TTSReader.CONFIG.LOOP_ON_END,
                             autoScrollEnabled: TTSReader.CONFIG.AUTO_SCROLL_ENABLED,
                             idleArrowNavigation: TTSReader.CONFIG.IDLE_ARROW_NAVIGATION,
@@ -410,8 +425,24 @@
                             doubleClickEditEnabled: TTSReader.CONFIG.DOUBLE_CLICK_EDIT_ENABLED,
                             autoCloseLimitWarning: TTSReader.CONFIG.AUTO_CLOSE_LIMIT_WARNING,
                             limitWarningDelay: TTSReader.CONFIG.LIMIT_WARNING_DELAY_MS,
+                            navArrowJumpSegments: TTSReader.CONFIG.NAV_ARROW_JUMP_SEGMENTS,
                             navCtrlJumpSegments: TTSReader.CONFIG.NAV_CTRL_JUMP_SEGMENTS,
-                            speedStep: TTSReader.CONFIG.SPEED_STEP
+                            speedStep: TTSReader.CONFIG.SPEED_STEP,
+                            hotkeys: {
+                                activate: TTSReader.CONFIG.HOTKEYS.ACTIVATE,
+                                pauseResume: TTSReader.CONFIG.HOTKEYS.PAUSE_RESUME,
+                                navNext: TTSReader.CONFIG.HOTKEYS.NAV_NEXT,
+                                navPrev: TTSReader.CONFIG.HOTKEYS.NAV_PREV,
+                                stop: TTSReader.CONFIG.HOTKEYS.STOP,
+                                boundaryStart: TTSReader.CONFIG.HOTKEYS.BOUNDARY_START,
+                                boundaryEnd: TTSReader.CONFIG.HOTKEYS.BOUNDARY_END,
+                                sessionPause: TTSReader.CONFIG.HOTKEYS.SESSION_PAUSE,
+                                speedDown: TTSReader.CONFIG.HOTKEYS.SPEED_DOWN,
+                                speedUp: TTSReader.CONFIG.HOTKEYS.SPEED_UP,
+                                replay: TTSReader.CONFIG.HOTKEYS.REPLAY,
+                                loopToggle: TTSReader.CONFIG.HOTKEYS.LOOP_TOGGLE,
+                                autoScrollToggle: TTSReader.CONFIG.HOTKEYS.AUTOSCROLL_TOGGLE
+                            }
                         }
                     });
                     return true;

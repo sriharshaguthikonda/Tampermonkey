@@ -46,12 +46,15 @@ document.addEventListener('DOMContentLoaded', () => {
         niceAutoSend: false,
         copyButtonEnabled: true,
         doubleClickEditEnabled: true,
+        autoReadStartSkipChars: 0,
+        autoReadLoopCurrentMessage: false,
         autoCloseLimitWarning: true,
         limitWarningDelay: 1500,
         queueLookahead: 3,
         navFocusHoldMs: 800,
         navKeyupReadDelayMs: 150,
         navThrottleMs: 20,
+        navArrowJumpSegments: 1,
         navCtrlJumpSegments: 5,
         speedStep: 0.2,
         scrollThrottleMs: 250,
@@ -60,7 +63,22 @@ document.addEventListener('DOMContentLoaded', () => {
         waitForMoreMs: 8000,
         autoReadCooldownMs: 1500,
         autoReadStableMs: 800,
-        autoReadMinParagraphs: 3
+        autoReadMinParagraphs: 3,
+        hotkeys: {
+            activate: 'U',
+            pauseResume: 'P',
+            navNext: 'ArrowRight',
+            navPrev: 'ArrowLeft',
+            stop: 'Escape',
+            boundaryStart: 'Home',
+            boundaryEnd: 'End',
+            sessionPause: 'Space',
+            speedDown: '[',
+            speedUp: ']',
+            replay: 'R',
+            loopToggle: 'L',
+            autoScrollToggle: 'A'
+        }
     };
 
     const PROFILE_DEFAULT_SETTINGS = {
@@ -117,6 +135,8 @@ document.addEventListener('DOMContentLoaded', () => {
         serverCustomRegexRemovals: document.getElementById('serverCustomRegexRemovals'),
         autoRead: document.getElementById('autoRead'),
         loopOnEnd: document.getElementById('loopOnEnd'),
+        autoReadStartSkipChars: document.getElementById('autoReadStartSkipChars'),
+        autoReadLoopCurrentMessage: document.getElementById('autoReadLoopCurrentMessage'),
         autoScrollEnabled: document.getElementById('autoScrollEnabled'),
         idleArrowNavigation: document.getElementById('idleArrowNavigation'),
         promptHistoryNavEnabled: document.getElementById('promptHistoryNavEnabled'),
@@ -139,6 +159,7 @@ document.addEventListener('DOMContentLoaded', () => {
         navFocusHoldMs: document.getElementById('navFocusHoldMs'),
         navKeyupReadDelayMs: document.getElementById('navKeyupReadDelayMs'),
         navThrottleMs: document.getElementById('navThrottleMs'),
+        navArrowJumpSegments: document.getElementById('navArrowJumpSegments'),
         navCtrlJumpSegments: document.getElementById('navCtrlJumpSegments'),
         speedStep: document.getElementById('speedStep'),
         scrollThrottleMs: document.getElementById('scrollThrottleMs'),
@@ -150,7 +171,20 @@ document.addEventListener('DOMContentLoaded', () => {
         autoReadMinParagraphs: document.getElementById('autoReadMinParagraphs'),
         saveBtn: document.getElementById('saveBtn'),
         resetBtn: document.getElementById('resetBtn'),
-        resetOverlayPositionBtn: document.getElementById('resetOverlayPositionBtn')
+        resetOverlayPositionBtn: document.getElementById('resetOverlayPositionBtn'),
+        hotkeyActivate: document.getElementById('hotkeyActivate'),
+        hotkeyPauseResume: document.getElementById('hotkeyPauseResume'),
+        hotkeyNavNext: document.getElementById('hotkeyNavNext'),
+        hotkeyNavPrev: document.getElementById('hotkeyNavPrev'),
+        hotkeyStop: document.getElementById('hotkeyStop'),
+        hotkeyBoundaryStart: document.getElementById('hotkeyBoundaryStart'),
+        hotkeyBoundaryEnd: document.getElementById('hotkeyBoundaryEnd'),
+        hotkeySessionPause: document.getElementById('hotkeySessionPause'),
+        hotkeySpeedDown: document.getElementById('hotkeySpeedDown'),
+        hotkeySpeedUp: document.getElementById('hotkeySpeedUp'),
+        hotkeyReplay: document.getElementById('hotkeyReplay'),
+        hotkeyLoopToggle: document.getElementById('hotkeyLoopToggle'),
+        hotkeyAutoScrollToggle: document.getElementById('hotkeyAutoScrollToggle')
     };
 
     const numberFields = [
@@ -161,6 +195,7 @@ document.addEventListener('DOMContentLoaded', () => {
         'navFocusHoldMs',
         'navKeyupReadDelayMs',
         'navThrottleMs',
+        'navArrowJumpSegments',
         'navCtrlJumpSegments',
         'speedStep',
         'scrollThrottleMs',
@@ -170,8 +205,25 @@ document.addEventListener('DOMContentLoaded', () => {
         'autoReadCooldownMs',
         'autoReadStableMs',
         'autoReadMinParagraphs',
+        'autoReadStartSkipChars',
         'autoPauseHiddenDelayMs'
     ];
+
+    const hotkeyFields = {
+        activate: 'hotkeyActivate',
+        pauseResume: 'hotkeyPauseResume',
+        navNext: 'hotkeyNavNext',
+        navPrev: 'hotkeyNavPrev',
+        stop: 'hotkeyStop',
+        boundaryStart: 'hotkeyBoundaryStart',
+        boundaryEnd: 'hotkeyBoundaryEnd',
+        sessionPause: 'hotkeySessionPause',
+        speedDown: 'hotkeySpeedDown',
+        speedUp: 'hotkeySpeedUp',
+        replay: 'hotkeyReplay',
+        loopToggle: 'hotkeyLoopToggle',
+        autoScrollToggle: 'hotkeyAutoScrollToggle'
+    };
 
     let availableVoices = [];
 
@@ -191,6 +243,7 @@ document.addEventListener('DOMContentLoaded', () => {
         'serverRemoveMarkdownMarkers',
         'autoRead',
         'loopOnEnd',
+        'autoReadLoopCurrentMessage',
         'autoScrollEnabled',
         'idleArrowNavigation',
         'promptHistoryNavEnabled',
@@ -241,6 +294,18 @@ document.addEventListener('DOMContentLoaded', () => {
     function normalizeMultilineValue(value) {
         if (typeof value !== 'string') return '';
         return value.replace(/\r\n/g, '\n').trim();
+    }
+
+    function normalizeHotkeys(value, defaults) {
+        const source = value && typeof value === 'object' ? value : {};
+        const fallback = defaults && typeof defaults === 'object' ? defaults : {};
+        const next = {};
+        Object.keys(hotkeyFields).forEach((key) => {
+            next[key] = typeof source[key] === 'string'
+                ? source[key].trim()
+                : String(fallback[key] || '');
+        });
+        return next;
     }
 
     function extractLeadingSpeakerEmoji(value) {
@@ -484,6 +549,11 @@ document.addEventListener('DOMContentLoaded', () => {
             if (key === 'speechRate' || key === 'volumeBoostLevel') return;
             if (elements[key]) elements[key].value = merged[key];
         });
+
+        const mergedHotkeys = normalizeHotkeys(merged.hotkeys, getProfileDefaults(currentProfile).hotkeys);
+        Object.entries(hotkeyFields).forEach(([key, elementKey]) => {
+            if (elements[elementKey]) elements[elementKey].value = mergedHotkeys[key];
+        });
     }
 
     function collectSettings() {
@@ -506,6 +576,10 @@ document.addEventListener('DOMContentLoaded', () => {
         numberFields.forEach((key) => {
             if (key === 'speechRate') return;
             settings[key] = coerceNumber(elements[key], defaults[key]);
+        });
+        settings.hotkeys = {};
+        Object.entries(hotkeyFields).forEach(([key, elementKey]) => {
+            settings.hotkeys[key] = elements[elementKey] ? elements[elementKey].value.trim() : '';
         });
         settings.overlayPosition = currentOverlayPosition;
 
@@ -619,6 +693,13 @@ document.addEventListener('DOMContentLoaded', () => {
     numberFields.forEach((key) => {
         if (key === 'speechRate' || key === 'volumeBoostLevel') return;
         elements[key].addEventListener('input', () => {
+            scheduleSave();
+        });
+    });
+
+    Object.values(hotkeyFields).forEach((elementKey) => {
+        if (!elements[elementKey]) return;
+        elements[elementKey].addEventListener('input', () => {
             scheduleSave();
         });
     });

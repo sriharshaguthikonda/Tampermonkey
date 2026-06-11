@@ -19,6 +19,7 @@
                 this.refreshParagraphsIfNeeded(true);
             }
             if (index < 0 || index >= this.paragraphsList.length) return;
+            if (!this.isParagraphInCurrentAutoReadLoop(index)) return;
             if (this.queuedParagraphs.has(index)) return;
 
             const para = this.paragraphsList[index];
@@ -200,6 +201,10 @@
             }
 
             const refreshedIndex = this.refreshParagraphIndex(index);
+            if (this.shouldLoopCurrentAutoReadMessageAfterIndex(refreshedIndex)) {
+                this.loopToTop();
+                return;
+            }
             const lastIndex = this.paragraphsList.length - 1;
             if (refreshedIndex >= lastIndex) {
                 if (!this.isChatGPTPage) {
