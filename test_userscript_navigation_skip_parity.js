@@ -155,9 +155,96 @@ function testUserscriptServerPlaybackScrollsBeforePreparingWordSpans() {
     assert.deepStrictEqual(calls.slice(0, 3), ['start-scroll', 'center-target', 'prepare']);
 }
 
+function testUserscriptDetachedWordSpanIsIgnoredDuringHighlight() {
+    const reader = loadUserscriptForTest();
+    let added = false;
+    const span = {
+        textContent: 'alpha',
+        isConnected: false,
+        classList: {
+            add() { added = true; },
+            remove() {}
+        }
+    };
+    reader.wordHighlightActiveForCurrent = true;
+    reader.processedParagraph = {
+        element: { isConnected: true, contains: () => false },
+        originalHTML: '',
+        wordSpans: [span],
+        wordOffsets: [0]
+    };
+
+    reader.highlightWordByCharIndex(0);
+
+    assert.strictEqual(added, false);
+    assert.strictEqual(reader.currentWordSpan, null);
+}
+
+function testUserscriptCssHighlightRangeCanTrackWordWithoutSpanMutation() {
+    const reader = loadUserscriptForTest();
+    const firstRange = { startContainer: { isConnected: true }, endContainer: { isConnected: true } };
+    const secondRange = { startContainer: { isConnected: true }, endContainer: { isConnected: true } };
+    const applied = [];
+    reader.wordHighlightActiveForCurrent = true;
+    reader.setCssWordHighlightRange = (range) => applied.push(range);
+    reader.processedParagraph = {
+        element: { isConnected: true },
+        originalHTML: '',
+        wordSpans: [],
+        wordRanges: [firstRange, secondRange],
+        wordOffsets: [0, 6],
+        wordLengths: [5, 4],
+        usesCssHighlights: true
+    };
+
+    reader.highlightWordByCharIndex(6);
+
+    assert.deepStrictEqual(applied, [secondRange]);
+    assert.strictEqual(reader.currentWordSpan, null);
+}
+
+function testUserscriptAutoScrollSkipsDetachedElement() {
+    const reader = loadUserscriptForTest();
+    let scrolled = false;
+    reader.scrollElementToCenter({
+        isConnected: false,
+        scrollIntoView() {
+            scrolled = true;
+        }
+    });
+
+    assert.strictEqual(scrolled, false);
+}
+
+function testUserscriptGentleScrollUsesNearestAlignment() {
+    const reader = loadUserscriptForTest();
+    reader.CONFIG.SCROLL_THROTTLE_MS = 0;
+    reader.CONFIG.SCROLL_EDGE_PADDING = 20;
+    reader.lastScrollTime = 0;
+    let options = null;
+    reader.gentleScrollToElement({
+        isConnected: true,
+        getBoundingClientRect: () => ({ top: 2000, bottom: 2050 }),
+        scrollIntoView(nextOptions) {
+            options = nextOptions;
+        }
+    });
+
+    assert.strictEqual(options && options.block, 'nearest');
+    assert.strictEqual(options && options.inline, 'nearest');
+}
+
 testUserscriptResolvesNavigationSkipLikeEdge();
 console.log('PASS testUserscriptResolvesNavigationSkipLikeEdge');
 testUserscriptSelectionSeekAppliesNavigationSkip();
 console.log('PASS testUserscriptSelectionSeekAppliesNavigationSkip');
 testUserscriptServerPlaybackScrollsBeforePreparingWordSpans();
 console.log('PASS testUserscriptServerPlaybackScrollsBeforePreparingWordSpans');
+testUserscriptDetachedWordSpanIsIgnoredDuringHighlight();
+console.log('PASS testUserscriptDetachedWordSpanIsIgnoredDuringHighlight');
+testUserscriptCssHighlightRangeCanTrackWordWithoutSpanMutation();
+console.log('PASS testUserscriptCssHighlightRangeCanTrackWordWithoutSpanMutation');
+testUserscriptAutoScrollSkipsDetachedElement();
+console.log('PASS testUserscriptAutoScrollSkipsDetachedElement');
+testUserscriptGentleScrollUsesNearestAlignment();
+console.log('PASS testUserscriptGentleScrollUsesNearestAlignment');

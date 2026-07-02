@@ -15,6 +15,7 @@
 
         gentleScrollToElement(element) {
             if (!element) return;
+            if (element.isConnected === false) return;
             const now = Date.now();
             if (now - this.lastScrollTime < this.CONFIG.SCROLL_THROTTLE_MS) return;
 
@@ -22,7 +23,7 @@
             const padding = this.CONFIG.SCROLL_EDGE_PADDING;
             if (rect.top < padding || rect.bottom > window.innerHeight - padding) {
                 this.lastScrollTime = now;
-                element.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+                element.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
             }
         },
 
@@ -35,6 +36,7 @@
 
         scrollElementToCenter(element) {
             if (!element) return;
+            if (element.isConnected === false) return;
             this.autoScrollInProgress = true;
             if (this.autoScrollInProgressId) {
                 clearTimeout(this.autoScrollInProgressId);
@@ -43,7 +45,7 @@
                 this.autoScrollInProgress = false;
                 this.autoScrollInProgressId = null;
             }, this.CONFIG.AUTO_SCROLL_SUPPRESS_SCROLL_MS);
-            element.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+            element.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
         },
 
         markUserInteraction() {

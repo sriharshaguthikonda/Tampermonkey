@@ -3,12 +3,19 @@
   "repo": {
     "id": "Tampermonkey",
     "root": ".",
-    "remoteUrl": "https://github.com/sriharshaguthikonda/tampermonkey",
+    "remoteUrl": "https://github.com/sriharshaguthikonda/Tampermonkey.git",
     "defaultBranch": "enhance-tts-functionality",
     "localPaths": [
       ".gitignore",
       ".memory_link",
       "AGENTS.md",
+      "Plab 2 Feedback v11 - PLAB2 Angioedema Case.html",
+      "Plab 2 Feedback v14 - PLAB2 Case Feedback.html",
+      "Plab 2 Feedback v14 - PLAB2 Telephone Consultation.html",
+      "Plab 2 Feedback v3 - Think deeper.html",
+      "TODO.md",
+      "Tampermonkey.code-workspace",
+      "Tampermonkey_scripts",
       "chatgpt Lighthouse Keeper's Promise.html",
       "chatgpt Lighthouse Keeper's Promise_files",
       "chatgpt with extenstion.html",
@@ -17,25 +24,19 @@
       "console.log",
       "docs",
       "edge-extension",
-      "Plab 2 Feedback v11 - PLAB2 Angioedema Case.html",
-      "Plab 2 Feedback v14 - PLAB2 Case Feedback.html",
-      "Plab 2 Feedback v14 - PLAB2 Telephone Consultation.html",
-      "Plab 2 Feedback v3 - Think deeper.html",
       "refactor_plan.md",
       "tampermonkey-logo-3840.png",
-      "Tampermonkey.code-workspace",
-      "Tampermonkey_scripts",
       "test_voicelink_integration.js",
-      "TODO.md",
       "v2 Lighthouse keeper's promise story.html",
       "v2 Lighthouse keeper's promise story_files"
     ]
   },
   "sourceState": {
-    "commit": "40348a9ec72f85aea61d5623777b737ae7d449c4",
+    "commit": "8287b515b1356789b559252ce047f84691debca5",
     "branch": "enhance-tts-functionality",
-    "dirty": false,
-    "generatedForCommit": "40348a9ec72f85aea61d5623777b737ae7d449c4"
+    "dirty": true,
+    "generatedForCommit": "8287b515b1356789b559252ce047f84691debca5",
+    "dirtyReason": "uncommitted changes"
   },
   "policy": {
     "profile": "basic",
@@ -47,7 +48,7 @@
     "allowGraphPilots": false,
     "runOnPush": false
   },
-  "generatedAt": "2026-05-26T10:11:38.294601Z",
+  "generatedAt": "2026-05-31T17:50:36.700885Z",
   "toolRuns": [
     {
       "id": "repomix.basic",
@@ -105,6 +106,11 @@
         "name": "serena",
         "path": "artifacts/serena/symbols.json",
         "kind": "native"
+      },
+      {
+        "name": "repo-map-full",
+        "path": "artifacts/repo-map/repo-map-full.json",
+        "kind": "native"
       }
     ],
     "workflowArtifacts": []
@@ -116,7 +122,7 @@
     "level3": "symbols",
     "level4": "fullExport"
   },
-  "staleness": "current",
+  "staleness": "dirty",
   "security": {
     "ignorePolicy": ".repo-map-ignore",
     "secretScanStatus": "skipped",

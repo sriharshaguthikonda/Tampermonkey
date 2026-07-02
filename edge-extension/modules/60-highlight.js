@@ -22,7 +22,51 @@
                 el.classList.remove(...selectors.map(s => s.substring(1)));
             });
             this.currentWordSpan = null;
+            this.clearCssWordHighlight();
             this.clearServerWordHighlightTimers();
+        },
+
+        getCssHighlightRegistry() {
+            const css = (typeof window !== 'undefined' && window.CSS) || (typeof CSS !== 'undefined' ? CSS : null);
+            return css && css.highlights && typeof css.highlights.set === 'function'
+                ? css.highlights
+                : null;
+        },
+
+        supportsCssTextHighlights() {
+            const HighlightCtor = (typeof window !== 'undefined' && window.Highlight) || (typeof Highlight !== 'undefined' ? Highlight : null);
+            return Boolean(this.getCssHighlightRegistry() && typeof HighlightCtor === 'function' && typeof document.createRange === 'function');
+        },
+
+        clearCssWordHighlight() {
+            const registry = this.getCssHighlightRegistry();
+            if (registry && typeof registry.delete === 'function') {
+                registry.delete('tts-current-word');
+            }
+            this.currentWordRange = null;
+        },
+
+        isRangeConnected(range) {
+            if (!range) return false;
+            const start = range.startContainer;
+            const end = range.endContainer;
+            if (start && start.isConnected === false) return false;
+            if (end && end.isConnected === false) return false;
+            return true;
+        },
+
+        setCssWordHighlightRange(range) {
+            if (!this.isRangeConnected(range)) return false;
+            const registry = this.getCssHighlightRegistry();
+            const HighlightCtor = (typeof window !== 'undefined' && window.Highlight) || (typeof Highlight !== 'undefined' ? Highlight : null);
+            if (!registry || typeof HighlightCtor !== 'function') return false;
+            try {
+                registry.set('tts-current-word', new HighlightCtor(range));
+                this.currentWordRange = range;
+                return true;
+            } catch (_) {
+                return false;
+            }
         },
 
         sanitizeHTMLForRestore(html) {

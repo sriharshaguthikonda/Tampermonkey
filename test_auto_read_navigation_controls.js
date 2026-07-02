@@ -316,6 +316,34 @@ function makeFlowReader(config = {}) {
     return { reader, calls };
 }
 
+function makeScrollReader(config = {}) {
+    const reader = {
+        CONFIG: {
+            SCROLL_THROTTLE_MS: 0,
+            SCROLL_EDGE_PADDING: 20,
+            AUTO_SCROLL_SUPPRESS_SCROLL_MS: 1,
+            AUTO_SCROLL_USER_PAUSE_MS: 1,
+            AUTO_SCROLL_ENABLED: true,
+            AUTO_SCROLL_MODE: 'paragraph',
+            AUTO_SCROLL_INTERVAL_MS: 1,
+            ...config
+        },
+        continuousReadingActive: true,
+        isPaused: false,
+        isNavigating: false,
+        navKeyHeld: false,
+        userInteractingUntil: 0,
+        autoScrollInProgress: false,
+        autoScrollInProgressId: null,
+        autoScrollResumeId: null,
+        autoScrollIntervalId: null,
+        lastScrollTime: 0,
+        lastSpokenElement: null
+    };
+    loadModule(reader, 'edge-extension/modules/90-scroll.js');
+    return reader;
+}
+
 async function testArrowPendingReadDoesNotApplySkipWhenDisabled() {
     const { reader, calls } = makeFlowReader({
         AUTO_READ_START_SKIP_AMOUNT: 2,
@@ -429,6 +457,82 @@ function testDisconnectedParagraphDoesNotHighlightWords() {
     assert.strictEqual(reader.shouldHighlightWordsForElement(element), false);
 }
 
+function testDetachedWordSpanIsIgnoredDuringHighlight() {
+    const { reader } = makeFlowReader();
+    let added = false;
+    const span = {
+        textContent: 'alpha',
+        isConnected: false,
+        classList: {
+            add() { added = true; },
+            remove() {}
+        }
+    };
+    reader.wordHighlightActiveForCurrent = true;
+    reader.processedParagraph = {
+        element: { isConnected: true, contains: () => false },
+        originalHTML: '',
+        wordSpans: [span],
+        wordOffsets: [0]
+    };
+
+    reader.highlightWordByCharIndex(0);
+
+    assert.strictEqual(added, false);
+    assert.strictEqual(reader.currentWordSpan, null);
+}
+
+function testCssHighlightRangeCanTrackWordWithoutSpanMutation() {
+    const { reader } = makeFlowReader();
+    const firstRange = { startContainer: { isConnected: true }, endContainer: { isConnected: true } };
+    const secondRange = { startContainer: { isConnected: true }, endContainer: { isConnected: true } };
+    const applied = [];
+    reader.wordHighlightActiveForCurrent = true;
+    reader.setCssWordHighlightRange = (range) => applied.push(range);
+    reader.processedParagraph = {
+        element: { isConnected: true },
+        originalHTML: '',
+        wordSpans: [],
+        wordRanges: [firstRange, secondRange],
+        wordOffsets: [0, 6],
+        wordLengths: [5, 4],
+        usesCssHighlights: true
+    };
+
+    reader.highlightWordByCharIndex(6);
+
+    assert.deepStrictEqual(applied, [secondRange]);
+    assert.strictEqual(reader.currentWordSpan, null);
+}
+
+function testAutoScrollSkipsDetachedElement() {
+    const reader = makeScrollReader();
+    let scrolled = false;
+    reader.scrollElementToCenter({
+        isConnected: false,
+        scrollIntoView() {
+            scrolled = true;
+        }
+    });
+
+    assert.strictEqual(scrolled, false);
+}
+
+function testGentleScrollUsesNearestAlignment() {
+    const reader = makeScrollReader();
+    let options = null;
+    reader.gentleScrollToElement({
+        isConnected: true,
+        getBoundingClientRect: () => ({ top: 2000, bottom: 2050 }),
+        scrollIntoView(nextOptions) {
+            options = nextOptions;
+        }
+    });
+
+    assert.strictEqual(options && options.block, 'nearest');
+    assert.strictEqual(options && options.inline, 'nearest');
+}
+
 function testServerPlaybackScrollsBeforePreparingWordSpans() {
     const calls = [];
     const element = {
@@ -519,6 +623,10 @@ const tests = [
     testDoubleClickSelectionSeekAppliesConfiguredSkipWhenEnabled,
     testOffscreenConnectedParagraphCanStillHighlightWords,
     testDisconnectedParagraphDoesNotHighlightWords,
+    testDetachedWordSpanIsIgnoredDuringHighlight,
+    testCssHighlightRangeCanTrackWordWithoutSpanMutation,
+    testAutoScrollSkipsDetachedElement,
+    testGentleScrollUsesNearestAlignment,
     testServerPlaybackScrollsBeforePreparingWordSpans
 ];
 

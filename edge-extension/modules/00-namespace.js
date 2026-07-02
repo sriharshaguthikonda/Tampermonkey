@@ -160,6 +160,7 @@
         pageFullyLoaded: false,
         lastSpokenElement: null,
         currentWordSpan: null,
+        currentWordRange: null,
         lastScrollTime: 0,
         autoScrollIntervalId: null,
         autoScrollInProgress: false,
@@ -247,7 +248,7 @@
         chatgptTextStyleElement: null,
         isChatGPTPage: false,
         settingsProfile: PROFILE_CHATGPT,
-        processedParagraph: { element: null, originalHTML: '', wordSpans: [], wordOffsets: [] },
+        processedParagraph: { element: null, originalHTML: '', wordSpans: [], wordRanges: [], wordOffsets: [], wordLengths: [], wordTexts: [], usesCssHighlights: false },
 
         CONFIG: {
             CANDIDATE_SELECTORS: 'p, li, h1, h2, h3, h4, h5, h6, td, th, blockquote, .markdown, article',

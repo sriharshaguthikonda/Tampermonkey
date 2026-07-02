@@ -8,6 +8,11 @@
     transition: background-color 0.3s ease;
 }
 
+::highlight(tts-current-word) {
+    background-color: rgba(250, 210, 50, 0.9);
+    color: black;
+}
+
 .tts-highlight {
     background-color: rgba(255, 235, 59, 0.8);
     border-radius: 3px;

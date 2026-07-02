@@ -1,0 +1,30 @@
+[$caveman:caveman](C:\\Users\\deletable\\.codex\\plugins\\cache\\caveman-repo\\caveman\\0.1.0\\skills\\caveman\\SKILL.md) [$superpowers:using-superpowers](C:\\Users\\deletable\\.codex\\plugins\\cache\\claude-plugins-official\\superpowers\\5.1.0\\skills\\using-superpowers\\SKILL.md) use gsd skills as well
+
+
+
+
+1. skip x words has to be skip x phenomes if it is easier to implemnt or else
+skip x characters!!
+2. this should scope to the automatic reading
+3. user should be able to be loop reading 1 message of chat gpt as well  
+4. when user clicks left and right also add an sub option differnt from skip x 
+phenomes
+5. this option shoul donly be scoped to the after clicking right or left arrows
+6. all the shortcut keys that are there should be editable allowing empty as well in the settings 
+
+
+
+you know the usual workflow, talk to me in Q and A file, ask me questions, talk to me as freely as possible, don't stop working 
+frequently check time-based q&a file and report back to you file watcher type!
+
+you are gpt 5.5 extra high in codex, so don't waste tokens, use appropriate intelligence, sub-agents to do your work.
+
+
+non blocking execution can be done in some places
+
+
+
+
+add commit push small logical commits
+
+

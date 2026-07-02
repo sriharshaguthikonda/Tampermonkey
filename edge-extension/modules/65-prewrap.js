@@ -13,76 +13,63 @@
         // (See refactor_plan.md section B.1 for the canonical section list.)
         // =============================================================================
 
+        createEmptyProcessedParagraph() {
+            return { element: null, originalHTML: '', wordSpans: [], wordRanges: [], wordOffsets: [], wordLengths: [], wordTexts: [], usesCssHighlights: false };
+        },
+
         revertParagraph() {
-            const { element, wordSpans } = this.processedParagraph;
-            this.unwrapWordSpans(element, wordSpans);
-            this.processedParagraph = { element: null, originalHTML: '', wordSpans: [], wordOffsets: [] };
+            const { element, wordSpans, usesCssHighlights } = this.processedParagraph;
+            if (!usesCssHighlights) {
+                this.unwrapWordSpans(element, wordSpans);
+            }
+            this.processedParagraph = this.createEmptyProcessedParagraph();
             this.clearHighlights();
         },
 
-        prepareParagraphForReading(paraElement) {
-            if (this.processedParagraph.element && this.processedParagraph.element !== paraElement) {
-                this.deferProcessedParagraphRevert();
-            }
-            if (!paraElement || !paraElement.parentNode) return null;
-
-            if (!this.wordHighlightActiveForCurrent) {
-                return this.getTextFromElement(paraElement);
-            }
-
-            const cached = this.prewrappedParagraphs.get(paraElement);
-            if (cached) {
-                this.processedParagraph.element = paraElement;
-                this.processedParagraph.originalHTML = cached.originalHTML;
-                this.processedParagraph.wordSpans = cached.wordSpans;
-                this.processedParagraph.wordOffsets = cached.wordOffsets;
-                this.prewrappedParagraphs.delete(paraElement);
-                return this.processedParagraph.wordSpans.map(s => s.textContent).join(' ');
-            }
-
-            this.processedParagraph.element = paraElement;
-            this.processedParagraph.originalHTML = paraElement.innerHTML;
-            const wordSpans = [];
+        buildCssWordHighlightData(paraElement) {
+            const wordRanges = [];
+            const wordOffsets = [];
+            const wordLengths = [];
+            const wordTexts = [];
             const walker = document.createTreeWalker(paraElement, NodeFilter.SHOW_TEXT, null, false);
             const nodesToProcess = [];
-            while(walker.nextNode()) {
-                if (walker.currentNode.textContent.trim().length > 0) nodesToProcess.push(walker.currentNode);
+            while (walker.nextNode()) {
+                if ((walker.currentNode.textContent || '').trim().length > 0) nodesToProcess.push(walker.currentNode);
             }
 
-            nodesToProcess.forEach(node => {
-                const fragment = document.createDocumentFragment();
-                const cleanedText = this.cleanTextForTTS(node.textContent);
-                const parts = cleanedText.split(/(\s+)/);
-
-                parts.forEach(part => {
-                    if (/\S/.test(part)) {
-                        const span = document.createElement('span');
-                        span.setAttribute('data-tts-word', '1');
-                        span.textContent = part;
-                        fragment.appendChild(span);
-                        wordSpans.push(span);
-                    } else {
-                        fragment.appendChild(document.createTextNode(part));
-                    }
-                });
-                if (node.parentNode) node.parentNode.replaceChild(fragment, node);
-            });
-
-            this.processedParagraph.wordSpans = wordSpans;
-            const wordOffsets = new Array(wordSpans.length);
             let offset = 0;
-            for (let i = 0; i < wordSpans.length; i++) {
-                wordOffsets[i] = offset;
-                offset += wordSpans[i].textContent.length + 1;
+            for (const node of nodesToProcess) {
+                const source = String(node.textContent || '');
+                const regex = /\S+/g;
+                let match;
+                while ((match = regex.exec(source)) !== null) {
+                    const cleanedWord = this.cleanTextForTTS(match[0]).trim();
+                    if (!cleanedWord) continue;
+                    const range = document.createRange();
+                    range.setStart(node, match.index);
+                    range.setEnd(node, match.index + match[0].length);
+                    wordRanges.push(range);
+                    wordOffsets.push(offset);
+                    wordLengths.push(cleanedWord.length);
+                    wordTexts.push(cleanedWord);
+                    offset += cleanedWord.length + 1;
+                }
             }
-            this.processedParagraph.wordOffsets = wordOffsets;
-            return this.processedParagraph.wordSpans.map(s => s.textContent).join(' ');
+
+            return {
+                element: paraElement,
+                originalHTML: '',
+                wordSpans: [],
+                wordRanges,
+                wordOffsets,
+                wordLengths,
+                wordTexts,
+                usesCssHighlights: true,
+                text: wordTexts.join(' ')
+            };
         },
 
-        prewrapParagraph(paraElement) {
-            if (!paraElement || !paraElement.parentNode) return null;
-            if (this.prewrappedParagraphs.has(paraElement)) return this.prewrappedParagraphs.get(paraElement);
-
+        buildSpanWordHighlightData(paraElement) {
             const originalHTML = paraElement.innerHTML;
             const wordSpans = [];
             const walker = document.createTreeWalker(paraElement, NodeFilter.SHOW_TEXT, null, false);
@@ -111,13 +98,61 @@
             });
 
             const wordOffsets = new Array(wordSpans.length);
+            const wordLengths = new Array(wordSpans.length);
+            const wordTexts = new Array(wordSpans.length);
             let offset = 0;
             for (let i = 0; i < wordSpans.length; i++) {
+                const text = wordSpans[i].textContent || '';
                 wordOffsets[i] = offset;
-                offset += wordSpans[i].textContent.length + 1;
+                wordLengths[i] = text.length;
+                wordTexts[i] = text;
+                offset += text.length + 1;
             }
 
-            const data = { element: paraElement, originalHTML, wordSpans, wordOffsets };
+            return {
+                element: paraElement,
+                originalHTML,
+                wordSpans,
+                wordRanges: [],
+                wordOffsets,
+                wordLengths,
+                wordTexts,
+                usesCssHighlights: false,
+                text: wordTexts.join(' ')
+            };
+        },
+
+        prepareParagraphForReading(paraElement) {
+            if (this.processedParagraph.element && this.processedParagraph.element !== paraElement) {
+                this.deferProcessedParagraphRevert();
+            }
+            if (!paraElement || !paraElement.parentNode) return null;
+
+            if (!this.wordHighlightActiveForCurrent) {
+                return this.getTextFromElement(paraElement);
+            }
+
+            const cached = this.prewrappedParagraphs.get(paraElement);
+            if (cached) {
+                this.processedParagraph = cached;
+                this.prewrappedParagraphs.delete(paraElement);
+                return cached.text || (cached.wordTexts || []).join(' ');
+            }
+
+            const data = this.supportsCssTextHighlights()
+                ? this.buildCssWordHighlightData(paraElement)
+                : this.buildSpanWordHighlightData(paraElement);
+            this.processedParagraph = data;
+            return data.text;
+        },
+
+        prewrapParagraph(paraElement) {
+            if (!paraElement || !paraElement.parentNode) return null;
+            if (this.prewrappedParagraphs.has(paraElement)) return this.prewrappedParagraphs.get(paraElement);
+
+            const data = this.supportsCssTextHighlights()
+                ? this.buildCssWordHighlightData(paraElement)
+                : this.buildSpanWordHighlightData(paraElement);
             this.prewrappedParagraphs.set(paraElement, data);
             return data;
         },
@@ -144,7 +179,9 @@
             for (const [element, data] of this.prewrappedParagraphs.entries()) {
                 const isValid = element && element.isConnected && validElements.has(element);
                 if (!isValid) {
-                    this.unwrapWordSpans(element, data && data.wordSpans);
+                    if (!(data && data.usesCssHighlights)) {
+                        this.unwrapWordSpans(element, data && data.wordSpans);
+                    }
                     this.prewrappedParagraphs.delete(element);
                 }
             }
@@ -153,19 +190,22 @@
         clearPrewrappedParagraphs() {
             if (this.prewrappedParagraphs.size === 0) return;
             for (const [element, data] of this.prewrappedParagraphs.entries()) {
-                this.unwrapWordSpans(element, data && data.wordSpans);
+                if (!(data && data.usesCssHighlights)) {
+                    this.unwrapWordSpans(element, data && data.wordSpans);
+                }
             }
             this.prewrappedParagraphs.clear();
         },
 
         deferProcessedParagraphRevert() {
-            const { element, originalHTML, wordSpans } = this.processedParagraph;
+            const { element, originalHTML, wordSpans, usesCssHighlights } = this.processedParagraph;
             if (element) {
-                this.pendingReverts.push({ element, originalHTML, wordSpans });
+                this.pendingReverts.push({ element, originalHTML, wordSpans, usesCssHighlights });
                 this.schedulePendingRevert();
             }
-            this.processedParagraph = { element: null, originalHTML: '', wordSpans: [], wordOffsets: [] };
+            this.processedParagraph = this.createEmptyProcessedParagraph();
             this.currentWordSpan = null;
+            this.clearCssWordHighlight();
         },
 
         schedulePendingRevert() {
@@ -175,7 +215,7 @@
                 this.pendingRevertUsesIdle = false;
                 if (this.pendingReverts.length === 0) return;
                 const next = this.pendingReverts.shift();
-                if (next && next.element) {
+                if (next && next.element && !next.usesCssHighlights) {
                     this.unwrapWordSpans(next.element, next.wordSpans);
                 }
                 if (this.pendingReverts.length > 0) {
@@ -207,7 +247,7 @@
             this.cancelPendingRevert();
             while (this.pendingReverts.length > 0) {
                 const next = this.pendingReverts.shift();
-                if (next && next.element) {
+                if (next && next.element && !next.usesCssHighlights) {
                     this.unwrapWordSpans(next.element, next.wordSpans);
                 }
             }

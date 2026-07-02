@@ -832,7 +832,7 @@
         findWordIndexByChar(charIndex) {
             const spans = this.processedParagraph.wordSpans;
             const offsets = this.processedParagraph.wordOffsets;
-            if (!spans || !offsets || offsets.length === 0) return -1;
+            if (!offsets || offsets.length === 0) return -1;
 
             let low = 0;
             let high = offsets.length - 1;
@@ -848,9 +848,22 @@
             const idx = high;
             if (idx < 0) return -1;
             const start = offsets[idx];
-            const end = start + spans[idx].textContent.length;
+            const wordLengths = this.processedParagraph.wordLengths;
+            const fallbackSpan = Array.isArray(spans) ? spans[idx] : null;
+            const length = Array.isArray(wordLengths) && Number.isFinite(wordLengths[idx])
+                ? wordLengths[idx]
+                : (fallbackSpan && fallbackSpan.textContent ? fallbackSpan.textContent.length : 0);
+            const end = start + length;
             if (charIndex < start || charIndex > end) return -1;
             return idx;
+        },
+
+        isWordSpanConnected(span) {
+            if (!span) return false;
+            if (span.isConnected === false) return false;
+            const element = this.processedParagraph && this.processedParagraph.element;
+            if (element && typeof element.contains === 'function' && !element.contains(span)) return false;
+            return true;
         },
 
         highlightCurrentWord(event) {
@@ -858,16 +871,11 @@
             if (event.name !== 'word') return;
             if (this.currentWordSpan) {
                 this.currentWordSpan.classList.remove('tts-current-word');
-                this.currentWordSpan = null;
             }
+            this.currentWordSpan = null;
 
             const baseOffset = Number.isFinite(this.currentUtteranceStartOffset) ? this.currentUtteranceStartOffset : 0;
-            const idx = this.findWordIndexByChar((event.charIndex || 0) + baseOffset);
-            if (idx === -1) return;
-            const span = this.processedParagraph.wordSpans[idx];
-            if (!span) return;
-            span.classList.add('tts-current-word');
-            this.currentWordSpan = span;
+            this.highlightWordByCharIndex((event.charIndex || 0) + baseOffset);
         },
 
         clearServerWordHighlightTimers() {
@@ -882,12 +890,22 @@
             if (!this.CONFIG.WORD_HIGHLIGHT_ENABLED || !this.wordHighlightActiveForCurrent) return;
             if (this.currentWordSpan) {
                 this.currentWordSpan.classList.remove('tts-current-word');
-                this.currentWordSpan = null;
+            }
+            this.currentWordSpan = null;
+            if (typeof this.clearCssWordHighlight === 'function') {
+                this.clearCssWordHighlight();
             }
             const idx = this.findWordIndexByChar(charIndex);
             if (idx === -1) return;
+            if (this.processedParagraph.usesCssHighlights || (Array.isArray(this.processedParagraph.wordRanges) && this.processedParagraph.wordRanges.length > 0)) {
+                const range = this.processedParagraph.wordRanges[idx];
+                if (range && typeof this.setCssWordHighlightRange === 'function' && this.setCssWordHighlightRange(range)) {
+                    return;
+                }
+                return;
+            }
             const span = this.processedParagraph.wordSpans[idx];
-            if (!span) return;
+            if (!this.isWordSpanConnected(span)) return;
             span.classList.add('tts-current-word');
             this.currentWordSpan = span;
         },
