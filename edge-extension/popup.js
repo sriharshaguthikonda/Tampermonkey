@@ -116,6 +116,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const lockInfoDiv = document.getElementById('lockInfo');
     const optionsBtn = document.getElementById('optionsBtn');
     const resetOverlayBtn = document.getElementById('resetOverlayBtn');
+    const exportDiagnosticsBtn = document.getElementById('exportDiagnosticsBtn');
 
     const highlightToggle = document.getElementById('highlightToggle');
     const gapTrimToggle = document.getElementById('gapTrimToggle');
@@ -419,6 +420,44 @@ document.addEventListener('DOMContentLoaded', () => {
         sendMessage('applySettings', { settings: { [key]: value }, silent: true });
     }
 
+    function readDiagnosticsBuffer(callback) {
+        const key = 'ttsDiagnosticsBuffer';
+        const localFallback = () => {
+            chrome.storage.local.get({ [key]: { env: {}, entries: [] } }, (items) => {
+                callback(items[key] || { env: {}, entries: [] });
+            });
+        };
+        if (!chrome.storage.session) {
+            localFallback();
+            return;
+        }
+        chrome.storage.session.get({ [key]: null }, (items) => {
+            if (items && items[key]) {
+                callback(items[key]);
+                return;
+            }
+            localFallback();
+        });
+    }
+
+    function exportDiagnosticsJson() {
+        readDiagnosticsBuffer((payload) => {
+            const exported = {
+                env: payload && payload.env ? payload.env : {},
+                entries: Array.isArray(payload && payload.entries) ? payload.entries : []
+            };
+            const blob = new Blob([JSON.stringify(exported, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const anchor = document.createElement('a');
+            anchor.href = url;
+            anchor.download = `tts-diagnostics-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+            document.body.appendChild(anchor);
+            anchor.click();
+            anchor.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 0);
+        });
+    }
+
     startBtn.addEventListener('click', () => {
         sendMessage('startReading');
         updateUI('playing');
@@ -570,6 +609,9 @@ document.addEventListener('DOMContentLoaded', () => {
         persistSetting('overlayPosition', null);
         showStatus('Overlay position reset.');
         setTimeout(() => hideStatus(), 1200);
+    });
+    exportDiagnosticsBtn.addEventListener('click', () => {
+        exportDiagnosticsJson();
     });
 
     optionsBtn.addEventListener('click', () => {

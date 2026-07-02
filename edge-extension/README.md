@@ -62,7 +62,7 @@ An Edge extension that converts ChatGPT conversations into speech with highlight
 - **L**: Toggle loop to top
 - **A**: Toggle auto-scroll
 
-## Troubleshooting logs
+## Troubleshooting and diagnostics
 
 The branch includes an early diagnostics module at:
 
@@ -75,6 +75,8 @@ It loads immediately after `00-namespace.js`, before the rest of the content mod
 ```text
 [ChatGPT TTS Reader]
 ```
+
+Debug logs are off by default. Enable **Debug logging (console + diagnostics capture)** in the extension settings or popup to collect verbose console output and diagnostics capture. Warnings and errors are still printed and captured when debug logging is off.
 
 Useful checks from the ChatGPT page console:
 
@@ -90,22 +92,26 @@ window.__TTSDiag.disable()
 window.__TTSDiag.enable()
 ```
 
+`window.__TTSDiag.enable()` sets the `chatgptTtsDebug` localStorage override to `true`; `window.__TTSDiag.disable()` sets it to `false`. Those overrides take priority over the checkbox.
+
 The diagnostics module also responds to this extension message action from popup/background tooling:
 
 ```text
 getDiagnostics
 ```
 
-To reduce content-script logs manually:
+Use **Export diagnostics JSON** in settings or the popup to download the latest captured diagnostics buffer, including errors, CSP violations, and long tasks captured while debug logging is enabled.
+
+To force logs off manually:
 
 ```js
 localStorage.setItem('chatgptTtsDebug', 'false');
 ```
 
-To turn logs back on:
+To force logs on:
 
 ```js
-localStorage.removeItem('chatgptTtsDebug');
+localStorage.setItem('chatgptTtsDebug', 'true');
 ```
 
 ## Building for Distribution

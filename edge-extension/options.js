@@ -179,6 +179,7 @@ document.addEventListener('DOMContentLoaded', () => {
         saveBtn: document.getElementById('saveBtn'),
         resetBtn: document.getElementById('resetBtn'),
         resetOverlayPositionBtn: document.getElementById('resetOverlayPositionBtn'),
+        exportDiagnosticsBtn: document.getElementById('exportDiagnosticsBtn'),
         hotkeyActivate: document.getElementById('hotkeyActivate'),
         hotkeyPauseResume: document.getElementById('hotkeyPauseResume'),
         hotkeyNavNext: document.getElementById('hotkeyNavNext'),
@@ -656,6 +657,44 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 250);
     }
 
+    function readDiagnosticsBuffer(callback) {
+        const key = 'ttsDiagnosticsBuffer';
+        const localFallback = () => {
+            chrome.storage.local.get({ [key]: { env: {}, entries: [] } }, (items) => {
+                callback(items[key] || { env: {}, entries: [] });
+            });
+        };
+        if (!chrome.storage.session) {
+            localFallback();
+            return;
+        }
+        chrome.storage.session.get({ [key]: null }, (items) => {
+            if (items && items[key]) {
+                callback(items[key]);
+                return;
+            }
+            localFallback();
+        });
+    }
+
+    function exportDiagnosticsJson() {
+        readDiagnosticsBuffer((payload) => {
+            const exported = {
+                env: payload && payload.env ? payload.env : {},
+                entries: Array.isArray(payload && payload.entries) ? payload.entries : []
+            };
+            const blob = new Blob([JSON.stringify(exported, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const anchor = document.createElement('a');
+            anchor.href = url;
+            anchor.download = `tts-diagnostics-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+            document.body.appendChild(anchor);
+            anchor.click();
+            anchor.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 0);
+        });
+    }
+
     elements.settingsProfile.addEventListener('change', () => {
         flushPendingSave();
         currentProfile = normalizeProfile(elements.settingsProfile.value);
@@ -739,6 +778,9 @@ document.addEventListener('DOMContentLoaded', () => {
     elements.resetOverlayPositionBtn.addEventListener('click', () => {
         currentOverlayPosition = null;
         saveSettings();
+    });
+    elements.exportDiagnosticsBtn.addEventListener('click', () => {
+        exportDiagnosticsJson();
     });
 
     function initializeProfileAndLoad() {

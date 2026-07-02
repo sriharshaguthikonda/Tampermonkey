@@ -4,6 +4,16 @@
     const ns = window.__TTSNS;
     const LOG_PREFIX = '[ChatGPT TTS Reader]';
     const DEBUG_STORAGE_KEY = 'chatgptTtsDebug';
+    const DIAGNOSTICS_BUFFER_KEY = 'ttsDiagnosticsBuffer';
+    const BUFFER_LIMIT = 500;
+    const EXPORT_LIMIT = 100;
+    const STORAGE_FLUSH_INTERVAL_MS = 5000;
+    const diagnosticsBuffer = [];
+    let lastStorageFlushAt = 0;
+    let storageFlushTimer = null;
+    let lastEnvHeader = null;
+    let longTaskObserver = null;
+    let verboseCaptureActive = false;
 
     function isDebugEnabled() {
         try {
@@ -47,8 +57,159 @@
         };
     }
 
+    function getEnvHeader() {
+        let extensionVersion = '';
+        try {
+            extensionVersion = chrome.runtime.getManifest().version || '';
+        } catch (_error) {
+            extensionVersion = '';
+        }
+        return {
+            extensionVersion,
+            channel: (ns && ns.BUILD && ns.BUILD.channel) || 'source',
+            url: location.href,
+            ua: navigator.userAgent,
+            savedAt: new Date().toISOString()
+        };
+    }
+
+    function truncateString(value) {
+        const text = String(value);
+        return text.length > 500 ? `${text.slice(0, 500)}...` : text;
+    }
+
+    function stringifyDetailValue(value) {
+        try {
+            return truncateString(JSON.stringify(value));
+        } catch (_error) {
+            return truncateString(String(value));
+        }
+    }
+
+    function sanitizeDetailValue(value) {
+        if (value == null) return value;
+        const type = typeof value;
+        if (type === 'string') return truncateString(value);
+        if (type === 'number' || type === 'boolean') return value;
+        if (type === 'bigint') return String(value);
+        if (value instanceof Error) {
+            return {
+                name: truncateString(value.name || 'Error'),
+                message: truncateString(value.message || ''),
+                stack: truncateString(value.stack || '')
+            };
+        }
+        if (typeof Node !== 'undefined' && value instanceof Node) {
+            return `[Node ${value.nodeName || 'unknown'}]`;
+        }
+        if (Array.isArray(value) || type === 'object') return stringifyDetailValue(value);
+        return truncateString(value);
+    }
+
+    function sanitizeDetails(details) {
+        const source = details && typeof details === 'object' ? details : {};
+        const copy = {};
+        for (const key of Object.keys(source).slice(0, 40)) {
+            copy[key] = sanitizeDetailValue(source[key]);
+        }
+        return copy;
+    }
+
+    function getDiagnosticsStorageArea(preferSession = true) {
+        if (typeof chrome === 'undefined' || !chrome.storage) return null;
+        if (preferSession && chrome.storage.session) return chrome.storage.session;
+        return chrome.storage.local || null;
+    }
+
+    function flushDiagnosticsBuffer(force = false) {
+        const area = getDiagnosticsStorageArea(true);
+        if (!area || typeof area.set !== 'function') return;
+        const now = Date.now();
+        const elapsed = now - lastStorageFlushAt;
+        if (!force && elapsed < STORAGE_FLUSH_INTERVAL_MS) {
+            if (!storageFlushTimer) {
+                storageFlushTimer = setTimeout(() => {
+                    storageFlushTimer = null;
+                    flushDiagnosticsBuffer(true);
+                }, STORAGE_FLUSH_INTERVAL_MS - elapsed);
+            }
+            return;
+        }
+        lastStorageFlushAt = now;
+        lastEnvHeader = getEnvHeader();
+        const payload = {
+            env: lastEnvHeader,
+            entries: diagnosticsBuffer.slice()
+        };
+        try {
+            area.set({ [DIAGNOSTICS_BUFFER_KEY]: payload });
+        } catch (_error) {
+            const fallback = getDiagnosticsStorageArea(false);
+            if (fallback && fallback !== area && typeof fallback.set === 'function') {
+                try { fallback.set({ [DIAGNOSTICS_BUFFER_KEY]: payload }); } catch (__error) { /* ignore */ }
+            }
+        }
+    }
+
+    function appendBufferEntry(level, event, details) {
+        diagnosticsBuffer.push({
+            ts: new Date().toISOString(),
+            level,
+            event,
+            details: sanitizeDetails(details)
+        });
+        while (diagnosticsBuffer.length > BUFFER_LIMIT) {
+            diagnosticsBuffer.shift();
+        }
+        flushDiagnosticsBuffer(false);
+    }
+
+    function getLongTaskAttribution(entry) {
+        const attribution = entry && entry.attribution && entry.attribution[0];
+        return attribution && attribution.name ? String(attribution.name) : '';
+    }
+
+    function startVerboseCapture() {
+        if (verboseCaptureActive) return;
+        verboseCaptureActive = true;
+        if (typeof PerformanceObserver === 'undefined') return;
+        try {
+            longTaskObserver = new PerformanceObserver((list) => {
+                for (const entry of list.getEntries()) {
+                    log('debug', 'Long task observed', {
+                        duration: Math.round(entry.duration || 0),
+                        startTime: Math.round(entry.startTime || 0),
+                        attributionName: getLongTaskAttribution(entry)
+                    });
+                }
+            });
+            longTaskObserver.observe({ entryTypes: ['longtask'] });
+        } catch (error) {
+            longTaskObserver = null;
+            log('warn', 'Long task observer unavailable', {
+                error: error && error.message ? error.message : String(error || '')
+            });
+        }
+    }
+
+    function stopVerboseCapture() {
+        verboseCaptureActive = false;
+        if (!longTaskObserver) return;
+        try { longTaskObserver.disconnect(); } catch (_error) { /* ignore */ }
+        longTaskObserver = null;
+    }
+
+    function syncVerboseCapture() {
+        if (isDebugEnabled()) {
+            startVerboseCapture();
+        } else {
+            stopVerboseCapture();
+        }
+    }
+
     function log(level, event, details = {}) {
         if (!isDebugEnabled() && level !== 'warn' && level !== 'error') return;
+        appendBufferEntry(level, event, details);
         const logger = console[level] || console.log;
         try {
             logger.call(console, LOG_PREFIX, event, pageSnapshot(details));
@@ -97,7 +258,11 @@
     }
 
     function getDiagnostics(extra = {}) {
+        const env = getEnvHeader();
+        lastEnvHeader = env;
         return pageSnapshot({
+            env,
+            buffer: diagnosticsBuffer.slice(-EXPORT_LIMIT),
             reader: getReaderSnapshot(),
             diagnosticsDebugEnabled: isDebugEnabled(),
             ...extra
@@ -110,12 +275,15 @@
         log,
         pageSnapshot,
         getDiagnostics,
+        flush: () => flushDiagnosticsBuffer(true),
         enable() {
             try { localStorage.setItem(DEBUG_STORAGE_KEY, 'true'); } catch (_error) { /* ignore */ }
+            syncVerboseCapture();
             log('info', 'Diagnostics enabled');
         },
         disable() {
             try { localStorage.setItem(DEBUG_STORAGE_KEY, 'false'); } catch (_error) { /* ignore */ }
+            syncVerboseCapture();
             log('warn', 'Diagnostics disabled after this message');
         }
     };
@@ -199,10 +367,37 @@
         });
     });
 
+    window.addEventListener('securitypolicyviolation', (event) => {
+        log('warn', 'Security policy violation observed', {
+            violatedDirective: event.violatedDirective || '',
+            blockedURI: event.blockedURI || '',
+            sourceFile: event.sourceFile || '',
+            line: event.lineNumber || 0
+        });
+    });
+
+    window.addEventListener('pagehide', () => {
+        flushDiagnosticsBuffer(true);
+    });
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') {
+            flushDiagnosticsBuffer(true);
+        }
+    });
+
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.onChanged) {
+        chrome.storage.onChanged.addListener((changes, area) => {
+            if (area !== 'sync' || !changes) return;
+            setTimeout(syncVerboseCapture, 0);
+        });
+    }
+
     log('info', 'Diagnostics module loaded', {
         manifestModule: 'modules/05-diagnostics.js',
         hasChromeRuntime: Boolean(typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id)
     });
+
+    syncVerboseCapture();
 
     setTimeout(() => log('info', '5-second page health check', { reader: getReaderSnapshot() }), 5000);
     setTimeout(() => log('info', '15-second page health check', { reader: getReaderSnapshot() }), 15000);
