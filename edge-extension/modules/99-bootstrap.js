@@ -17,6 +17,23 @@
     // (See refactor_plan.md section B.1 for the canonical section list.)
     // =============================================================================
 
+    function safeInit(label, fn) {
+        try {
+            fn();
+        } catch (error) {
+            const details = {
+                module: label,
+                error: String(error && error.message || error),
+                stack: error && error.stack || ''
+            };
+            if (ns.diagnostics && typeof ns.diagnostics.log === 'function') {
+                ns.diagnostics.log('error', 'Module init failed', details);
+            } else {
+                console.error('[TTSReader] Module init failed', details);
+            }
+        }
+    }
+
     function getPlaybackState() {
         const synth = TTSReader.speechSynthesis;
         const hasSpeechActivity = Boolean(
@@ -286,7 +303,7 @@
             TTSReader.settingsProfile = profile;
             const settings = getStoredProfileSettings(items || {}, profile);
             applySettings(settings, { silent: true });
-            TTSReader.init();
+            safeInit('TTSReader.init', () => TTSReader.init());
         });
 
         chrome.storage.onChanged.addListener((changes, area) => {
@@ -316,9 +333,9 @@
     }
 
     if (typeof chrome !== 'undefined' && chrome.storage) {
-        initWithStoredSettings();
+        safeInit('initWithStoredSettings', () => initWithStoredSettings());
     } else {
-        TTSReader.init();
+        safeInit('TTSReader.init', () => TTSReader.init());
     }
 
     if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {

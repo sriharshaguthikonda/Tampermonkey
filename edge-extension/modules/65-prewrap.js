@@ -27,6 +27,7 @@
         },
 
         buildCssWordHighlightData(paraElement) {
+            if (!paraElement || !paraElement.isConnected) return null;
             const wordRanges = [];
             const wordOffsets = [];
             const wordLengths = [];
@@ -70,6 +71,7 @@
         },
 
         buildSpanWordHighlightData(paraElement) {
+            if (!paraElement || !paraElement.isConnected) return null;
             const originalHTML = paraElement.innerHTML;
             const wordSpans = [];
             const walker = document.createTreeWalker(paraElement, NodeFilter.SHOW_TEXT, null, false);
@@ -142,6 +144,7 @@
             const data = this.supportsCssTextHighlights()
                 ? this.buildCssWordHighlightData(paraElement)
                 : this.buildSpanWordHighlightData(paraElement);
+            if (!data) return null;
             this.processedParagraph = data;
             return data.text;
         },
@@ -153,6 +156,7 @@
             const data = this.supportsCssTextHighlights()
                 ? this.buildCssWordHighlightData(paraElement)
                 : this.buildSpanWordHighlightData(paraElement);
+            if (!data) return null;
             this.prewrappedParagraphs.set(paraElement, data);
             return data;
         },

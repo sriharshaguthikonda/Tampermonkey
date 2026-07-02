@@ -86,11 +86,15 @@
             const source = String(text || '');
             if (!source) return [];
             if (typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function') {
-                const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
-                return Array.from(segmenter.segment(source), segment => ({
-                    start: segment.index,
-                    end: segment.index + segment.segment.length
-                }));
+                try {
+                    const segmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+                    return Array.from(segmenter.segment(source), segment => ({
+                        start: segment.index,
+                        end: segment.index + segment.segment.length
+                    }));
+                } catch (_) {
+                    // Fall through to the Unicode iterator fallback below.
+                }
             }
             const boundaries = [];
             let offset = 0;
@@ -105,13 +109,17 @@
             const source = String(text || '');
             if (!source.trim()) return [];
             if (typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function') {
-                const segmenter = new Intl.Segmenter(undefined, { granularity: 'sentence' });
-                return Array.from(segmenter.segment(source))
-                    .filter(segment => String(segment.segment || '').trim())
-                    .map(segment => ({
-                        start: segment.index,
-                        end: segment.index + segment.segment.length
-                    }));
+                try {
+                    const segmenter = new Intl.Segmenter(undefined, { granularity: 'sentence' });
+                    return Array.from(segmenter.segment(source))
+                        .filter(segment => String(segment.segment || '').trim())
+                        .map(segment => ({
+                            start: segment.index,
+                            end: segment.index + segment.segment.length
+                        }));
+                } catch (_) {
+                    // Fall through to the regex sentence fallback below.
+                }
             }
             const boundaries = [];
             const pattern = /[^.!?]+[.!?]*/g;

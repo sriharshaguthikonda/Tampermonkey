@@ -15,22 +15,39 @@
         // (See refactor_plan.md section B.1 for the canonical section list.)
         // =============================================================================
 
+        safeInit(label, fn) {
+            try {
+                fn();
+            } catch (error) {
+                const details = {
+                    module: label,
+                    error: String(error && error.message || error),
+                    stack: error && error.stack || ''
+                };
+                if (ns.diagnostics && typeof ns.diagnostics.log === 'function') {
+                    ns.diagnostics.log('error', 'Module init failed', details);
+                } else {
+                    console.error('[TTSReader] Module init failed', details);
+                }
+            }
+        },
+
         init() {
             this.settingsProfile = getCurrentProfile();
             this.playbackOwnerId = this.generatePlaybackOwnerId();
-            this.detectContext();
-            this.applyChatGPTTextStyling();
-            this.waitForPageLoad();
-            this.createUI();
-            this.setupEventListeners();
-            this.loadVoices();
-            this.fetchServerVoices();
-            this.initParagraphObserver();
-            this.initMediaEnhancements();
-            this.initSmartCopyEnhancements();
+            this.safeInit('detectContext', () => this.detectContext());
+            this.safeInit('applyChatGPTTextStyling', () => this.applyChatGPTTextStyling());
+            this.safeInit('waitForPageLoad', () => this.waitForPageLoad());
+            this.safeInit('createUI', () => this.createUI());
+            this.safeInit('setupEventListeners', () => this.setupEventListeners());
+            this.safeInit('loadVoices', () => this.loadVoices());
+            this.safeInit('fetchServerVoices', () => this.fetchServerVoices());
+            this.safeInit('initParagraphObserver', () => this.initParagraphObserver());
+            this.safeInit('initMediaEnhancements', () => this.initMediaEnhancements());
+            this.safeInit('initSmartCopyEnhancements', () => this.initSmartCopyEnhancements());
             if (this.isChatGPTPage) {
-                this.initChatGPTEnhancements();
-                this.initAutoReadObserver();
+                this.safeInit('initChatGPTEnhancements', () => this.initChatGPTEnhancements());
+                this.safeInit('initAutoReadObserver', () => this.initAutoReadObserver());
             }
         },
 

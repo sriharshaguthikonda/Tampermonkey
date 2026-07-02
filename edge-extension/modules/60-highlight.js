@@ -28,9 +28,13 @@
 
         getCssHighlightRegistry() {
             const css = (typeof window !== 'undefined' && window.CSS) || (typeof CSS !== 'undefined' ? CSS : null);
-            return css && css.highlights && typeof css.highlights.set === 'function'
-                ? css.highlights
-                : null;
+            try {
+                return css && css.highlights && typeof css.highlights.set === 'function'
+                    ? css.highlights
+                    : null;
+            } catch (_) {
+                return null;
+            }
         },
 
         supportsCssTextHighlights() {
@@ -41,18 +45,24 @@
         clearCssWordHighlight() {
             const registry = this.getCssHighlightRegistry();
             if (registry && typeof registry.delete === 'function') {
-                registry.delete('tts-current-word');
+                try {
+                    registry.delete('tts-current-word');
+                } catch (_) {}
             }
             this.currentWordRange = null;
         },
 
         isRangeConnected(range) {
             if (!range) return false;
-            const start = range.startContainer;
-            const end = range.endContainer;
-            if (start && start.isConnected === false) return false;
-            if (end && end.isConnected === false) return false;
-            return true;
+            try {
+                const start = range.startContainer;
+                const end = range.endContainer;
+                if (start && start.isConnected === false) return false;
+                if (end && end.isConnected === false) return false;
+                return true;
+            } catch (_) {
+                return false;
+            }
         },
 
         setCssWordHighlightRange(range) {
