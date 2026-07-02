@@ -39,6 +39,18 @@ An Edge extension that converts ChatGPT conversations into speech with highlight
    - Enable "Developer mode" (toggle in the bottom left)
    - Click "Load unpacked" and select the `edge-extension` directory
 
+## Dev vs Production builds
+
+From the repo root, run:
+
+```bash
+node build.js
+```
+
+This creates `dist/dev` and `dist/prod`. Load either folder from `edge://extensions/` with **Load unpacked**. The dev build shows `ChatGPT TTS Reader (DEV)` and defaults verbose diagnostics on through the dev channel. The production build keeps the normal extension name and stays silent by default; enable the **Debug logging** checkbox in options when troubleshooting.
+
+After rebuilding, click **Reload** on the extensions page for the loaded unpacked extension. The source `edge-extension/` folder remains loadable and behaves like production defaults without a channel badge.
+
 ## Usage
 
 1. Navigate to [ChatGPT](https://chatgpt.com/) or [ChatGPT legacy](https://chat.openai.com/)
