@@ -6,12 +6,15 @@ An Edge extension that converts ChatGPT conversations into speech with highlight
 
 - **Text-to-Speech**: Converts ChatGPT responses to natural-sounding speech
 - **Word Highlighting**: Visually tracks the currently spoken word
-- **Navigation Controls**: Easily navigate between paragraphs
+- **Improved Highlighting Reliability**: Fixed DOM exceptions that could occur during per-word highlighting
+- **Diagnostic Logging**: Logs content-script, popup, and background events with clear prefixes for troubleshooting
+- **Safer ChatGPT Startup**: Uses delayed/fallback startup checks and avoids hijacking normal keys while the reader is inactive
+- **Emoji Skipping**: Emojis are removed from spoken text
+- **Navigation Controls**: Navigate sentence by sentence
 - **Customizable Speed**: Adjust the speech rate to your preference
 - **Keyboard Shortcuts**: Control playback with keyboard shortcuts
 - **Responsive UI**: Clean and intuitive interface
-- **Crosshair Start**: Press the activation key and click anywhere to begin
-  reading from that paragraph
+- **Crosshair Start**: Press the activation shortcut and click anywhere to begin reading from that paragraph
 - **Pointer Arrow**: An arrow guides you to off-screen text when reading
 
 ## Installation
@@ -38,18 +41,50 @@ An Edge extension that converts ChatGPT conversations into speech with highlight
 
 ## Usage
 
-1. Navigate to [ChatGPT](https://chat.openai.com/)
+1. Navigate to [ChatGPT](https://chatgpt.com/) or [ChatGPT legacy](https://chat.openai.com/)
 2. Click the extension icon in the toolbar
 3. Use the controls to start/stop reading
-4. Use the navigation buttons to move between paragraphs
+4. Use the navigation buttons to move between sentences
 5. Adjust the speech rate using the slider
 
 ### Keyboard Shortcuts
 
-- **U**: Activate crosshair to choose where reading starts
-- **P**: Pause/Resume reading
-- **Escape**: Stop reading
-- **Left/Right Arrows**: Navigate between paragraphs
+- **Ctrl+Shift+U**: Activate crosshair to choose where reading starts
+- **Ctrl+Shift+P**: Pause/Resume reading
+- **Escape**: Stop reading, only after the reader is active
+- **Left/Right Arrows**: Navigate between sentences, only after the reader is active
+
+## Troubleshooting logs
+
+Open DevTools on the ChatGPT tab and filter the Console for:
+
+```text
+[ChatGPT TTS Reader]
+```
+
+Open the extension popup DevTools and filter for:
+
+```text
+[ChatGPT TTS Reader:popup]
+```
+
+Open the extension service worker console from `edge://extensions/` and filter for:
+
+```text
+[ChatGPT TTS Reader:background]
+```
+
+To reduce content-script logs on the ChatGPT page, run this in the page console and reload:
+
+```js
+localStorage.setItem('chatgptTtsDebug', 'false');
+```
+
+To turn logs back on:
+
+```js
+localStorage.removeItem('chatgptTtsDebug');
+```
 
 ## Building for Distribution
 
