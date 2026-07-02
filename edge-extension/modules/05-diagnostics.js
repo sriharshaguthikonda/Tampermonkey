@@ -7,10 +7,17 @@
 
     function isDebugEnabled() {
         try {
-            return localStorage.getItem(DEBUG_STORAGE_KEY) !== 'false';
+            const override = localStorage.getItem(DEBUG_STORAGE_KEY);
+            if (override === 'true') return true;
+            if (override === 'false') return false;
         } catch (_error) {
-            return true;
+            // Fall through to configured defaults.
         }
+        if (ns && ns.TTSReader && ns.TTSReader.CONFIG && typeof ns.TTSReader.CONFIG.DEBUG_LOGGING === 'boolean') {
+            return ns.TTSReader.CONFIG.DEBUG_LOGGING;
+        }
+        if (ns && ns.BUILD && ns.BUILD.channel === 'dev') return true;
+        return false;
     }
 
     function activeElementInfo() {
@@ -104,7 +111,7 @@
         pageSnapshot,
         getDiagnostics,
         enable() {
-            try { localStorage.removeItem(DEBUG_STORAGE_KEY); } catch (_error) { /* ignore */ }
+            try { localStorage.setItem(DEBUG_STORAGE_KEY, 'true'); } catch (_error) { /* ignore */ }
             log('info', 'Diagnostics enabled');
         },
         disable() {

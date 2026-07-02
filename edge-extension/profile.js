@@ -34,6 +34,7 @@
         showPageOverlay: true,
         overlayPosition: null,
         showDiagnostics: true,
+        debugLogging: false,
         hiddenTabPolicy: 'delay',
         autoPauseHiddenDelayMs: 5000,
         volumeBoostEnabled: true,

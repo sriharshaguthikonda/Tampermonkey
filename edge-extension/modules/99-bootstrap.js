@@ -181,6 +181,9 @@
                 TTSReader.diagnosticsPanel = null;
             }
         }
+        if (typeof settings.debugLogging === 'boolean') {
+            TTSReader.CONFIG.DEBUG_LOGGING = settings.debugLogging;
+        }
         if (typeof settings.hiddenTabPolicy === 'string') {
             TTSReader.setHiddenTabPolicy(settings.hiddenTabPolicy, silent);
         }
@@ -418,6 +421,7 @@
                             showPageOverlay: TTSReader.CONFIG.SHOW_PAGE_OVERLAY,
                             overlayPosition: TTSReader.CONFIG.OVERLAY_POSITION,
                             showDiagnostics: TTSReader.CONFIG.SHOW_DIAGNOSTICS_PANEL,
+                            debugLogging: TTSReader.CONFIG.DEBUG_LOGGING,
                             hiddenTabPolicy: TTSReader.CONFIG.HIDDEN_TAB_POLICY,
                             autoPauseHiddenDelayMs: TTSReader.CONFIG.AUTO_PAUSE_HIDDEN_DELAY_MS,
                             volumeBoostEnabled: TTSReader.CONFIG.VOLUME_BOOST_ENABLED,

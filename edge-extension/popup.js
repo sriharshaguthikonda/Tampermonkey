@@ -32,6 +32,7 @@ document.addEventListener('DOMContentLoaded', () => {
         showPageOverlay: true,
         overlayPosition: null,
         showDiagnostics: true,
+        debugLogging: false,
         hiddenTabPolicy: 'delay',
         autoPauseHiddenDelayMs: 5000,
         volumeBoostEnabled: true,
@@ -132,6 +133,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const promptHistoryNavToggle = document.getElementById('promptHistoryNavToggle');
     const pageOverlayToggle = document.getElementById('pageOverlayToggle');
     const diagnosticsToggle = document.getElementById('diagnosticsToggle');
+    const debugLoggingToggle = document.getElementById('debugLoggingToggle');
     const hiddenTabPolicySelect = document.getElementById('hiddenTabPolicySelect');
     const autoPauseHiddenDelayInput = document.getElementById('autoPauseHiddenDelayInput');
     const volumeBoostToggle = document.getElementById('volumeBoostToggle');
@@ -380,6 +382,7 @@ document.addEventListener('DOMContentLoaded', () => {
         promptHistoryNavToggle.checked = Boolean(settings.promptHistoryNavEnabled);
         pageOverlayToggle.checked = Boolean(settings.showPageOverlay);
         diagnosticsToggle.checked = Boolean(settings.showDiagnostics);
+        debugLoggingToggle.checked = Boolean(settings.debugLogging);
         hiddenTabPolicySelect.value = String(settings.hiddenTabPolicy || defaults.hiddenTabPolicy);
         autoPauseHiddenDelayInput.value = Number.isFinite(Number(settings.autoPauseHiddenDelayMs))
             ? String(Math.max(0, Math.round(Number(settings.autoPauseHiddenDelayMs))))
@@ -516,6 +519,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     diagnosticsToggle.addEventListener('change', (e) => {
         persistSetting('showDiagnostics', e.target.checked);
+    });
+    debugLoggingToggle.addEventListener('change', (e) => {
+        persistSetting('debugLogging', e.target.checked);
     });
     hiddenTabPolicySelect.addEventListener('change', (e) => {
         autoPauseHiddenDelayInput.disabled = e.target.value !== 'delay';
