@@ -7,6 +7,7 @@ An Edge extension that converts ChatGPT conversations into speech with highlight
 - **Text-to-Speech**: Converts ChatGPT responses to natural-sounding speech
 - **Word Highlighting**: Visually tracks the currently spoken word
 - **Improved Highlighting Reliability**: Fixed DOM exceptions that could occur during per-word highlighting
+- **Diagnostic Logging**: Adds an early content diagnostics module so ChatGPT load failures can be inspected from DevTools
 - **Emoji Skipping**: Emojis are marked with `aria-hidden` so they're not spoken
 - **Navigation Controls**: Navigate sentence by sentence
 - **Customizable Speed**: Adjust the speech rate to your preference
@@ -40,7 +41,7 @@ An Edge extension that converts ChatGPT conversations into speech with highlight
 
 ## Usage
 
-1. Navigate to [ChatGPT](https://chat.openai.com/)
+1. Navigate to [ChatGPT](https://chatgpt.com/) or [ChatGPT legacy](https://chat.openai.com/)
 2. Click the extension icon in the toolbar
 3. Use the controls to start/stop reading
 4. Use the navigation buttons to move between sentences
@@ -60,6 +61,52 @@ An Edge extension that converts ChatGPT conversations into speech with highlight
 - **R**: Replay current segment
 - **L**: Toggle loop to top
 - **A**: Toggle auto-scroll
+
+## Troubleshooting logs
+
+The branch includes an early diagnostics module at:
+
+```text
+edge-extension/modules/05-diagnostics.js
+```
+
+It loads immediately after `00-namespace.js`, before the rest of the content modules. Open DevTools on the ChatGPT tab and filter the Console for:
+
+```text
+[ChatGPT TTS Reader]
+```
+
+Useful checks from the ChatGPT page console:
+
+```js
+window.__TTSDiag.getDiagnostics()
+```
+
+```js
+window.__TTSDiag.disable()
+```
+
+```js
+window.__TTSDiag.enable()
+```
+
+The diagnostics module also responds to this extension message action from popup/background tooling:
+
+```text
+getDiagnostics
+```
+
+To reduce content-script logs manually:
+
+```js
+localStorage.setItem('chatgptTtsDebug', 'false');
+```
+
+To turn logs back on:
+
+```js
+localStorage.removeItem('chatgptTtsDebug');
+```
 
 ## Building for Distribution
 
