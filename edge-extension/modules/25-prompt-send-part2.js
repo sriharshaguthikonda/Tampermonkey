@@ -54,30 +54,60 @@
             this.promptHistoryDraftTooLarge = false;
         },
 
+        schedulePromptHistoryHydration() {
+            const hydrate = () => this.hydratePromptHistoryFromDom();
+            if (typeof requestIdleCallback === 'function') {
+                requestIdleCallback(hydrate, { timeout: 2000 });
+                return;
+            }
+            setTimeout(hydrate, 2000);
+        },
+
+        queuePromptHistoryElement(element) {
+            if (!element) return;
+            if (!this.pendingPromptHistoryElements) {
+                this.pendingPromptHistoryElements = new Set();
+            }
+            this.pendingPromptHistoryElements.add(element);
+        },
+
+        collectPromptHistoryCandidates(element) {
+            if (!element) return;
+            if (element.matches && element.matches('[data-message-author-role="user"]')) {
+                this.queuePromptHistoryElement(element);
+            }
+            if (element.querySelectorAll) {
+                element.querySelectorAll('[data-message-author-role="user"]').forEach((candidate) => {
+                    this.queuePromptHistoryElement(candidate);
+                });
+            }
+        },
+
+        ensurePromptHistoryFresh() {
+            if (!this.pendingPromptHistoryElements || this.pendingPromptHistoryElements.size === 0) return;
+            const pending = Array.from(this.pendingPromptHistoryElements);
+            this.pendingPromptHistoryElements.clear();
+            pending.forEach((messageElement) => {
+                if (!messageElement || messageElement.isConnected === false) return;
+                const text = this.extractUserMessageText(messageElement);
+                if (text) this.addPromptToHistory(text);
+            });
+        },
+
         initPromptHistoryObserver() {
-            if (!this.isChatGPTPage || this.promptHistoryObserver) return;
-            this.hydratePromptHistoryFromDom();
-            this.promptHistoryObserver = new MutationObserver((mutations) => {
-                for (const mutation of mutations) {
-                    if (!mutation.addedNodes || mutation.addedNodes.length === 0) continue;
-                    for (const node of mutation.addedNodes) {
-                        if (node.nodeType !== Node.ELEMENT_NODE) continue;
-                        const element = node;
-                        const candidates = [];
-                        if (element.matches && element.matches('[data-message-author-role="user"]')) {
-                            candidates.push(element);
-                        }
-                        if (element.querySelectorAll) {
-                            candidates.push(...element.querySelectorAll('[data-message-author-role="user"]'));
-                        }
-                        candidates.forEach((candidate) => {
-                            const text = this.extractUserMessageText(candidate);
-                            if (text) this.addPromptToHistory(text);
-                        });
-                    }
+            if (!this.isChatGPTPage || this.promptHistoryBusUnsubscribe) return;
+            this.schedulePromptHistoryHydration();
+            if (!this.pendingPromptHistoryElements) {
+                this.pendingPromptHistoryElements = new Set();
+            }
+            if (!ns.observerBus) return;
+            this.promptHistoryBusUnsubscribe = ns.observerBus.subscribe({
+                name: 'prompt-history',
+                selector: '[data-message-author-role="user"]',
+                onFlush: ({ addedNodes }) => {
+                    addedNodes.forEach((element) => this.collectPromptHistoryCandidates(element));
                 }
             });
-            this.promptHistoryObserver.observe(document.body, { childList: true, subtree: true });
         },
 
         setPromptHistoryNavigationEnabled(enabled, silent = false) {
@@ -99,6 +129,7 @@
 
             const promptArea = this.findPromptArea();
             if (!promptArea || !this.isPromptFocused(promptArea)) return false;
+            this.ensurePromptHistoryFresh();
 
             event.preventDefault();
             event.stopPropagation();
