@@ -14,19 +14,16 @@
         // =============================================================================
 
         initParagraphObserver() {
-            if (this.paragraphObserver) return;
-            this.paragraphObserver = new MutationObserver((mutations) => {
-                for (const mutation of mutations) {
-                    if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
-                        this.paragraphsDirty = true;
-                        if (this.waitingForMoreContent) {
-                            this.scheduleWaitForMore();
-                        }
-                        break;
+            if (this.paragraphBusUnsubscribe || !ns.observerBus) return;
+            this.paragraphBusUnsubscribe = ns.observerBus.subscribe({
+                name: 'paragraphs',
+                onFlush: () => {
+                    this.paragraphsDirty = true;
+                    if (this.waitingForMoreContent) {
+                        this.scheduleWaitForMore();
                     }
                 }
             });
-            this.paragraphObserver.observe(document.body, { childList: true, subtree: true });
         },
 
         refreshParagraphsIfNeeded(force = false) {

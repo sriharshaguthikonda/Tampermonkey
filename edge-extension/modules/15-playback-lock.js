@@ -268,10 +268,13 @@
         },
 
         initMediaEnhancements() {
-            if (this.mediaObserver) return;
+            if (this.mediaBusUnsubscribe || !ns.observerBus) return;
             const run = () => this.handleMediaElements();
-            this.mediaObserver = new MutationObserver(run);
-            this.mediaObserver.observe(document.body, { childList: true, subtree: true });
+            this.mediaBusUnsubscribe = ns.observerBus.subscribe({
+                name: 'media',
+                selector: 'audio, video',
+                onFlush: run
+            });
             run();
         },
 
@@ -288,15 +291,21 @@
 
             this.updateCopyButtons();
 
-            if (!this.editObserver) {
-                this.editObserver = new MutationObserver(() => this.attachDoubleClickListeners());
-                this.editObserver.observe(document.body, { childList: true, subtree: true });
+            if (!this.editBusUnsubscribe && ns.observerBus) {
+                this.editBusUnsubscribe = ns.observerBus.subscribe({
+                    name: 'double-click-edit',
+                    selector: '.group\\/conversation-turn, .group\\/turn-messages, [data-message-author-role]',
+                    onFlush: () => this.attachDoubleClickListeners()
+                });
             }
             this.attachDoubleClickListeners();
 
-            if (!this.limitWarningObserver) {
-                this.limitWarningObserver = new MutationObserver(() => this.checkAndCloseLimitWarnings());
-                this.limitWarningObserver.observe(document.body, { childList: true, subtree: true });
+            if (!this.limitWarningBusUnsubscribe && ns.observerBus) {
+                this.limitWarningBusUnsubscribe = ns.observerBus.subscribe({
+                    name: 'limit-warning',
+                    selector: 'button[data-testid="close-button"]',
+                    onFlush: () => this.checkAndCloseLimitWarnings()
+                });
             }
             this.checkAndCloseLimitWarnings();
             this.initPromptHistoryObserver();

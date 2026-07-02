@@ -15,7 +15,6 @@
         '.tmx-copy-row',
         '.tmx-copy-button',
         '[data-tmx-control]',
-        '[data-tmx-copy-button-attached]',
         '[data-tts-ui]',
         '[data-tts-word="1"]',
         '.tts-current-sentence',
@@ -57,6 +56,7 @@
         if (!element || !selector) return false;
         try {
             if (element.matches && element.matches(selector)) return true;
+            if (element.closest && element.closest(selector)) return true;
             if (element.querySelector && element.querySelector(selector)) return true;
         } catch (_error) {
             return false;

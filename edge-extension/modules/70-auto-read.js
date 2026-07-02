@@ -16,57 +16,32 @@
         // =============================================================================
 
         initAutoReadObserver() {
-            if (this.autoReadObserver) return;
-            this.autoReadObserver = new MutationObserver((mutations) => {
-                if (!this.CONFIG.AUTO_READ_NEW_MESSAGES) return;
-                if (this.continuousReadingActive || this.ttsActive || this.isNavigating || this.navKeyHeld) return;
+            if (this.autoReadBusUnsubscribe || !ns.observerBus) return;
+            this.autoReadBusUnsubscribe = ns.observerBus.subscribe({
+                name: 'auto-read',
+                selector: '[data-message-author-role="assistant"], section[data-turn="assistant"]',
+                onFlush: ({ addedNodes }) => {
+                    if (!this.CONFIG.AUTO_READ_NEW_MESSAGES) return;
+                    if (this.continuousReadingActive || this.ttsActive || this.isNavigating || this.navKeyHeld) return;
 
-                const now = Date.now();
-                const touchedMessages = new Set();
-                let shouldTrigger = false;
-                for (const mutation of mutations) {
-                    if (mutation.type !== 'childList' || mutation.addedNodes.length === 0) continue;
-                    const targetElement = mutation.target && mutation.target.nodeType === Node.ELEMENT_NODE
-                        ? mutation.target
-                        : mutation.target && mutation.target.parentElement;
-                    const targetMessage = targetElement ? targetElement.closest('[data-message-author-role="assistant"]') : null;
-                    if (targetMessage) {
-                        touchedMessages.add(targetMessage);
-                    }
-                    for (const node of mutation.addedNodes) {
-                        if (node.nodeType === Node.TEXT_NODE) {
-                            const parentElement = node.parentElement;
-                            const messageElement = parentElement ? parentElement.closest('[data-message-author-role="assistant"]') : null;
-                            if (this.isAutoReadEligibleMessage(messageElement)) {
-                                shouldTrigger = true;
-                                break;
-                            }
-                        } else if (node.nodeType === Node.ELEMENT_NODE) {
-                            const element = node;
-                            const messageElement = element.matches && element.matches('[data-message-author-role="assistant"]')
-                                ? element
-                                : element.querySelector && element.querySelector('[data-message-author-role="assistant"]');
-                            if (this.isAutoReadEligibleMessage(messageElement)) {
-                                shouldTrigger = true;
-                                break;
-                            }
-                        }
-                    }
-                    if (shouldTrigger) break;
-                }
-
-                if (touchedMessages.size > 0) {
-                    for (const messageElement of touchedMessages) {
+                    const now = Date.now();
+                    let shouldTrigger = false;
+                    addedNodes.forEach((element) => {
+                        const messageElement = element.matches && element.matches('[data-message-author-role="assistant"]')
+                            ? element
+                            : element.closest && element.closest('[data-message-author-role="assistant"]');
+                        if (!messageElement) return;
                         this.autoReadMessageActivity.set(messageElement, now);
-                    }
-                }
+                        if (this.isAutoReadEligibleMessage(messageElement)) {
+                            shouldTrigger = true;
+                        }
+                    });
 
-                if (shouldTrigger) {
-                    this.scheduleAutoRead();
+                    if (shouldTrigger) {
+                        this.startAutoReadFromLatestAssistant();
+                    }
                 }
             });
-
-            this.autoReadObserver.observe(document.body, { childList: true, subtree: true });
         },
 
         scheduleAutoRead() {
