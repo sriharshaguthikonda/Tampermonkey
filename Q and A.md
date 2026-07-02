@@ -154,3 +154,73 @@ Verification passed:
 - `git diff --check`
 
 No blocking questions.
+
+
+
+
+
+## 2026-07-02 agent update
+
+## user comments
+1. add commit push small logical commits
+1b. use subagents with appropriate intelligence you are buring tokens!!!!!
+2. other issues - being able to paste anywhere and it populates the prompt text box are not working.
+3. i think some of the issues are already solved, they are just floating in github.
+4. there is this other extension called ophel on github....i have a fork as well... think we can borrow impelementations to solve this not loaing issue!
+5. on the vision side....we can take ideas / implementations from them and expand our scope to other ai chat websites as well!
+6. talk to me in this file 
+7. beep me multiple times if you need me i'm going away
+
+## 2026-07-03T02:35+05:30 agent response — root cause found, work started
+
+Status: Root cause of chatgpt.com-won't-load identified from your `console.log` file (it WAS useful). Plan approved earlier in chat; Codex implementing now, Claude orchestrating. Will beep when I need you and when done.
+
+Root cause:
+- Extension registers ~8 `MutationObserver`s on `document.body` (subtree). ChatGPT's updated front end mutates the DOM heavily during load; our observer callbacks (smart-copy button injection `20-smart-copy-part1.js:18`, prompt-history extraction `25-prompt-send-part2.js:60`) each take 150–830 ms per mutation batch and re-trigger each other (copy-button DOM writes → more mutations → feedback loop). Main thread saturates → page never finishes loading.
+- Aggravator: diagnostics `pageSnapshot()` reads `document.body.innerText` (forced full-page reflow) on EVERY log call, and debug logging defaults ON for everyone.
+
+Fix in flight (issues filed): #12 P0 observer-bus fix, #13 innerText reflow, #14 debugLogging checkbox, #15 diagnostics v2 + Export-JSON button, #16 hardening guards, #17 dev/prod build split (`node build.js` → dist/dev + dist/prod), #18 userscript parity follow-up.
+
+Answers to your new comments:
+1b (token burn): agreed — Codex CLI does implementation, cheap subagents for mechanical work, me for orchestration/review only.
+2 (paste-anywhere broken): filing as new issue; likely same ChatGPT-update fallout (stale prompt-box selectors in `findPromptArea`). Will fix after P0 lands.
+3 (already-solved issues floating): will audit #5–#11 against current code and close the solved ones with evidence.
+4 (Ophel): saw `[Ophel] Loaded ChatGPT adapter` in your console log — it coexists on the page. Will review your fork's ChatGPT adapter for observer/adapter patterns worth borrowing; our observer-bus fix is compatible with that direction.
+5 (multi-site vision): filing a roadmap issue for per-site adapter architecture (Ophel-style) covering other AI chat sites.
+6+7: yes — updates land in this file; I'll beep you when input is needed and when the fix is ready to test.
+
+Questions needing user answer:
+- None blocking right now. When the fix is ready you'll need to reload the extension and open chatgpt.com once to confirm (I'll beep).
+
+
+
+## user comments
+1. use subagents with appropriate intelligence you are buring tokens!!!!!
+2. ophel folder is there as well in local folder chrome extensions as well
+3. downloaded a copy of current chatgpt html in the tampermokey folder as well. you can compare to previours versions. if it helps
+
+## 2026-07-03T03:05+05:30 agent response — FIX SHIPPED, please test
+
+Status: All work implemented, verified locally, committed, and pushed to `enhance-tts-functionality` (9 commits). Codex did the implementation; Claude reviewed each wave and reran all gates independently (3 node tests + syntax checks + build verification: all green).
+
+What changed:
+1. **P0 fix (#12, #13)**: all ~8 `document.body` MutationObservers replaced by ONE shared observer bus (`edge-extension/modules/08-observer-bus.js`) — debounced (200ms, 1s max wait), idle-scheduled, ignores the extension's own injected nodes (kills the feedback loop). Smart-copy, prompt-history, paragraph, auto-read, playback-lock migrated. Prompt-history no longer does cloneNode+innerText per mutation (lazy extraction on hotkey). Diagnostics no longer force a full-page reflow per log line.
+2. **Debug logging checkbox (#14)**: Options + popup have "Debug logging". OFF = extension console-silent (default). ON = verbose. `localStorage.chatgptTtsDebug` stays as manual override only.
+3. **Diagnostics v2 (#15)**: ring buffer captures errors, promise rejections, CSP violations, and long main-thread tasks (the exact signal that would have caught this bug); persisted to extension storage; **"Export diagnostics JSON" button** in Options (and popup) — send me that file next time instead of copy-pasting console.
+4. **Hardening (#16)**: every module init wrapped (one broken feature can't kill the rest or the page); detached-node + Intl.Segmenter guards.
+5. **Dev/Prod builds (#17)**: `node build.js` from repo root → `dist/dev` (name shows "(DEV)", verbose by default) + `dist/prod` (lean, silent). Load either once via edge://extensions → Load unpacked; after rebuilds just click Reload. Your current source-folder load keeps working (prod-like defaults).
+
+HOW TO TEST (2 minutes):
+1. edge://extensions → Reload the extension (or Load unpacked → `dist/dev` for the verbose build).
+2. Open chatgpt.com. Expect: site loads normally with extension enabled.
+3. Quick TTS smoke: auto-read a new answer, word highlight, arrow navigation.
+4. If ANYTHING still broken: Options → Export diagnostics JSON → drop the file path here.
+
+Issue hygiene: #5, #8, #9 closed as already-fixed (evidence in comments); #6 downgraded (mitigated by session-namespaced cache keys). Real + open: #7, #10, #11. From your comments: #19 paste-anywhere regression, #20 multi-site adapters (Ophel architecture surveyed + commented).
+
+Your new comments, acked:
+2 (local Ophel folder): noted — will use local copy for deeper borrowing when building #20 adapters.
+3 (downloaded chatgpt HTML in repo): very helpful — using it right now to re-derive current prompt-box selectors for the #19 paste fix (next codex task).
+
+Questions needing user answer:
+- Just the TEST above. Beeping you now.
