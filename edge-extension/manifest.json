@@ -43,6 +43,7 @@
       ],
       "js": [
         "modules/00-namespace.js",
+        "modules/05-diagnostics.js",
         "modules/10-lifecycle.js",
         "modules/15-playback-lock.js",
         "modules/20-smart-copy-part1.js",
