@@ -33,7 +33,7 @@
             visibilityState: document.visibilityState,
             hasBody: Boolean(document.body),
             hasHead: Boolean(document.head),
-            bodyTextLength: document.body && typeof document.body.innerText === 'string' ? document.body.innerText.length : 0,
+            bodyChildCount: document.body ? document.body.childElementCount : 0,
             appRootPresent: Boolean(document.querySelector('#__next, #root, main, [data-testid="conversation-turn"]')),
             activeElement: activeElementInfo(),
             ...extra
