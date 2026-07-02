@@ -286,10 +286,6 @@
                 document.addEventListener('click', this.sendCaptureHandler, true);
             }
 
-            if (!this.copyObserver) {
-                this.copyObserver = new MutationObserver(() => this.updateCopyButtons());
-                this.copyObserver.observe(document.body, { childList: true, subtree: true });
-            }
             this.updateCopyButtons();
 
             if (!this.editObserver) {

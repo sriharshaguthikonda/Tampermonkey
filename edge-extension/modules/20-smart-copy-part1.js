@@ -14,12 +14,22 @@
         // =============================================================================
 
         initSmartCopyEnhancements() {
-            if (!this.copyObserver) {
-                this.copyObserver = new MutationObserver(() => {
+            if (!this.copyBusUnsubscribe && ns.observerBus) {
+                this.copyBusUnsubscribe = ns.observerBus.subscribe({
+                    name: 'smart-copy',
+                    selector: '[data-message-author-role], section[data-turn]',
+                    onFlush: () => {
+                        this.updateCopyButtons();
+                        this.applySmartCopySelectionAllowlist();
+                    }
+                });
+            }
+            if (!this.copyBusUnsubscribe && !ns.observerBus) {
+                this.copyBusUnsubscribe = () => {};
+                setTimeout(() => {
                     this.updateCopyButtons();
                     this.applySmartCopySelectionAllowlist();
-                });
-                this.copyObserver.observe(document.body, { childList: true, subtree: true });
+                }, 200);
             }
             this.applySmartCopySelectionAllowlist();
             this.updateCopyButtons();

@@ -213,7 +213,7 @@
         lastEnterPressTime: 0,
         pasteHandler: null,
         sendCaptureHandler: null,
-        copyObserver: null,
+        copyBusUnsubscribe: null,
         editObserver: null,
         limitWarningObserver: null,
         promptHistoryObserver: null,
