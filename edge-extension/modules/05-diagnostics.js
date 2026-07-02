@@ -153,6 +153,26 @@
         TTSReader.__diagnosticInitWrapped = true;
     }
 
+    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
+        chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+            if (!message || !message.action) return false;
+
+            log('debug', 'Runtime message observed by diagnostics', {
+                action: message.action,
+                senderId: sender && sender.id ? sender.id : '',
+                senderUrl: sender && sender.url ? sender.url : '',
+                senderTabId: sender && sender.tab && Number.isInteger(sender.tab.id) ? sender.tab.id : null
+            });
+
+            if (message.action === 'getDiagnostics') {
+                sendResponse(getDiagnostics({ source: 'diagnostics-listener' }));
+                return true;
+            }
+
+            return false;
+        });
+    }
+
     window.__TTSDiag = ns.diagnostics;
 
     window.addEventListener('error', (event) => {
