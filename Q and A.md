@@ -224,3 +224,25 @@ Your new comments, acked:
 
 Questions needing user answer:
 - Just the TEST above. Beeping you now.
+
+
+
+
+## user comments
+1. use subagents with appropriate intelligence 
+2. loaded the extension in dev version and it is working properly, 
+3. all the console in console.log, you can take what you want and make changes as you feel like.
+4. tq
+
+## 2026-07-03T03:40+05:30 agent response — verified + paste fix shipped
+
+Status: Great news confirmed on my side too. Your fresh console.log shows ZERO violations attributed to extension modules (previously hundreds at 150–830 ms each) — the remaining few reflow warnings are ChatGPT's own. Diagnostics v2 is visibly working in that log: it captured a CSP violation and promise rejections coming from ChatGPT's own scripts (not ours — no action needed), and playback guard logs show TTS reading fine.
+
+Also shipped just now (pushed, `21f71e4`): **paste-anywhere fix (#19)**. Selectors re-derived from the chatgpt HTML copy you saved (thanks — exactly what was needed): current ProseMirror composer preferred, old selectors kept as fallbacks so future markup drift degrades instead of breaking; send-button matching now excludes the new dictation/voice buttons; paste inserts proper paragraphs + fires the InputEvent React listens for.
+
+Please test paste when convenient: pull latest (`git pull`), `node build.js`, Reload the dev extension → click any non-editor area on chatgpt.com → paste. Prompt box should populate (and auto-send if you have that enabled). Report in this file.
+
+Issue board now: #12–#17 CLOSED (shipped + your verification), #5/#8/#9 closed earlier (already fixed), #19 open pending your paste test, remaining real backlog: #7, #10, #11 (pre-existing bugs), #18 (userscript parity), #20 (multi-site adapters/Ophel).
+
+Questions needing user answer:
+- Only the paste test above. Nothing else blocking. tq back.
