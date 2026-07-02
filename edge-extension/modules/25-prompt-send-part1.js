@@ -15,23 +15,35 @@
 
         findPromptArea() {
             const selectors = [
+                '#prompt-textarea.ProseMirror[contenteditable="true"][role="textbox"]',
+                'div.ProseMirror[contenteditable="true"][aria-label="Chat with ChatGPT"]',
+                'div[role="textbox"][contenteditable="true"][aria-label="Chat with ChatGPT"]',
+                'form div.ProseMirror[contenteditable="true"][data-virtualkeyboard="true"]',
                 '#prompt-textarea[contenteditable="true"]',
                 'div[contenteditable="true"][id="prompt-textarea"]',
                 'div[data-testid="prompt-textarea"][contenteditable="true"]',
                 'textarea#prompt-textarea',
-                'textarea[data-testid="prompt-textarea"]'
+                'textarea[name="prompt-textarea"]:not([style*="display: none"])',
+                'textarea[data-testid="prompt-textarea"]',
+                'textarea[aria-label="Chat with ChatGPT"]'
             ];
 
             for (const selector of selectors) {
                 const element = document.querySelector(selector);
-                if (element) return element;
+                if (element && this.isUsablePromptArea(element)) return element;
             }
             return null;
         },
 
         getSendButtonSelectors() {
             return [
+                'form button[aria-label="Send prompt"]',
+                'form button[aria-label="Send message"]',
+                'form button[data-testid="send-button"]',
+                'button.composer-submit-button-color[aria-label="Send prompt"]',
+                'button.composer-submit-button-color[aria-label="Send message"]',
                 'button[aria-label="Send prompt"]',
+                'button[aria-label="Send message"]',
                 'button[data-testid="send-button"]',
                 'button.btn.relative.btn-primary:not([aria-label="Dictate button"])'
             ];
@@ -41,7 +53,7 @@
             const selectors = this.getSendButtonSelectors();
             for (const selector of selectors) {
                 const button = document.querySelector(selector);
-                if (button && !button.disabled) return button;
+                if (button && this.isSendButtonReady(button)) return button;
             }
             return null;
         },
@@ -55,6 +67,24 @@
                     return false;
                 }
             });
+        },
+
+        isUsablePromptArea(element) {
+            if (!element) return false;
+            if (element.tagName === 'TEXTAREA' || element.tagName === 'INPUT') {
+                const style = window.getComputedStyle ? window.getComputedStyle(element) : null;
+                if (style && (style.display === 'none' || style.visibility === 'hidden')) return false;
+                return !element.disabled && element.getAttribute('aria-hidden') !== 'true';
+            }
+            return element.isContentEditable === true || element.getAttribute('contenteditable') === 'true';
+        },
+
+        isSendButtonReady(button) {
+            if (!button || button.disabled) return false;
+            if (button.getAttribute('aria-disabled') === 'true') return false;
+            const label = String(button.getAttribute('aria-label') || '').toLowerCase();
+            if (label.includes('dictation') || label.includes('voice')) return false;
+            return true;
         },
 
         isEditableElement(element) {
@@ -102,10 +132,26 @@
             }
 
             if (!insertedWithCommand) {
-                promptArea.textContent = normalizedText;
+                const lines = normalizedText.split('\n');
+                promptArea.replaceChildren(...lines.map((line) => {
+                    const paragraph = document.createElement('p');
+                    if (line) {
+                        paragraph.textContent = line;
+                    } else {
+                        paragraph.appendChild(document.createElement('br'));
+                    }
+                    return paragraph;
+                }));
             }
 
-            promptArea.dispatchEvent(new Event('input', { bubbles: true }));
+            const inputEvent = typeof InputEvent === 'function'
+                ? new InputEvent('input', {
+                    bubbles: true,
+                    inputType: 'insertText',
+                    data: normalizedText
+                })
+                : new Event('input', { bubbles: true });
+            promptArea.dispatchEvent(inputEvent);
             if (selection) {
                 const range = document.createRange();
                 range.selectNodeContents(promptArea);
