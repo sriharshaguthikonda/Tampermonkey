@@ -227,3 +227,67 @@ b7c74a1 auto read new messages fix
 - Issues: #12–#17 CLOSED (verified), #5/#8/#9 CLOSED (stale-fixed), #6 downgraded. OPEN: #19 (awaiting user paste test), #7, #10, #11, #18 (userscript parity), #20 (Ophel adapters — user also has LOCAL ophel folder in chrome extensions dir for borrowing).
 - Memory saved: mem_20260702_2026-07-03-tampermonkey_0c7079 (root cause + observer-bus fix pattern + Ophel narrow-target lesson).
 - All 7 Claude tasks completed. NEXT SESSION candidates: user's #19 paste-test result from Q and A.md, then #7/#10/#11 fixes, #18 parity port, #20 adapter architecture.
+
+---
+
+## 2026-07-10 05:20 IST — Churn-resistant selector framework: PLANNING COMPLETE + 2 review rounds settled
+
+### Current task state
+- PLANNING ONLY session (user instruction: no implementation). Deliverables committed on `enhance-tts-functionality`, NOT pushed: `8158929` (plan v1), `6240e1d` (Q&A answers folded), `9843120` (rebuttal + prior-art fixes), `bb27d9b` (round-2 resolutions).
+- Plan docs: `docs/plans/churn-resistant-framework/` — 00-DESIGN.md (D1–D11 + D4b/D8b), 01-ROADMAP.md (P0–P6, M1–M4), TESTING.md, AGENT-RULES.md, PRIOR-ART.md, RECON-codex-2026-07-10.md (codex recon, file:line seams), phases/PHASE-0..6, RESPONSE-to-first-critique.md (rebuttal + round-2 answers), first_critique_by_chatgpt.txt (input).
+- ChatGPT review round 1 (critique) + round 2 (4 contested Q&As via bridge) both complete. No open disputes. **Plan v2 rewrite NOT yet done.**
+
+### Key decisions (settled)
+- Selectors = remote data-only JSON packs (uBlock model); resolver lib starts as LOCAL `packages/anchor-core/` in this repo; extract to separate repo only after Tampermonkey + ophel both consume it (D1 timing amended by critique).
+- Anchor risk classes (read/navigate/input/action/destructive). Action anchors: remote may update EXACT-match strategies only (attr-equals, role+name equals/oneOf); code owns invariants + positive intent checks (`composer.submit()` only, never generic click) + state-aware preflight + local approval for action-anchor pack changes. Signing deferred to hardening.
+- Names = locale-scoped pack data (byLocale/verifiedLocales/fail-closed on unknown locale); NO positional strategies for action anchors — form semantics instead (`button.form === input.form`, `type=submit`).
+- v1 lib scope CUT: no observer/SPA-nav/node-cache/runtime-heuristics/event-utils; consumers keep own lifecycle (observer bus here; DOMToolkit in ophel). Option-A handles (fresh element per call; cache winning strategy index only). `dom-accessibility-api` for accname (semantic-locators has accname dep — verified npm). Typed pack parser w/ unknown-field rejection.
+- Testing: identity oracles + adversarial fixtures = precision gates (100% precision on action anchors). Raw DOM captures are SECRETS (`__reactRouterContext` holds access tokens): git-ignored raw → allowlist projector → sanitized committed fixtures; packs repo ≠ corpus repo.
+- Canary = passive extension self-test: state-class triggered probes, `unobserved_applicable_state` ≠ healthy, 4–8ms cancellable idle slices, local-only history; optional failure-only opt-in crowd signal later.
+- Data layer = go/no-go spike PARALLEL to pack phases; per-consumer verdicts (export first; TTS stays on rendered DOM); raw-vs-rendered conformance protocol w/ zero-hidden-turn-leak hard gate; layered bootstrap capture (document_start MAIN-world fetch wrap + allowlisted loader-global projector + DOM reconstruction; BootstrapCoverage taxonomy).
+- Revised roadmap shape A–G (RESPONSE doc §4) supersedes P0–P6 file layout pending v2. P0A = emergency #19 hotfix; P0B = descriptor pilot (composer anchors only).
+- Consumers: this repo, ophel fork (sriharshaguthikonda/ophel @ C:/Windows_software/Chrome_extensions/ophel, v1.1.3), Prompt-queue, all future extensions (memory rule). Ophel upstream PR order: selector-config extraction FIRST, generic seam later.
+
+### Modified files
+- NEW: `docs/plans/churn-resistant-framework/*` (all), `Q and A archive.md`.
+- UPDATED: `Q and A.md` (archived + 4 agent responses + inline user answers).
+- Committed inputs: `docs/Research/website_churn_selectors.md` (UTF-16), `docs/Research/self_healign_selector_drop_in _chatgpt_research.txt` (66.7K ChatGPT deep research — NOT yet merged into PRIOR-ART.md).
+
+### Blockers / open questions
+- None blocking. Awaiting user in `Q and A.md`: "go v2" (fold RESPONSE §1 + round-2 into phase docs) OR greenlight P0A hotfix first (#19 paste/send broken for users NOW).
+- Memory MCP embeddings runtime DOWN: os.kill SystemError in `C:\.memory\scripts\memory_runtime.py:125 _pid_exists`; spawn_task chip task_89c4e2c9 created. One pending memory update (bridge nuance) unsaved — content preserved here + Q&A.
+
+### Next steps
+1. "go v2" → rewrite 00-DESIGN/01-ROADMAP/phases/* per RESPONSE-to-first-critique.md (23 adoptions §1 + round-2 answers); rename phases A–G; one commit.
+2. P0A greenlit → `phases/PHASE-0-hotfix.md` tasks 1,2,5 ONLY: snapshot → diagnose #19 vs `edge-extension/modules/25-prompt-send-part1.js:16-49` → fix prompt/send + sanitized fixture + one regression oracle + live smoke. NO descriptor migration during outage.
+3. Merge `self_healign_selector_drop_in _chatgpt_research.txt` into PRIOR-ART.md.
+4. Push branch when user says push.
+
+### Critical context
+- Bridge: question-sized prompts only ("question by question only"); fetch works wait_seconds=120–180, poll 2–3×; huge research jobs die claim_expired. ask_best_public_model fallback: cerebras GLM needs max_output_tokens≥7000 (empty answer at 2500).
+- Codex: `codex exec --skip-git-repo-check -c model_reasoning_effort=medium --output-last-message <file> "$(cat prompt.txt)"`; plain non-git cwd fails trust check.
+- ctx_execute_file confined to repo root — copy external files in first.
+- Memory MCP rejects non-ASCII in content — ASCII only.
+- Q&A protocol live; archive-and-keep-lean rule active; user answers inline fast.
+
+### Model summary
+- Planned churn-resistant selector framework across 3 repos after 2026-07-10 ChatGPT UI update broke extensions; planning only, no code.
+- Delegation: codex CLI = both-repo recon (RECON doc); ChatGPT bridge = critique + 4-question round 2; cerebras GLM = design review; own websearch = prior art.
+- Architecture: remote data-only selector packs + deterministic anchor-core + capability adapters + passive self-test canary + offline LLM repair loop.
+- Critique adopted ~70% (privacy resequencing, precision oracles, scope cut, local-package-first, P4→spike, self-test canary); 4 contested items all resolved in round 2 — ChatGPT accepted the action-anchor boundary with refinements we adopted.
+- User answered all Q&A inline: lib repo OK, upstream strategy OK, packs OK, codex/cloud repair OK, chatgpt-first, Prompt-queue consumer (saved as memory rule).
+- Factual fix verified: semantic-locators depends on accname → plan uses dom-accessibility-api.
+- 4 commits on enhance-tts-functionality, unpushed; v2 rewrite pending user go.
+- Memory rows: plan/decisions mem_...churn-resistant-selector_27d315; Prompt-queue rule mem_...user-decision-2026-07-10_e8943b; bridge behavior mem_...2026-07-10-model-bridge_fafc5a (last nuance update failed — runtime bug, chip task_89c4e2c9).
+
+### Handoff context (resume here)
+1. Read `Q and A.md` tail first — user's answer decides v2 rewrite vs P0A hotfix.
+2. `docs/plans/churn-resistant-framework/RESPONSE-to-first-critique.md` = most current truth; supersedes phase docs where they conflict until v2.
+3. P0A entry: `edge-extension/modules/25-prompt-send-part1.js:16-49` (prompt) + `:38-49` (send); diagnose against fresh chatgpt.com snapshot; issue #19.
+4. CRITICAL fixture rule: raw captures git-ignored only; never commit loader/`__reactRouterContext` dumps (tokens).
+5. VM test harness pattern to extend: `test_auto_read_navigation_controls.js:8-58` → planned `test_selector_descriptors.js`.
+6. Ophel seams: `src/utils/dom-toolkit.ts:449-475/575-645/729-825`; chatgpt adapter `src/adapters/chatgpt.ts:1109-1119,1426-1442,114-126,2354-2389`.
+7. Upstream PR order: selector-config extraction first (RESPONSE §1.19).
+8. Never push gemini-version/main directly; work stays on enhance-tts-functionality until user says push.
+9. Bridge one small question per job; codex --skip-git-repo-check; memory ASCII-only; extension folders free of generated debris.
+10. User hands-off on architecture ("beyond my pay grade") but answers scope questions fast in Q&A — route decisions there, never block.
