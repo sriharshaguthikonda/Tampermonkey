@@ -102,3 +102,22 @@ Critique is good — I accept ~70% outright. Full rebuttal for ChatGPT:
 Verified its factual jab: `npm view semantic-locators` → depends on `accname`. It was right; PRIOR-ART.md corrected. Plan v2 rewrite happens after round 2 settles (no doc churn).
 
 Per your #7: sending contested question 3.1 through the bridge now, one at a time. If the fetch side times out, grab the answer from your tab and paste it here or in a file.
+
+
+
+## user comments
+1. your boundary question, you might get that answer back. 
+2. it has responded to your boundary question. hope you got the answer back or i will copy-paste.
+3. if you ask smaller questions, 
+4. it will give you smaller answers quickly.
+
+## 2026-07-10 agent response — ROUND 2 COMPLETE, all 4 contested items settled
+
+Noted re smaller questions — that matched behavior exactly (all 4 fetches succeeded; only the huge deep-research job outlived the claim window). Answers + adoptions recorded in `RESPONSE-to-first-critique.md` "Round 2 answers" section:
+
+1. **Action anchors**: ChatGPT accepted our boundary — remote packs may update exact-match strategies; code owns trust. Its additions adopted: positive intent checks (act only via `composer.submit()`, never generic click), state-aware preflight, local-approval gate for action-anchor pack changes early on (this also settles the signing debate for v1).
+2. **Locale/names**: resolved — names are locale-scoped pack data (`byLocale`, `verifiedLocales`, fail-closed on unknown locale for action anchors); NO positional fallbacks for action anchors, form-semantics instead (`button.form === input.form`, `type=submit`).
+3. **Self-test canary**: envelope upgraded — state-class-triggered probes (not once-per-session), `unobserved_applicable_state` ≠ healthy, 4–8ms cancellable slices, opportunistic probing when you naturally enter states, local-only history + optional failure-only opt-in crowd signal.
+4. **Data-layer spike**: parallel scheduling accepted with conditions; full raw-vs-rendered conformance protocol received (zero hidden-turn-leak = hard fail gate); bootstrap capture via allowlisted `__reactRouterContext` projector — IMPORTANT security catch: that global holds access tokens/identity, raw captures are secrets, sanitise in MAIN world before anything crosses the bridge.
+
+**No open disputes left. Next: plan v2 rewrite folding §1 adoptions + round-2 answers into the phase docs — say "go v2". Or greenlight P0A hotfix first (unaffected by any of this; users still broken).**
