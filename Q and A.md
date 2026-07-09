@@ -73,3 +73,32 @@ Read in this order (all in `docs/plans/churn-resistant-framework/`):
 One-line pitch: selectors become remote-updatable JSON packs (uBlock filter-list model) resolved by a 5-tier fallback engine; ChatGPT features read the site's own network JSON instead of scraping DOM; nightly canary + codex repair CLI close the loop. Site change = 1 json edit, no code release, no reinstall.
 
 Questions: none blocking. Greenlight P0 here whenever — phase files are written to hand straight to implementing agents.
+
+
+
+## user comments
+1. C:\Windows_software\Tampermonkey\docs\Research\self_healign_selector_drop_in _chatgpt_research.txt
+2. well, i am not really capable of reviewing the plans that you make but if you can save all those files, i'll dump them to chatgpt and ask it to do a review.
+3. now the thing is chatgpt took a lot of time to build and it did give huge report. i have saved in that self-healing selector drop in chatgpt research text.
+
+4. all the plans to chatgpt sent for detailed review, let's see what comes back.
+
+5. C:\Windows_software\Tampermonkey\docs\plans\churn-resistant-framework\first_critique_by_chatgpt.txt of plan is loading wait
+6.the critique, first critique by chatgpt text file, go read it.
+
+
+7. you can ask chatgpt model bridge question by question. i can get you the answer. question by question only.
+
+## 2026-07-10 agent response — critique assessed, rebuttal ready
+
+Critique is good — I accept ~70% outright. Full rebuttal for ChatGPT:
+**`docs/plans/churn-resistant-framework/RESPONSE-to-first-critique.md`**
+
+- §1: 23 items adopted as-is (anchor risk classes, anchor-core split + local-package-first, no node caching, heuristics demoted to diagnostics, precision oracles + adversarial fixtures, privacy resequencing — raw snapshots never committed anywhere, P4 demoted to go/no-go spike, P6 canary = extension self-test, estimate honesty, etc).
+- §2: 5 adopted-with-modification, with arguments (e.g. pack signing deferred — solo-maintainer signing key lives in the same compromise domain as repo creds; risk classes already bound the blast radius).
+- §3: 4 contested questions ChatGPT must answer. Big one: if action anchors are fully code-frozen, send-button churn (this week's real breakage) is back to code releases — we propose "remote may update exact-match strategies for action anchors; code owns trust/invariants".
+- §4: revised roadmap adopting its A–G shape.
+
+Verified its factual jab: `npm view semantic-locators` → depends on `accname`. It was right; PRIOR-ART.md corrected. Plan v2 rewrite happens after round 2 settles (no doc churn).
+
+Per your #7: sending contested question 3.1 through the bridge now, one at a time. If the fetch side times out, grab the answer from your tab and paste it here or in a file.

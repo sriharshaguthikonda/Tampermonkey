@@ -1,0 +1,1241 @@
+# Verdict
+
+**I would not approve this plan for implementation as written.**
+
+Fable found the right ingredients—centralised selectors, fixture tests, remote data, per-feature failure isolation, an offline repair loop—but then combined too many of them into one framework before proving the smallest useful core.
+
+My blunt scoring:
+
+| Area                |    Score | Main issue                                                                                   |
+| ------------------- | -------: | -------------------------------------------------------------------------------------------- |
+| Problem analysis    | **8/10** | Correctly identifies duplicated selectors and site churn                                     |
+| Prior-art direction | **7/10** | Good sources, but some facts and lessons are misapplied                                      |
+| Core architecture   |   *5/10* | `anchorlib` is becoming a second browser automation framework                                |
+| Runtime safety      |   *3/10* | Remote packs can redirect real actions despite being “data only”                             |
+| Testing strategy    |   *5/10* | Measures whether something matched, not whether the **right** thing matched                  |
+| Privacy             |   *2/10* | Full logged-in page snapshots may reach a public repository before a proper sanitizer exists |
+| Delivery realism    |   *3/10* | “Days” is not credible for this scope                                                        |
+| Long-term direction | **7/10** | Salvageable after a major simplification                                                     |
+
+The design is **thoughtful but framework-happy**. It confuses four separate jobs:
+
+1. Describing an element.
+2. Resolving an element now.
+3. Watching page lifecycle and re-renders.
+4. Updating definitions remotely.
+
+The planned `anchorlib` tries to own all four, plus caching, navigation, Shadow DOM, health telemetry, heuristic scoring, event helpers and fixture infrastructure.  
+
+---
+
+# The strongest parts
+
+These should be preserved:
+
+* **Snapshot before fixing a real breakage.**
+* **Centralise external-site selectors.**
+* **Per-feature degradation rather than whole-script failure.**
+* **Baked fallback configuration.**
+* **Record fallback use and outright failures.**
+* **Use an LLM only during an offline repair workflow.**
+* **Keep upstream Ophel changes small.**
+* **Add real regression fixtures, because Ophel currently has no proper site-adapter test suite.**   
+
+Those are the solid bones. Most of my criticism is about scope, boundaries and safety.
+
+---
+
+# Critical problem 1: “data only” does *not* make remote packs safe
+
+The threat model says a compromised pack is contained because the resolver is read-only and the pack contains no JavaScript. That is *not enough*. 
+
+The extension later does this:
+
+```text
+remote pack selects element
+        ↓
+feature clicks, types into, hides, reads or scrolls that element
+```
+
+A malicious pack can therefore point:
+
+* `send-button` to a dictation button
+* `stop-button` to another nearby control
+* a menu item to Delete or Archive
+* a message selector to private sidebar content
+* a text input anchor to a different editable area
+
+The pack does not need executable JavaScript. **It indirectly controls existing executable code.**
+
+The uBlock analogy is incomplete. A bad cosmetic-filter selector normally hides the wrong element. A bad Ophel selector may cause an active click or submission.
+
+## Required correction
+
+Every anchor needs an action-risk class:
+
+```json
+{
+  "id": "composer-submit",
+  "cardinality": "one",
+  "risk": "action",
+  "remotePolicy": "exact-only",
+  "allowedRoot": "composer-root",
+  "strategies": [],
+  "invariants": []
+}
+```
+
+Use at least:
+
+* `read`: safe to resolve approximately
+* `navigate`: may scroll or focus
+* `input`: receives user content
+* `action`: causes a click
+* `destructive`: must never use remote heuristic resolution
+
+For `action`, `input` and `destructive` anchors:
+
+* *No heuristic fallback.*
+* *No unrestricted text substring matching.*
+* Must resolve within a locally trusted root.
+* Must be unique.
+* Must satisfy code-owned invariants.
+* The feature must verify preconditions immediately before acting.
+
+For example, the send operation should be closer to:
+
+```ts
+const composer = findTrustedComposerRoot();
+const input = resolveWithin(composer, "composer-input");
+const submit = resolveWithin(composer, "composer-submit");
+
+assert(input === document.activeElement || composer.contains(input));
+assert(submit instanceof HTMLButtonElement);
+assert(!submit.disabled);
+assert(!isDictationOrVoiceButton(submit));
+assert(inputContainsExpectedPrompt(input));
+
+submit.click();
+```
+
+A pack may suggest the target, but it must not define the entire trust decision.
+
+## Remote update hardening
+
+The current version gate, baked fallback and schema checks protect against accidental corruption, not repository compromise. 
+
+Add:
+
+* Signed release manifest.
+* Public verification key baked into each consumer.
+* Hash for each pack.
+* Maximum pack size and strategy count.
+* Unknown-field rejection.
+* Selector complexity limits.
+* Candidate pack → local preflight → atomic activation.
+* Retain previous two active versions.
+* Emergency revocation and rollback metadata.
+
+A remote pack should not become “last known good” merely because it parsed. It should first successfully resolve the anchors that are expected in the current page state.
+
+---
+
+# Critical problem 2: the wrong abstraction is being centralised
+
+The plan centralises things such as:
+
+* `prompt-box`
+* `send-button`
+* `assistant-message`
+* `message-container`
+* `native-toc-rail`
+* `model-menu`
+* `deep-research-iframe`
+* even `voice/dictation-buttons` merely so they can be excluded from send matching.  
+
+That will become a **global bag of DOM nouns**.
+
+Different consumers do not need the same meaning:
+
+* TTS wants the newest completed, rendered assistant response.
+* Smart copy wants the message owning the selected text.
+* Export wants every logical turn, including virtualised ones.
+* Ophel wants message identities, outline entries and scroll targets.
+* Prompt Queue wants a trusted composer and a safe submit operation.
+
+One universal `assistant-message` descriptor cannot represent all of those.
+
+## Better abstraction: capabilities, not raw elements
+
+Use site-adapter capabilities:
+
+```ts
+interface ChatSiteAdapter {
+  composer: {
+    findInput(): HTMLElement | null;
+    setText(text: string): Promise<void>;
+    canSubmit(): boolean;
+    submit(): Promise<SubmitResult>;
+  };
+
+  conversation: {
+    listRenderedTurns(): TurnHandle[];
+    findTurnFromNode(node: Node): TurnHandle | null;
+    getNewestCompletedAssistantTurn(): TurnHandle | null;
+  };
+
+  outline: {
+    listEntries(): OutlineEntry[];
+    navigateTo(id: string): Promise<boolean>;
+  };
+}
+```
+
+The pack may provide low-level anchors used by these methods. But feature code should consume **safe operations and domain objects**, not arbitrary pack element IDs.
+
+This also stops a remote pack from defining business logic.
+
+---
+
+# Critical problem 3: `anchorlib` is too large before it exists
+
+The planned library includes:
+
+* CSS resolution
+* role and accessible-name resolution
+* attribute scoring
+* structural recursion
+* heuristic scoring
+* validation predicates
+* Shadow DOM traversal
+* caching
+* stale-element recovery
+* SPA history patching
+* URL polling
+* MutationObserver lifecycle
+* pack loading
+* runtime pack swapping
+* health events
+* fixture harness
+* dual bundles
+
+That is not a small locator library. It is a partial Playwright-like runtime inside a page. 
+
+Worse, both existing consumers already have lifecycle machinery:
+
+* Tampermonkey has an observer bus.
+* Ophel has `DOMToolkit.query/get/watch`, polling and Shadow DOM handling.  
+
+The plan would layer a new observer, cache and navigation system on top of both.
+
+## Split the responsibilities
+
+### `anchor-core`
+
+Pure and small:
+
+```ts
+resolveOne(descriptor, root): Resolution
+resolveAll(descriptor, root): Resolution[]
+matches(descriptor, element, root): MatchEvidence
+```
+
+It should own:
+
+* Candidate generation.
+* Deterministic validation.
+* Uniqueness and ambiguity reporting.
+* Resolution evidence.
+
+It should *not* own:
+
+* MutationObserver.
+* SPA navigation.
+* URL polling.
+* network loading.
+* persistent storage.
+* feature disabling.
+* clicking.
+* page-world events.
+
+### Consumer runtime
+
+Each repo keeps its own:
+
+* observer scheduling
+* caching, if actually needed
+* lifecycle
+* route knowledge
+* feature state
+* diagnostics presentation
+
+### Pack loader
+
+A separate small module because fetching and persistent trust are not DOM-resolution concerns.
+
+### ChatGPT data adapter
+
+A separate experiment, not part of the selector framework.
+
+---
+
+# Critical problem 4: the proposed “live handle” is not actually live
+
+The design says the library produces a “live, cached, revalidating DOM handle,” but the API sketch returns an element:
+
+```ts
+const el = await anchors.get("prompt-box");
+```
+
+Once a raw `Element` has escaped, the library cannot stop a caller from holding it after React remounts it.  
+
+There are only two honest choices:
+
+### Option A — raw elements
+
+Return a fresh element each call.
+
+* No long-lived element cache.
+* Cache only the **successful strategy index**, not the DOM node.
+* Re-query immediately before actions.
+* Simpler and safer.
+
+### Option B — true locator object
+
+Return an object that re-resolves:
+
+```ts
+const submit = anchors.locator("composer-submit");
+await submit.click();
+```
+
+But that makes `anchorlib` an action framework and creates more security concerns.
+
+For this project, **Option A is better**.
+
+DOM queries for ten or twenty anchors are cheap compared with the complexity of safely retaining nodes across a virtualised React application.
+
+---
+
+# Critical problem 5: the heuristic tier is unsafe and under-specified
+
+The planned heuristic is:
+
+> score editable/buttons/articles using rules such as visible, in viewport and maximum area, then pick the highest score above a threshold.
+
+That is not true self-healing. It is generic classification. 
+
+A large visible button is not necessarily the intended button. A visible editable may be:
+
+* the composer
+* a canvas text editor
+* an inline rename field
+* a settings input
+* a hidden-but-layouted accessibility control
+* a temporary modal input
+
+The plan does not specify:
+
+* how candidates are scoped
+* how ties are rejected
+* the required margin between first and second candidate
+* what evidence is saved from the original known-good element
+* how locale or UI variant affects scores
+* which actions are allowed to consume heuristic results
+
+## Better policy
+
+Heuristics should initially be **diagnostic only**:
+
+```text
+exact strategies fail
+        ↓
+rank candidates
+        ↓
+report top candidates and evidence
+        ↓
+do not click automatically
+```
+
+Later, allow automatic heuristic resolution only for low-risk, read-only anchors such as:
+
+* message containers
+* article regions
+* scroll surfaces
+
+For send, stop, delete, submit, archive or input fields: *fail closed*.
+
+Also, stop calling every fallback hit a “heal.” The design currently labels any non-primary strategy as a heal. 
+
+Use precise states:
+
+* `primary_hit`
+* `expected_variant_hit`
+* `fallback_hit`
+* `ambiguous`
+* `not_present_expected`
+* `not_present_unexpected`
+* `candidate_repair_suggested`
+* `failed`
+
+A French ARIA label fallback is not a healed selector.
+
+---
+
+# Critical problem 6: the role/name implementation should not be hand-written
+
+P1 proposes a “minimal accessible-name computation” based on:
+
+```text
+aria-label
+→ aria-labelledby
+→ textContent
+→ placeholder/title
+```
+
+That is incomplete and will produce false names. Accessible-name computation has many rules concerning labels, native controls, hidden references, presentational roles and subtree inclusion. 
+
+The prior-art document also describes Google semantic-locators as having no dependencies, but the package inspected in the research has an `accname` runtime dependency. 
+
+## Better choice
+
+Use **`dom-accessibility-api`** as a small audited runtime dependency.
+
+The zero-dependency rule is ideological here. It will lead to:
+
+* more code
+* worse accessibility correctness
+* more tests
+* more maintenance
+* greater chance of silently selecting the wrong node
+
+A dependency rule should be:
+
+> No new dependency without a size, licence, maintenance and security check.
+
+Not:
+
+> No dependency regardless of whether we would poorly rewrite a specification.
+
+The same applies to the proposed “ajv-lite subset validator.” A security boundary is a poor place to write an improvised partial validator. Either:
+
+* compile the schema into a small generated validator at build time, or
+* write an exact typed parser specifically for the pack format and reject every unknown field.
+
+---
+
+# Critical problem 7: the tests reward false positives
+
+The primary test says:
+
+> for every snapshot and element, assert resolution succeeds and record which tier won.
+
+That establishes **recall**, but not **precision**. 
+
+A resolver that consistently selects the dictation button instead of send can pass if the test only checks “an element was found.”
+
+The same issue affects the target of 90% corpus resolution.
+
+## Required test changes
+
+Every fixture needs an oracle:
+
+```json
+{
+  "composer-input": {
+    "expected": "[fixture-id='composer-input']",
+    "count": 1
+  },
+  "assistant-turn": {
+    "expectedIds": ["assistant-1", "assistant-2"],
+    "ordered": true
+  }
+}
+```
+
+The test should check:
+
+* exact identity
+* expected cardinality
+* order
+* uniqueness
+* root relationship
+* negative exclusions
+* visible/enabled state where relevant
+* ambiguity rejection
+* wrong-action resistance
+
+Add adversarial fixtures:
+
+* Send and Dictate side by side.
+* Two textboxes, one in a modal.
+* Disabled and enabled send buttons.
+* Sidebar collapsed.
+* Two visible composers.
+* Different locale.
+* A/B layout variant.
+* Streaming response.
+* Project conversation.
+* Custom GPT conversation.
+* Mobile-width layout.
+* Hidden portal menu.
+* Virtualised old turns.
+* An overlay covering the nominal control.
+* Duplicate accessible names.
+
+The correct success measure is not:
+
+> “90% found something.”
+
+It is:
+
+> **100% precision on action anchors, high recall on read-only anchors, and explicit ambiguity when uncertain.**
+
+---
+
+# Critical problem 8: the fixture corpus creates a privacy leak
+
+P0 instructs agents to capture a logged-in full `page.html`, composer region and assistant turn. The testing plan then migrates those real snapshots into the public `selector-packs` repository. The proper sanitizer is only introduced in P6.   
+
+That sequencing is unacceptable.
+
+A ChatGPT page snapshot may contain:
+
+* conversation text
+* account names
+* email-derived image URLs
+* conversation titles
+* project names
+* conversation identifiers
+* hydration data
+* embedded JSON
+* source URLs
+* temporary asset identifiers
+* scripts or attributes containing sensitive state
+
+The proposed P6 sanitizer—remove long text nodes and known personally identifying patterns—is also too weak. Short names, titles and identifiers survive.
+
+## Correct approach
+
+From P0 onward:
+
+1. **Never commit raw full-page captures.**
+2. Raw captures stay in an ignored local directory.
+3. Produce an allowlist-based structural fixture:
+
+   * selected subtrees only
+   * scripts removed
+   * styles removed unless needed
+   * all text replaced except required UI labels
+   * URLs stripped
+   * IDs rewritten
+   * data attributes allowlisted
+   * hidden hydration state removed
+4. Run secret and privacy scanners.
+5. Store the public pack separately from the private or heavily sanitised corpus.
+
+The public pack repository and the private fixture corpus should *not* be the same repository.
+
+A better fixture format may be a structural JSON tree rather than copied page HTML:
+
+```json
+{
+  "tag": "button",
+  "role": "button",
+  "attrs": {
+    "data-testid": "send-button",
+    "aria-label": "Send prompt"
+  },
+  "children": []
+}
+```
+
+For cases needing real CSS/layout, use synthetic browser fixtures constructed from the reduced structure.
+
+---
+
+# Phase-by-phase review
+
+## P0 — Hotfix
+
+### What is good
+
+* Capture evidence first.
+* Diagnose the actual changed selector.
+* Preserve old selectors as fallbacks.
+* Verify that dictation is not clicked. 
+
+### What is wrong
+
+It claims to be an immediate hotfix but also requires:
+
+* moving **all** ChatGPT selectors
+* defining the future descriptor format
+* implementing a resolver API
+* changing multiple feature modules
+* building fixture infrastructure
+* porting parts to the userscript
+
+That is scope creep during an outage.
+
+### Replace with
+
+**P0A: emergency fix**
+
+* Locally capture the failing subtree.
+* Sanitise it.
+* Fix prompt/send only.
+* Add one regression test.
+* Ship.
+
+**P0B: descriptor pilot**
+
+* Convert only `composer-root`, `composer-input`, `composer-submit` and `composer-stop`.
+* Integrate only paste/send.
+* Observe what the real API needs.
+
+Do not let an urgent repair become the design authority for every future selector.
+
+---
+
+## P1 — Anchor library
+
+### Verdict
+
+*Reject and redesign.*
+
+It is far too much for a first version, and “days” is not credible. 
+
+### V1 should include only
+
+* `css`
+* exact attributes
+* role plus accessible name using `dom-accessibility-api`
+* root scoping
+* cardinality
+* positive and negative invariants
+* resolution evidence
+* strict ambiguity rejection
+
+No:
+
+* observer
+* navigation patching
+* URL polling
+* DOM node cache
+* heuristics
+* Shadow DOM piercing unless a real current anchor requires it
+* remote loader
+* event construction utilities
+
+The Ophel plan proposes moving a realm-safe event utility into anchorlib even though the library is declared read-only. That is architectural leakage. Keep event utilities in Ophel or a general DOM utility module.  
+
+### New repository concern
+
+Creating a separate repository before two consumers have actually converged on an API is premature.
+
+Start as:
+
+```text
+Tampermonkey/packages/anchor-core/
+```
+
+or a small local package used in the first integration.
+
+Extract to a separate repository only after:
+
+* Tampermonkey uses it.
+* Ophel uses it.
+* Both have forced at least one API revision.
+* The API has survived a real site change.
+
+The current roadmap freezes P1 before P2, P3 and P5 reveal the integration problems. That is backwards. 
+
+---
+
+## P2 — Selector packs
+
+### What is good
+
+* Versioning.
+* Baked fallback.
+* last-known-good.
+* pin/kill switch.
+* schema validation.
+* consumer contracts. 
+
+### Required redesign
+
+#### Base pack plus overlays
+
+Do not make one union pack containing all Ophel, TTS, Prompt Queue and future extension needs.
+
+Use:
+
+```text
+chatgpt/base.json
+chatgpt/tampermonkey-tts.json
+chatgpt/ophel.json
+chatgpt/prompt-queue.json
+```
+
+The base contains genuinely reusable anchors. Consumer overlays contain feature-specific recipes.
+
+#### Move criticality out of the pack
+
+`critical` is consumer-specific.
+
+The composer is critical to Prompt Queue but irrelevant to read-only TTS. A consumer contract should define:
+
+```json
+{
+  "feature": "auto-read",
+  "required": ["rendered-assistant-turn"],
+  "optional": ["turn-action-bar"]
+}
+```
+
+#### Add page-state semantics
+
+Anchors need:
+
+* `cardinality`
+* `route`
+* `pageState`
+* `risk`
+* `allowedRoot`
+* `expectedAbsentWhen`
+* `requiredPredicates`
+* `forbiddenPredicates`
+* `locales` or locale-neutral matching
+* `strategyCapabilities`
+
+Send and stop are mutually exclusive states. Their absence is not always breakage.
+
+#### Stop requiring two strategies
+
+“Every element has at least two strategies” encourages weak fake fallbacks. 
+
+One strong selector plus strict invariants is better than two poor selectors and a heuristic tail.
+
+---
+
+## P3 — Tampermonkey integration
+
+### Main issue
+
+The phase migrates every feature at once and retains both:
+
+* anchorlib’s new observer machinery
+* the existing `08-observer-bus.js`
+
+That is overlapping ownership and likely duplicate work, races and noisy diagnostics. 
+
+### Better sequence
+
+1. Composer input and submission.
+2. Smart-copy ownership lookup.
+3. Auto-read.
+4. Only then move remaining common anchors.
+
+Use the existing observer bus. `anchor-core` should be called from its relevance predicates.
+
+### Do not disable a feature permanently after one miss
+
+A page element may not exist yet.
+
+Use feature states:
+
+```text
+initialising
+waiting
+active
+temporarily_unavailable
+degraded
+recovered
+disabled_by_user
+```
+
+A resolution failure should usually trigger bounded retry or wait for the relevant mutation, not permanently disable the feature.
+
+### Remove the grep absolutism
+
+The rule “zero ChatGPT selector literals outside packs” is too broad. 
+
+Keep these in code:
+
+* selectors for the extension’s own UI
+* generic content extraction rules
+* local invariants
+* security exclusions
+* temporary DOM created by the feature
+* behaviour-specific selectors that are not site anchors
+
+Only **external site anchor definitions** must move into packs.
+
+---
+
+## P4 — ChatGPT data layer
+
+### Verdict
+
+**This should be a go/no-go research spike, not a committed phase.**
+
+The design decision says network interception is “proven by chatgpt-exporter,” but ChatGPT Exporter mostly proves that internal endpoints can be consumed. It does not prove that passive live interception captures every required event safely and reliably.  
+
+### Missing risks
+
+* Hook may install after initial requests.
+* Some data may come from route loader state.
+* Requests may move to workers, WebSockets or another transport.
+* `Response.clone()` of a long stream can create substantial buffering if consumers run at different speeds.
+* Stream schemas may contain tool, reasoning and hidden nodes.
+* Regeneration and edits may produce multiple branches.
+* `onTurnComplete` is not trivial to determine.
+* A same-page script can spoof `postMessage` envelopes.
+* Raw API text may differ from rendered accessible content.
+* Network message IDs still need mapping to virtualised DOM nodes.
+* “No traffic” may mean the user is idle, not that the endpoint broke.
+
+### Wrong first consumer
+
+TTS is a poor first consumer.
+
+For TTS, the rendered DOM often gives the content the user actually sees:
+
+* formatted text
+* visible citations
+* suppressed internal messages
+* merged continuations
+* final display order
+
+Use the data layer first for:
+
+1. Export.
+2. Conversation branch identity.
+3. Outline metadata.
+
+Keep live TTS on rendered DOM until the network model has been proven equivalent.
+
+### Spike acceptance gate
+
+Before building the full event model:
+
+* Capture initial load and live stream.
+* Demonstrate no missed turns across navigation, regenerate and edit.
+* Measure memory and CPU.
+* Demonstrate installation at document start.
+* Demonstrate initial-state recovery.
+* Demonstrate authenticated bridge messages.
+* Compare raw model against rendered DOM.
+* Decide **build or abandon**.
+
+Do not make D5 a locked architectural decision before this.
+
+---
+
+## P5 — Ophel
+
+### Good
+
+The plan correctly recognises that upstream wants small changes and should not receive the whole framework immediately. 
+
+### Wrong PR order
+
+Do **PR-2 before PR-1**.
+
+1. Extract ChatGPT selectors into one adapter-local object.
+2. Add targeted fixture tests.
+3. Let the next real churn event be a one-file selector change.
+4. Only then propose a generic resolver seam.
+
+A generic `DescriptorLike` injection point with no upstream consumer is an abstraction burden. Maintainers may rightly ask why it exists.
+
+### Do not make DOMToolkit and anchorlib both own resolution lifecycle
+
+The plan says:
+
+* anchorlib handles chain, validation and healing
+* DOMToolkit keeps waiting and observation
+
+But P1 also gives anchorlib caching, remount handling, navigation and observation. 
+
+Choose:
+
+* `anchor-core` performs a single resolution.
+* Ophel’s existing `DOMToolkit` performs waiting, observation and Shadow DOM traversal.
+
+This is a much cleaner integration and far more likely to be accepted upstream.
+
+### Keep Ophel-specific anchors out of the base pack
+
+Native TOC probing, model menus and deep research frames are Ophel-specific capabilities. Put them in an Ophel overlay.
+
+---
+
+## P6 — Canary and repair loop
+
+### Canary problem
+
+A nightly Playwright run using a persistent logged-in profile is fragile:
+
+* browser profile may be locked
+* session may expire
+* 2-factor login may intervene
+* anti-automation behaviour may differ
+* browser updates may break launch
+* the canary may fail while the extension is healthy
+* read-only seeded conversation state does not expose send, stop or streaming controls
+
+The plan itself assumes the canary can detect most breakage before users, but its page-state coverage is too narrow. 
+
+### Better canary options
+
+#### Primary: extension self-test in the normal browser
+
+On an actual user session, run a read-only probe:
+
+* resolve anchors
+* record evidence
+* never export conversation content
+* notify locally on regression
+* offer an explicit structural bundle export
+
+This observes the real environment and does not maintain a separate automated login.
+
+#### Secondary: local Playwright matrix
+
+Use synthetic or dedicated fixtures to test states that do not require a real account.
+
+#### Optional: CDP attach
+
+Attach to a user-started browser session rather than launching and owning the profile.
+
+### LLM repair criterion is wrong
+
+“Produces a green pack diff without human selector-writing” is a demo goal, not a safety gate. 
+
+A better gate is:
+
+* proposed candidate is correct
+* false-positive fixtures stay rejected
+* action anchors remain exact
+* change is explained
+* confidence and evidence are shown
+* human approval is required
+
+A human writing two selector lines is not failure. An LLM producing a plausible but unsafe selector is.
+
+---
+
+# Testing plan corrections
+
+## Drop the 95% line-coverage target
+
+Coverage is useful but **95% line coverage does not prove locator correctness**. It encourages tests that execute branches without checking meaning. 
+
+Prefer:
+
+* branch coverage on pure parser/resolver code
+* mutation testing for resolution logic
+* browser integration tests
+* identity oracles
+* adversarial false-positive tests
+* performance regression tests
+
+## `happy-dom` cannot validate real interaction predicates
+
+Synthetic DOM tests are fine for parsers and simple selectors.
+
+They cannot meaningfully validate:
+
+* actual layout
+* centre-point obstruction
+* realistic `elementFromPoint`
+* scrolling
+* viewport visibility
+* portal behaviour
+* browser accessibility calculation
+* real Shadow DOM interactions
+
+Predicates such as `interactable` require Chromium tests.
+
+## Static `page.html` is not the application
+
+Saved HTML usually lacks:
+
+* React state
+* JavaScript behaviour
+* CSS-dependent visibility
+* closed Shadow DOM
+* virtualisation behaviour
+* portal mounting
+* streaming transitions
+
+Static fixtures are valuable, but only for deterministic locator tests. They cannot support all claims in the planned integration test suite.
+
+---
+
+# Process-rule critique
+
+The agent rules are disciplined but too rigid. 
+
+## Contradiction
+
+The roadmap says P4 may run in parallel with P3, while the rules say one phase at a time in roadmap order.  
+
+## TDD absolutism
+
+“Always write the test first” is unsuitable for uncertain browser integration. Use:
+
+1. short technical spike
+2. record observed behaviour
+3. write a characterisation test
+4. implement production code
+
+## Commit after each numbered task
+
+Some numbered tasks are huge; others leave the project unbuildable. Commits should be **green vertical slices**, not mechanically tied to document numbering.
+
+## Q and A.md overload
+
+Keep Q and A.md for decisions and blockers.
+
+Do not paste large CI outputs into it. Put evidence in:
+
+* CI artifacts
+* pull-request checks
+* release notes
+* machine-readable phase status
+
+Then link the evidence from Q and A.md.
+
+---
+
+# Factual and prior-art weaknesses
+
+The prior-art document is useful but not strong enough to freeze architecture.
+
+Examples:
+
+* Semantic Locators is described as dependency-free, while its package declares `accname`. 
+* Role plus accessible name is presented as generally the least churn-prone. It is often useful, but labels change with locale, wording experiments and accessibility refactors.
+* uBlock’s remote filter model is applied to elements that later receive active clicks, which has a materially different risk profile.
+* “Other site packs are trivial after P2” is simply wrong. Every site has different state machines, virtualisation, editors, portals and interaction rules. 
+* Fathom-style scoring is mentioned without a clear licence and clean-room implementation boundary.
+* ChatGPT Exporter is treated as proof of passive stream interception, although it primarily demonstrates internal API integration.
+
+The research found useful patterns, but some conclusions are stronger than the evidence.
+
+---
+
+# A better architecture
+
+```text
+┌────────────────────────────────────────────┐
+│ Feature                                    │
+│ TTS / paste / prompt queue / Ophel outline │
+└───────────────────────┬────────────────────┘
+                        │ consumes capability API
+┌───────────────────────▼────────────────────┐
+│ Site adapter                               │
+│ composer / conversation / outline          │
+│ owns actions, lifecycle and invariants      │
+└───────────────────────┬────────────────────┘
+                        │ resolves low-level anchors
+┌───────────────────────▼────────────────────┐
+│ anchor-core                                │
+│ pure deterministic query + evidence        │
+│ no network, observer, navigation or clicks │
+└───────────────────────┬────────────────────┘
+                        │ receives definitions
+┌───────────────────────▼────────────────────┐
+│ Local baked definitions + signed overlays  │
+│ base site pack + consumer overlay          │
+└────────────────────────────────────────────┘
+
+Separate optional systems:
+- pack-loader
+- diagnostics/canary
+- ChatGPT data adapter
+- offline repair assistant
+```
+
+## Recommended descriptor
+
+```json
+{
+  "id": "composer-submit",
+  "cardinality": "one",
+  "risk": "action",
+  "root": "composer-root",
+  "states": ["composer-ready"],
+  "strategies": [
+    {
+      "type": "attr",
+      "name": "data-testid",
+      "equals": "send-button"
+    },
+    {
+      "type": "role",
+      "role": "button",
+      "name": {
+        "oneOf": ["Send prompt", "Send message"]
+      }
+    }
+  ],
+  "require": [
+    "visible",
+    "enabled"
+  ],
+  "forbid": [
+    {
+      "attribute": "aria-label",
+      "containsAny": ["Dictate", "Voice"]
+    }
+  ]
+}
+```
+
+For a read-only message collection:
+
+```json
+{
+  "id": "rendered-assistant-turns",
+  "cardinality": "many",
+  "risk": "read",
+  "strategies": [
+    {
+      "type": "attr",
+      "name": "data-message-author-role",
+      "equals": "assistant"
+    }
+  ],
+  "identity": {
+    "attribute": "data-message-id"
+  },
+  "ordering": "document"
+}
+```
+
+No heuristic needs to ship in the first version.
+
+---
+
+# Revised roadmap
+
+## Phase A — Repair and evidence
+
+**Goal:** fix today’s breakage safely.
+
+* Sanitised composer fixture.
+* Prompt/send hotfix.
+* Exact regression oracle.
+* Live smoke test.
+* No universal framework.
+
+## Phase B — Local anchor contract
+
+**Goal:** prove the minimum abstraction inside the Tampermonkey repo.
+
+* `anchor-core` local package/module.
+* CSS, exact attrs and role/name only.
+* No cache, network or observer.
+* Composer capability migrated.
+* Smart-copy or TTS as second contrasting consumer.
+
+**Exit gate:** both features use the same core without awkward special cases.
+
+## Phase C — Ophel proof
+
+**Goal:** verify genuine cross-repo reuse.
+
+* First centralise ChatGPT selectors inside Ophel.
+* Add targeted fixture tests.
+* Integrate pure `anchor-core`.
+* Keep DOMToolkit responsible for waiting and Shadow DOM.
+
+**Exit gate:** the same anchor-core API works in both repos.
+
+Only now extract it to a separate repository.
+
+## Phase D — Pack format and overlays
+
+* Public schema and packs.
+* Private/sanitised corpus.
+* Base plus consumer overlays.
+* Signed manifest.
+* Transactional activation.
+* Local developer update first.
+
+**Exit gate:** a selector-only real breakage is fixed through a pack change.
+
+## Phase E — Remote rollout and lightweight canary
+
+* Stale-while-revalidate loader.
+* Local self-test.
+* Pack pin and rollback.
+* Action-anchor restrictions.
+* Canary for multiple page states.
+
+## Phase F — Repair assistance
+
+* Candidate-report generator.
+* Selector-generator integration.
+* Optional LLM ranking.
+* Human-reviewed patch.
+* No auto-merge.
+
+## Phase G — Network data-layer spike
+
+Separate go/no-go project.
+
+* Capture actual traffic.
+* Model initial load, edits, regenerate and stream.
+* Benchmark memory.
+* Compare against rendered DOM.
+* Try export first.
+
+Build the full data adapter only if the spike passes.
+
+---
+
+# What I would explicitly delete from the current plan
+
+* *“Every element must have at least two strategies.”*
+* *Heuristic fallback for send, stop or any action anchor.*
+* *DOM element session caching.*
+* *SPA history patching inside anchorlib.*
+* *MutationObserver inside anchorlib v1.*
+* *Event-construction utilities inside anchorlib.*
+* *Public full-page logged-in corpus.*
+* *Hand-written accessible-name algorithm.*
+* *Hand-written partial JSON Schema validator.*
+* *One global ChatGPT pack containing every consumer’s anchors.*
+* *The rule that every selector literal must live in a pack.*
+* *The claim that other sites become trivial after P2.*
+* *The assumption that P1–P6 are each “days.”*
+* *The locked decision to build network interception before a viability spike.*
+* *The term “heal” for ordinary fallback use.*
+
+---
+
+# Final recommendation
+
+**Do not throw the plan away. Cut it roughly in half.**
+
+The correct core is not:
+
+> remote pack → universal self-healing resolver → all features
+
+It is:
+
+> **small deterministic anchor resolver → site capability adapter → safe feature operations**
+
+Then add remote packs only after the local abstraction works in both Tampermonkey and Ophel.
+
+The single most important change is this:
+
+**Remote definitions may help locate elements, but local code must retain control of trust, state and actions.**
+
+Without that boundary, the proposed churn-resistant system may reduce selector patches while creating a harder class of failure: **silently doing the wrong thing to the wrong element.**
