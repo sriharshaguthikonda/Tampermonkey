@@ -121,6 +121,8 @@ anchors.onBreakage(evt => diagnostics.report(evt));     // feeds repair loop
 | D6 | Ophel: fork consumes lib fully; upstream gets minimal seam PR (config-driven selectors / resolver injection), not the framework | upstream accepts small reviewable PRs, no heavy deps |
 | D7 | Per-feature isolation everywhere | one dead selector ≠ dead script |
 | D8 | v1 scope: chatgpt.com only; architecture site-agnostic | it's what broke; gemini/claude = future packs (#20) |
+| D8b | Consumers: this repo (edge-extension + userscripts), ophel fork, AND Prompt-queue (`C:/Windows_software/Chrome_extensions/Prompt-queue`) — every future extension starts on anchorlib+packs | user, Q&A 2026-07-10 Q6 |
+| D4b | Breakage bundles MAY be sent to codex/cloud for repair (user OK'd); still explicit action, never ambient runtime telemetry | user, Q&A 2026-07-10 Q4 |
 | D9 | Strategy names align with Playwright locator vocabulary (`role`, `testid`, `text`, `css`) | familiar to every dev/agent; external review 2026-07-10 |
 | D10 | Heuristic tier runs only at resolve time (never per-mutation), with per-element time budget | perf on heavy pages (S4); external review flagged jank risk |
 | D11 | Stream interception: strict `tee()`/passthrough — never consume the page's original stream; MV3 uses `world: "MAIN"` registered content script for the page-realm hook | consuming a ReadableStream once = site UI hangs (external review) |

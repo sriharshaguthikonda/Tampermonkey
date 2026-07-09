@@ -55,3 +55,21 @@ Answer inline under any question; I keep working meanwhile.
 
 ## user comments
 1. so what send has reached chatgpt ....i will paste in docs you don't need to communicate further with chatgpt for now
+
+## 2026-07-10 agent response — PLAN COMPLETE, ready for your review
+
+Status: DONE (planning only, per instruction). Commits `8158929` + follow-up. All your inline answers (Q1–Q6) folded in:
+- Q4: repair bundles may go to codex/cloud — recorded as D4b.
+- Q6: Prompt-queue added as consumer — D8b + saved to memory as standing rule for all future extensions.
+- ChatGPT bridge: understood, no more sends. When you have the response, paste it into `docs/plans/churn-resistant-framework/RESEARCH-chatgpt-deep-research.md` (new file, just paste raw) — next session merges it into PRIOR-ART.md.
+
+Read in this order (all in `docs/plans/churn-resistant-framework/`):
+1. `00-DESIGN.md` — architecture + decisions D1–D11.
+2. `01-ROADMAP.md` — P0→P6, milestones M1–M4.
+3. `phases/PHASE-0-hotfix.md` — first implementation step: re-fix #19 + descriptor-table pilot.
+4. `TESTING.md` + `AGENT-RULES.md` — gates + binding rules for implementing agents.
+5. `PRIOR-ART.md` + `RECON-codex-2026-07-10.md` — evidence.
+
+One-line pitch: selectors become remote-updatable JSON packs (uBlock filter-list model) resolved by a 5-tier fallback engine; ChatGPT features read the site's own network JSON instead of scraping DOM; nightly canary + codex repair CLI close the loop. Site change = 1 json edit, no code release, no reinstall.
+
+Questions: none blocking. Greenlight P0 here whenever — phase files are written to hand straight to implementing agents.
