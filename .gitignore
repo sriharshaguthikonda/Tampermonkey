@@ -44,3 +44,6 @@ Thumbs.db
 
 # raw DOM captures are secrets (session tokens, user identity) - never commit
 captures/raw/
+
+# sanitized oracle fixtures are an exception to the blanket *.html ignore above
+!fixtures/**/*.html

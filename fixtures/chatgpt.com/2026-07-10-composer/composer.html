@@ -1,0 +1,45 @@
+<!--
+Sanitized composer skeleton, captured live via Claude-in-Chrome on chatgpt.com, 2026-07-10.
+Attributes stripped to a fixed allowlist (id/role/contenteditable/data-testid/aria-label/type/
+data-virtualkeyboard/placeholder) before this file was written — no classes, no href/src,
+no session/cookie/query-string data. Text content and svg internals never captured.
+data-oracle / data-oracle-negative markers added by hand for test_composer_fixture_oracle.js.
+-->
+<form>
+  <div><input id="upload-files" type="file"></input></div>
+  <div>
+    <div>
+      <div>
+        <div role="tooltip"></div>
+        <span>
+          <button id="composer-plus-btn" data-testid="composer-plus-btn" aria-label="Add files and more" type="button"><svg></svg></button>
+        </span>
+      </div>
+      <div>
+        <div>
+          <!-- Hidden decoy input: same aria-label/data-virtualkeyboard as the real composer below, but a plain textarea, not the ProseMirror editor. A selector chain that matches this instead of #prompt-textarea would silently break paste. -->
+          <textarea aria-label="Chat with ChatGPT" data-virtualkeyboard="true" placeholder="Ask ChatGPT" data-oracle-negative="decoy-textarea"></textarea>
+          <script></script>
+          <div id="prompt-textarea" role="textbox" contenteditable="true" aria-label="Chat with ChatGPT" data-virtualkeyboard="true" data-oracle="composer-input"><p></p></div>
+        </div>
+      </div>
+      <div>
+        <div>
+          <div>
+            <div role="tooltip"></div>
+            <button type="button" data-oracle-negative="model-picker"></button>
+          </div>
+        </div>
+        <div>
+          <div role="tooltip"></div>
+          <button aria-label="Start dictation" type="button" data-oracle-negative="dictation"><svg aria-label=""></svg></button>
+          <div><div></div></div>
+        </div>
+        <!-- Send button only renders once the composer has text (confirmed live: typing text swaps
+             the dictation/voice buttons for this one). Included here statically so the oracle can
+             assert SEND_SELECTORS resolves it; attributes captured live before this fixture was sanitized. -->
+        <button data-testid="send-button" aria-label="Send prompt" data-oracle="send-button"></button>
+      </div>
+    </div>
+  </div>
+</form>
