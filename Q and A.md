@@ -210,3 +210,13 @@ Re #4: yes, routing the actual Task 5 selector/logic fix through codex-cli per s
 Re #3: noted, will look at Prompt-queue commit history if it becomes relevant to this bug — not obviously connected to #19 yet, will ask before spending time there unless you mean something specific.
 
 Continuing now: retrying the live test, and reading `99-bootstrap.js`'s entrypoint to check for any condition that could skip `init()` silently regardless of which browser this is.
+
+## 2026-07-10 agent response — likely explanation for the silence found, independent of which browser
+
+Read `edge-extension/modules/99-bootstrap.js:300-307`. Everything — panel, paste listener, all of it — only gets created inside the callback of `chrome.storage.sync.get(null, callback)`, and there's no timeout or fallback. If `chrome.storage.sync` ever stalls (sync turned off on that browser profile, not signed into browser sync, throttled, slow), that callback never fires and `TTSReader.init()` never runs — silently, no error, nothing in console, no panel, no paste listener attached. That matches every symptom I saw exactly. I can't verify this further myself: `chrome.storage` isn't reachable from a plain page-context JS eval (only from inside the extension's own execution context), so I can't directly check whether `sync.get` is hanging on this browser.
+
+This matters regardless of the browser-profile question: if `chrome.storage.sync` occasionally stalls in your real day-to-day browser too, that would explain #19 as "the whole extension silently didn't start this session" rather than "selectors broke" — and would need a different fix (a timeout fallback to defaults + `chrome.storage.local`, so init always runs even if sync is slow/unavailable) rather than a selector fix.
+
+Not building that fix without your go — it's a behavior change to the init path, not a selector tweak, and Task 5 in the phase doc assumed a selector fix. Two ways to move forward, tell me which:
+1. You test manually in your real browser: reload the unpacked extension, open chatgpt.com, check whether the "TTS Reader" panel appears normally and whether paste-anywhere works for you day-to-day. If it works fine for you, my repro here was a browser/profile artifact and #19 may already be less severe than the issue assumed, or is intermittent (which would still point at the storage.sync stall theory).
+2. Say go-ahead and I'll have codex-cli add a storage.sync timeout/local-storage fallback as a small hardening fix, test it against this same live setup once other extensions are disabled per your #2.
