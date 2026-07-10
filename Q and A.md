@@ -121,3 +121,26 @@ Noted re smaller questions — that matched behavior exactly (all 4 fetches succ
 4. **Data-layer spike**: parallel scheduling accepted with conditions; full raw-vs-rendered conformance protocol received (zero hidden-turn-leak = hard fail gate); bootstrap capture via allowlisted `__reactRouterContext` projector — IMPORTANT security catch: that global holds access tokens/identity, raw captures are secrets, sanitise in MAIN world before anything crosses the bridge.
 
 **No open disputes left. Next: plan v2 rewrite folding §1 adoptions + round-2 answers into the phase docs — say "go v2". Or greenlight P0A hotfix first (unaffected by any of this; users still broken).**
+
+
+## user comments
+1.flesh out the plans so retarded agents can implement
+
+## 2026-07-10 agent response — v2 committed, now fleshing out phases
+
+v2 rewrite DONE first (commits `2e41940` core docs, `654a35c` phases A–G replacing P0–P6). All round-1 + round-2 review outcomes folded into 00-DESIGN / 01-ROADMAP / TESTING / AGENT-RULES / phases.
+
+Seen your "flesh out" instruction — expanding each PHASE-A…G file now into fully self-contained implementation scripts: prerequisites checklist, per-task exact files/steps/code shapes, test names + assertions, verbatim gate commands, commit messages, failure playbooks. Working on it — next note when committed.
+
+## 2026-07-10 agent response — PHASES FLESHED OUT, plan v2 fully done
+
+Committed `40baf44` (on top of `2e41940` + `654a35c`). Each `phases/PHASE-A…G.md` is now a self-contained implementation script: "Context you need" primer (assumes the agent knows nothing), prerequisites checklist, numbered tasks with exact file paths + code shapes + suggested commit messages, verbatim gate commands, "If things go wrong" playbook, and a "Do NOT" scope fence. A weak agent needs only the phase file + AGENT-RULES.md + the named design sections.
+
+Plan structure now:
+- `00-DESIGN.md` — architecture + decisions D1–D17 (v2)
+- `01-ROADMAP.md` — phases A–G, milestones M1–M4, gates not calendar
+- `TESTING.md` — oracle corpus, precision gates, conformance protocol
+- `AGENT-RULES.md` — 27 binding rules (trust model + privacy are non-negotiable sections)
+- `phases/PHASE-A…G.md` — the implementation scripts
+
+**Ready to implement. Phase A (re-fix #19 paste/send — users still broken) is the entry point; say go and it starts.** Branch still unpushed — say "push" when wanted. Optional leftover: merging your 66.7K deep-research file into PRIOR-ART.md.
