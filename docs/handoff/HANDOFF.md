@@ -348,3 +348,102 @@ bb27d9b docs(plan): round-2 review complete — all 4 contested items resolved v
 10. ChatGPT bridge: ask small questions one at a time (`ask_chatgpt` sync works, cloud_ok=true; async submit/fetch broken — insertion_mismatch).
 
 ---
+
+## Handoff: 2026-07-10T17:55:24+05:30 — Phase A in progress, blocked on live DOM capture
+
+### Current task state
+- User said "go", started Phase A (`docs/plans/churn-resistant-framework/phases/PHASE-A-repair-evidence.md`) commit-by-commit, unpushed on `enhance-tts-functionality`.
+- Task tracker (in-session TaskCreate, ids 1-6, NOT persisted to a file — recreate if resuming cold): #1 gitignore DONE, #2 capture+sanitise fixture IN PROGRESS/BLOCKED, #3 diagnose PENDING, #4 oracle test harness built+smoke-tested but UNCOMMITTED (needs real fixture for a genuine red run), #5 fix PENDING, #6 verify-live PENDING.
+- Commits this session: `ade6cb7` (gitignore `captures/raw/`), `8e50bc2` (PRIOR-ART.md merge of deep-research findings — the "optional leftover" from prior handoffs, now DONE).
+
+### Key decisions
+- **Userscript scope finding**: `build.js` does NOT generate a userscript monolith — it only copies `edge-extension/` into `dist/dev`/`dist/prod`. The actually-maintained userscript is `Tampermonkey_scripts/ChatGPT Universal TTS Reader with Precision Navigation & Highlighting.js` (per AGENTS.md); grepped it for prompt-textarea/Send/Dictate — **zero matches**. Paste/send (#19) exists ONLY in `edge-extension/`, never ported. User confirmed independently ("edge extension is the main thing... not possible in tampermonkey scripts"). **Phase A Task 5 needs no userscript porting** — smaller diff than the phase doc assumed. (Ignore stale `Tampermonkey_scripts/--- ChatGPT dev-1.7.user.js`, last touched March, unrelated old file.)
+- **No DOM library in repo** (no `package.json`, no `node_modules`, Phase A bars adding packages). Wrote a minimal HTML parser + CSS selector-chain matcher scoped exactly to `PROMPT_SELECTORS`/`SEND_SELECTORS` syntax (tag/#id/.class/[attr]/[attr="v"]/[attr*="v"]/descendant-combinator/:not) directly inside `test_composer_fixture_oracle.js` — validated against a throwaway synthetic fixture (built, ran, deleted, never committed) before touching the real capture. Ceiling: only supports the selector syntax actually used by this module; would need extending for `^=`/`$=`/multiple `:not()` args/child-combinator if a future selector needs them.
+- Deep-research merge (`docs/Research/self_healign_selector_drop_in _chatgpt_research.txt`, UTF-16-encoded, decode with `raw.decode('utf-16')` not plain read) independently converges on the same architecture as v2 design (own kernel on `dom-accessibility-api`, remote data packs Dark-Reader/uBlock style, offline-only LLM repair) — no design changes triggered, treated as validation. New PRIOR-ART.md rows added: `@medv/finder`, Vimium, Dark Reader detail, rejected-list additions, similarity-threshold starting numbers (0.85 / gap 0.15, dormant — similarity tier is diagnostics-only per round-1 critique adoption), GPL-3.0 caution for Ophel-sourced patterns, academic citations.
+
+### Modified files
+- `.gitignore` — added `captures/raw/` (committed `ade6cb7`).
+- `docs/plans/churn-resistant-framework/PRIOR-ART.md` — deep-research merge (committed `8e50bc2`).
+- `Q and A.md` — multiple agent-response sections appended this session (uncommitted — commit with next docs batch, don't lose user's inline replies).
+- `test_composer_fixture_oracle.js` — NEW, repo root, UNCOMMITTED. Ready to run the moment the fixture exists; do not commit until it produces a genuine red run against the real (not synthetic) fixture per phase Task 4.
+
+### Blockers / open questions
+- **Hard blocker on Task 2**: need a live, logged-in chatgpt.com DOM capture of the composer. Asked twice in `Q and A.md`. Two paths offered:
+  1. User signs Claude-in-Chrome extension into the same account (g.sriharsha746@gmail.com) with chatgpt.com open — `mcp__claude-in-chrome__list_connected_browsers` returned `[]` on last 2 retries (17:30ish and 17:55 IST) even after user said they enabled the extension — keep retrying this tool each session start, it may just need another sign-in step on their end.
+  2. Manual fallback: user runs in chatgpt.com DevTools console `copy(document.documentElement.outerHTML)` or copies the composer `<form>` outerHTML, saves as `captures/raw/2026-07-10/composer.html` (path already gitignored).
+- Nothing else in Phase A is executable until one of those lands — do not skip ahead to Phase B/C (AGENT-RULES rule 1: one phase at a time, dependency gate).
+
+### Next steps (in order, once fixture/browser unblocks)
+1. Retry `mcp__claude-in-chrome__list_connected_browsers`; if populated, navigate to chatgpt.com, grab composer HTML via `read_page`/`javascript_tool` instead of asking user again.
+2. Task 2 remainder: sanitise the raw composer HTML by hand into `fixtures/chatgpt.com/2026-07-10-composer/composer.html` — strip scripts/styles/urls/session-looking ids, add `data-oracle="composer-input"` on the real input, `data-oracle="send-button"` on the real send button, `data-oracle-negative="dictation"` (and one per other sibling button: attach-files etc). Secret-check: `grep -riE "(bearer|token|session|sk-[a-z0-9]|@gmail|@outlook|authorization)" fixtures/chatgpt.com/2026-07-10-composer/"` must return nothing, plus eyeball. **`.gitignore` line 43 is a blanket `*.html`** — will silently gitignore this fixture; add a `!fixtures/**/*.html` negation before committing it, or the commit will look empty.
+3. Task 3: diff `edge-extension/modules/25-prompt-send-part1.js:16-49` selector chains against the fixture by hand, find what churned, comment on GitHub issue #19 (only with explicit permission — posting to GitHub is a "send on user's behalf" action).
+4. Task 4: run `node test_composer_fixture_oracle.js` against the real fixture — confirm it's genuinely RED (baseline evidence), then commit `test: composer fixture oracle for #19 (red)`.
+5. Task 5: add new primary selector(s) to the top of `PROMPT_SELECTORS`/`SEND_SELECTORS` chains in `25-prompt-send-part1.js` only (no userscript porting needed, see Key decisions). Per user's standing instruction, route this edit through codex-cli (`codex exec -c model_reasoning_effort=medium`) and use Serena for symbol nav rather than hand-editing. Run full gate set: `node --check edge-extension/modules/25-prompt-send-part1.js`, `node test_composer_fixture_oracle.js`, `node test_auto_read_navigation_controls.js`, `node test_userscript_navigation_skip_parity.js`, `node test_voicelink_integration.js` — all green. Commit.
+6. Task 6: reload unpacked extension, verify live on chatgpt.com (paste/send/dictation-untouched/TTS-still-reads), post evidence to `Q and A.md`, wait for user's explicit confirm before treating #19 as closeable.
+
+### Critical context
+- Serena and context-mode MCP tools were connecting mid-session (deferred); use `ToolSearch` to load `mcp__serena__*` before symbol-editing work in Task 5.
+- `mcp__plugin_context-mode_context-mode__ctx_execute`/`ctx_execute_file` are the right tool for reading/summarizing large files (used successfully on the 68KB deep-research txt) — keeps raw bytes out of conversation context; this file's usage hit the 85% context warning that triggered this handoff, so lean on it more, not less, next session.
+- Repo has `.repo-intel/manifest.json` (policy: sensitivity=private, profile=basic) — read it before broad exploration, per global instructions.
+- AGENTS.md mandates: implement in `edge-extension/` first, port to `Tampermonkey_scripts/` after — but Task 5 is confirmed edge-extension-only, no port needed this phase.
+- Never push `gemini-version`/`main` directly; stay on `enhance-tts-functionality`; push only on explicit "push".
+- Q&A protocol live and being used correctly — user is answering inline in `Q and A.md` faster than real-time; re-read the file tail before acting, don't assume last-known state.
+
+### Model summary
+- Phase A (emergency #19 paste/send fix) started on user go-ahead; working commit-by-commit per AGENT-RULES.
+- Task 1 (gitignore) done and committed. Task 4's test harness built and validated early (against a synthetic, now-deleted fixture) to de-risk it before the real capture arrives.
+- Found and documented that Task 5's scope is smaller than the phase doc assumed: no userscript porting needed, feature is edge-extension-only.
+- Did the previously-flagged optional PRIOR-ART.md merge of the 66.7K deep-research file while blocked — used context-mode sandbox execution to avoid loading the raw UTF-16 file into conversation context.
+- Hard-blocked on Task 2 (live chatgpt.com DOM capture): no connected browser via Claude-in-Chrome despite user enabling the extension; asked for either browser sign-in or a manual DevTools paste, twice, in Q&A.
+- Correctly did NOT start Phase B/C/etc. while Phase A is incomplete, per binding rule 1.
+- User's standing instructions for the rest of Phase A: route the actual selector-fix code edit through codex-cli, use Serena for symbol navigation, keep committing atomically, don't stop for permission on non-GitHub actions.
+- Test file `test_composer_fixture_oracle.js` exists uncommitted at repo root — don't recreate it, just point it at the real fixture once captured.
+- `.gitignore`'s blanket `*.html` rule will need a negation exception before the fixture commit in Task 2 — flagged so it isn't a surprise.
+
+### Handoff context (resume here)
+1. `cd C:/Windows_software/Tampermonkey`, branch `enhance-tts-functionality`, read `Q and A.md` tail FIRST — user may have answered the capture-blocker while this session was compacting.
+2. If answered: either retry `mcp__claude-in-chrome__list_connected_browsers` (if user signed in) or read `captures/raw/2026-07-10/composer.html` (if user pasted manually).
+3. Recreate the in-session task tracker (TaskCreate #1-6) if it's gone — it's not persisted across compaction, this handoff is the source of truth for status.
+4. `git log --oneline -5` to confirm `ade6cb7`/`8e50bc2` are there and no one force-pushed over them.
+5. `test_composer_fixture_oracle.js` already exists at repo root, ready to run — do not rewrite it, just supply the real fixture.
+6. Follow "Next steps" above in order 2→6; don't skip Task 3's manual diagnosis even if the fix seems obvious — AGENT-RULES 26 requires capture-then-diagnose-then-fix, in that order, with evidence.
+7. Before closing #19 on GitHub: that's a "send on user's behalf" action — post the comment draft in `Q and A.md` first or ask explicitly, don't auto-post.
+8. Remaining Phases B-G untouched, no prep work started on them — respect the one-phase-at-a-time rule.
+---
+
+## Handoff: 2026-07-10 (later same day) — browser connected, Task 2/4 done, Task 3 redirected by a real finding
+
+### Current task state
+- Claude-in-Chrome connected this session (`list_connected_browsers` returned a local device; earlier sessions saw `[]`). Drove chatgpt.com directly — no manual DevTools paste needed after all.
+- Task 2 DONE + committed (`d74ff90`): sanitized fixture `fixtures/chatgpt.com/2026-07-10-composer/composer.html`, oracle-marked, secret-grepped clean. Added `.gitignore` negation (`!fixtures/**/*.html`) so it survives the blanket `*.html` rule.
+- Task 4 DONE + committed (same commit): `test_composer_fixture_oracle.js` run against the REAL fixture — **PASSES**. `findPromptArea()`/`findSendButton()` in `25-prompt-send-part1.js` already match the live DOM (`#prompt-textarea[contenteditable=true]` ProseMirror div, `[data-testid=send-button]`). Selectors are NOT stale.
+- Task 3 (diagnose): reframed. Not a selector bug. Live repro of paste-anywhere (clear composer → click blank area → real Ctrl+V) showed no text landing — but couldn't trust this repro because the extension showed zero console output across a fresh reload and its floating control panel (seen once, first screenshot only) never reappeared. Read `edge-extension/modules/99-bootstrap.js:300-307`: `TTSReader.init()` (which creates the panel and attaches the paste listener) only runs inside `chrome.storage.sync.get(null, callback)` with **no timeout/fallback**. If sync storage stalls for any reason, init silently never happens — matches every symptom observed. Can't verify further: `chrome.storage` isn't reachable from page-context JS eval used by the browser tools.
+- Asked user in `Q and A.md` (commit `b9d703d`) to pick: (1) manually verify in their real day-to-day browser whether panel/paste work normally, or (2) greenlight a small codex-cli hardening fix (storage.sync timeout + `chrome.storage.local` fallback) to test against this same live setup.
+- User has also said (Q&A, not yet acted on): will disable other extensions on their end for cleaner testing; it's Edge browser (message cut off mid-sentence, "not ___" — never completed); asked to use codex-cli for implementation (standing instruction, unchanged); mentioned Prompt-queue extension's commit history as possibly relevant (unclear how, not yet connected to #19 — flagged, not investigated).
+
+### Key decisions
+- Do NOT implement the storage.sync timeout/fallback fix without explicit go-ahead — it's an init-path behavior change, not the selector fix Task 5 assumed, so treating it as a new candidate root cause requiring sign-off rather than continuing the phase script blindly.
+- Oracle test result changes Task 5's likely scope: probably no `PROMPT_SELECTORS`/`SEND_SELECTORS` edit needed at all; real fix (if the storage.sync theory holds) lives in `99-bootstrap.js` init bootstrapping, a different file than the phase doc named.
+
+### Modified/new files this session
+- `.gitignore` — added `!fixtures/**/*.html` negation (committed `d74ff90`).
+- `fixtures/chatgpt.com/2026-07-10-composer/composer.html` — NEW, sanitized real capture (committed `d74ff90`).
+- `test_composer_fixture_oracle.js` — now committed (was uncommitted at last handoff) — same file, no changes, now proven against a real (not synthetic) fixture (committed `d74ff90`).
+- `Q and A.md` — two new agent-response sections + question (commits `0eb1270`, `b9d703d`).
+
+### Blockers / open questions
+- Waiting on user's choice in `Q and A.md`: manual real-browser test vs. codex-cli hardening fix. Either answer unblocks the next step; don't guess further via live automated repro — the chrome.storage-not-reachable-from-page-eval limitation means no more signal is obtainable that way.
+- Prompt-queue "historical commits" comment from user — unclear relevance to #19, flagged in Q&A, not investigated; don't chase until user clarifies.
+
+### Next steps (in order, once user answers)
+1. If "test manually confirms it's fine here": treat #19 as either already-partially-fixed or intermittent; ask user to describe exactly when it fails (which strengthens or kills the storage.sync stall theory) before touching code.
+2. If "greenlight hardening fix": route through codex-cli per standing instruction — prompt should target `edge-extension/modules/99-bootstrap.js` `initWithStoredSettings()`, add a timeout (e.g. 2–3s) that falls back to `TTSReader.init()` with `chrome.storage.local`-or-defaults if `chrome.storage.sync.get` hasn't resolved, keep the existing sync-resolves-normally path unchanged. Gate: `node --check`, all 3 existing node tests + the new oracle test, live smoke via Claude-in-Chrome (reload extension not possible remotely — ask user to reload, or test whatever's already loaded).
+3. Either path: once root cause is confirmed, that's when Task 5 (the actual fix + its own gates) executes for real; don't pre-commit to touching `25-prompt-send-part1.js` since the oracle already shows its selectors are fine.
+4. Still respect one-phase-at-a-time — no Phase B+ prep.
+
+### Critical context
+- `chrome.storage` APIs are invisible to `mcp__claude-in-chrome__javascript_tool` (main-world page eval) — only reachable from the extension's own contexts (content script isolated world, background service worker). This is a hard tool limitation, not a bug in reasoning; don't retry the same probe expecting different results.
+- Content-script-set `window.*` globals (e.g. `window.__TTSNS`) are also invisible to page-context eval for the same isolated-world reason — use real DOM queries (`document.querySelector`) instead, which work fine since DOM is shared even when JS globals aren't.
+- `chrome://extensions` is blocked from Claude-in-Chrome navigation (security boundary, expected) — can't visually confirm install/enable state that way.
+- Secret filter on `javascript_tool` blocked a raw `form.outerHTML` dump as cookie/query-string-like data — expected/correct behavior per AGENT-RULES 19–20; worked around by building an attribute-allowlist skeleton in-page instead of dumping raw HTML.
+---
