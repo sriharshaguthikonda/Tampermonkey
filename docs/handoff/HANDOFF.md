@@ -291,3 +291,60 @@ b7c74a1 auto read new messages fix
 8. Never push gemini-version/main directly; work stays on enhance-tts-functionality until user says push.
 9. Bridge one small question per job; codex --skip-git-repo-check; memory ASCII-only; extension folders free of generated debris.
 10. User hands-off on architecture ("beyond my pay grade") but answers scope questions fast in Q&A — route decisions there, never block.
+---
+
+## Handoff: 2026-07-10T05:18:43Z (auto-saved before compaction)
+
+### Compaction Metadata
+- Trigger: manual
+- Custom instructions: selective with keeping info needed for plan v2 rewrite
+- Transcript: C:\Users\deletable\.claude\projects\C--Windows-software-Tampermonkey\74d4cc82-ff41-475a-be78-af290ef2de28.jsonl
+- CWD: C:\Windows_software\Tampermonkey
+
+### Last User Message (transcript tail)
+(unavailable)
+
+### Last Assistant Message (transcript tail)
+Covers: planning-complete state (4 plan commits, unpushed), all settled decisions from both review rounds, the two resume paths (v2 rewrite vs P0A hotfix — waiting on your call in Q and A.md), and the operational gotchas (bridge question-sizing, raw-capture-secrets rule, memory runtime bug chip).
+
+### Git Snapshot
+- Branch: enhance-tts-functionality
+- Status:
+ M docs/plans/churn-resistant-framework/first_critique_by_chatgpt.txt
+?? .model_bridge_cache/
+?? .serena/
+?? _[Extended]-_[gpt-5-5-thinking]_files/
+?? artifacts/
+- Recent commits:
+65ca099 docs(handoff): planning session complete — framework plan + 2 review rounds settled
+bb27d9b docs(plan): round-2 review complete — all 4 contested items resolved via bridge
+9843120 docs(plan): rebuttal to first ChatGPT critique + prior-art factual fixes
+6240e1d docs(plan): fold in user Q&A answers — D4b codex/cloud repair, D8b Prompt-queue consumer
+8158929 docs(plan): churn-resistant selector framework — design, roadmap, 7 phase plans, testing framework
+
+### Model Summary
+(filled post-compaction, 2026-07-10 ~06:00 IST — plan v2 rewrite executed after this snapshot)
+
+- User said "plan v2 rewrite" → executed fully this session.
+- Commits: `2e41940` (v2 core docs), `654a35c` (phases A–G replace P0–P6), `40baf44` (phases fleshed into self-contained implementation scripts, per user's "flesh out the plans so retarded agents can implement"), `27e1315` (Q&A update).
+- 00-DESIGN.md v2: risk classes, "packs propose / code decides trust" first principle, anchor-core purity (local package first), capability adapters named, locale-scoped names, passive self-test canary, data layer = Phase G spike, decisions D1–D17, precision-first success criteria.
+- 01-ROADMAP.md v2: phases A–G, gates not calendar, one-phase-per-repo rule (G ∥ D/E only declared parallelism).
+- TESTING.md v2: identity oracles + adversarial fixtures, 100% action-anchor precision gate, happy-dom parsers-only, Phase-G conformance protocol (§8).
+- AGENT-RULES.md v2: 27 rules; trust-model (7–11) + privacy (19–24) non-negotiable.
+- Each phases/PHASE-A…G.md: context primer, prereq checklist, per-task steps/code shapes/commit messages, gate commands, failure playbook, Do-NOT fence.
+- Source of truth for all v2 content: RESPONSE-to-first-critique.md (§1 adoptions, §2 modifications, Round-2 answers).
+- Branch enhance-tts-functionality still UNPUSHED (user says "push" when wanted).
+
+### Handoff Context (paste into next session)
+1. Plan v2 COMPLETE at `docs/plans/churn-resistant-framework/` — read 00-DESIGN.md → 01-ROADMAP.md → phases/PHASE-A-repair-evidence.md.
+2. Next action: WAIT for user "go" in `Q and A.md`, then execute Phase A (re-fix #19 paste/send; users broken since 2026-07-10 ChatGPT update).
+3. Phase A fully scripted in its phase file: gitignore captures/raw FIRST → capture → sanitise + oracle-mark fixture → diagnose `edge-extension/modules/25-prompt-send-part1.js:16-49` → red oracle test → fix (keep fallbacks + dictation exclusion) → gates → live smoke → user confirms.
+4. Gate commands: `node --check <file>`, `node test_composer_fixture_oracle.js` (new), `node test_auto_read_navigation_controls.js`, `node test_userscript_navigation_skip_parity.js`, `node test_voicelink_integration.js`, `node build.js`.
+5. SECURITY: raw DOM/network/`__reactRouterContext` captures are SECRETS — git-ignored `captures/raw/` only, allowlist-sanitise before commit (AGENT-RULES 19–20).
+6. Never push `gemini-version`/`main`; branch is `enhance-tts-functionality`; push only on user request.
+7. Q&A protocol live: communicate in `Q and A.md`, pre-dispatch notes before long work, never block on questions.
+8. Optional leftover: merge `docs/Research/self_healign_selector_drop_in _chatgpt_research.txt` (66.7K) into PRIOR-ART.md.
+9. Memory runtime broken (os.kill SystemError, `C:\.memory\scripts\memory_runtime.py:125`) — spawned chip task_89c4e2c9; one bridge-behavior memory nuance still unsaved (content preserved in Q&A + this file).
+10. ChatGPT bridge: ask small questions one at a time (`ask_chatgpt` sync works, cloud_ok=true; async submit/fetch broken — insertion_mismatch).
+
+---
