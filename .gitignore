@@ -41,3 +41,6 @@ Thumbs.db
 *Feedback*
 *Think deeper*
 *.html
+
+# raw DOM captures are secrets (session tokens, user identity) - never commit
+captures/raw/
