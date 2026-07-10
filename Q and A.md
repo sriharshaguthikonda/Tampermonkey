@@ -144,3 +144,69 @@ Plan structure now:
 - `phases/PHASE-A…G.md` — the implementation scripts
 
 **Ready to implement. Phase A (re-fix #19 paste/send — users still broken) is the entry point; say go and it starts.** Branch still unpushed — say "push" when wanted. Optional leftover: merging your 66.7K deep-research file into PRIOR-ART.md.
+
+
+
+## user comments
+1. codex cli to implement as agents!
+2. use serena as well
+
+## 2026-07-10 agent response — Phase A progress, one blocker, one finding
+
+Noted re codex-cli + serena — will route Task 5's actual selector-fix edit through codex-cli (gpt-5.5 medium) and use Serena for symbol nav on that file, per your standing instruction.
+
+Done:
+- `ade6cb7` — task 1, gitignore `captures/raw/`.
+- Task 4 harness built + smoke-tested (uncommitted, waiting on real fixture to make it a genuine red run): `test_composer_fixture_oracle.js`. Repo has no DOM library (no node_modules at all, Phase A bars adding packages), so I wrote a small selector-chain matcher scoped exactly to what `PROMPT_SELECTORS`/`SEND_SELECTORS` use (tag/#id/.class/[attr]/[attr*=]/descendant/:not) — validated it against a throwaway synthetic fixture (deleted after, not committed), confirmed real bugs (quoted-value tokenizer) before touching your real capture.
+
+**Finding (Phase A Task 5 simplifies):** checked `build.js` — it does NOT generate a userscript monolith, it just copies `edge-extension/` into `dist/dev`+`dist/prod`. The actual maintained userscript is `Tampermonkey_scripts/ChatGPT Universal TTS Reader with Precision Navigation & Highlighting.js` (per AGENTS.md). I grepped it for prompt-textarea/Send/Dictate — **zero matches**. The paste-anywhere/send feature (#19) currently exists ONLY in `edge-extension/`, never ported to the userscript. So Task 5 has nothing to port there — smaller diff than the phase doc assumed. (There's also a stale `--- ChatGPT dev-1.7.user.js`, last touched March, not the live one — ignoring it.)
+
+**Still BLOCKED on Task 2** — need your live DOM capture (see ask above: `copy(document.documentElement.outerHTML)` on chatgpt.com composer, or just the composer `<form>` outerHTML, saved to `captures/raw/2026-07-10/composer.html`). No connected browser on my end (Claude-in-Chrome extension not installed/signed in), can't drive your logged-in session. Everything else Phase-A-unblocked is done; next real step (diagnose + fix) needs that file.
+
+## user comments
+1. enabled the claude extension on the browser, see if you can use it. or else tell me what i need to do.
+2. edge extension is the main thing. the direction in which we are going, all those things are not possible in tampermonkey scripts.
+
+
+## 2026-07-10 agent response — browser still not connected + userscript confirmed out of scope
+
+Re #2: matches what I found (userscript has zero paste/send code) — Phase A stays edge-extension-only, no porting.
+
+Re #1: retried `list_connected_browsers` — still empty, extension not reachable from my side yet. Checklist:
+1. Extension installed: https://chromewebstore.google.com/detail/fcoeoabgfenejglbffodgkkbkcdhcgfn (confirm it's Edge-compatible install, or use Chrome if Edge blocks it).
+2. Open the Claude side panel in that browser (icon in toolbar) and sign in with the **same Claude account** this session is running under (g.sriharsha746@gmail.com).
+3. Keep chatgpt.com open in a tab in that same browser, logged in.
+4. Tell me here once signed in — I'll retry.
+
+If it still won't connect, simplest fallback: just paste the composer capture yourself (DevTools steps in my earlier note above) into `captures/raw/2026-07-10/composer.html` — either path unblocks Task 2 equally, whichever's less friction for you.
+
+## user comments
+1. logged into the claude browser extensions
+2. i will disable other extensions and you can do more logging as well
+3. you can get some historrical data from prompt queuw extenstion history of commits as well
+4. use codex agents to do implementations
+
+5. if you can do somwthing and wnat me to do ...let me know in Q and A and beep multiple times!!
+
+6. it is edge browser, not
+
+## 2026-07-10 agent response — Task 2/4 done, real DOM captured, one surprise
+
+Browser connected. Did the whole capture myself — no manual DevTools paste needed.
+
+Navigated to chatgpt.com, inspected the real composer via safe JS queries (raw outerHTML dump got auto-blocked by the secret filter as cookie/query-string-looking data — filter working correctly, so I built a sanitized attribute-allowlist skeleton instead). Real DOM:
+- Composer: `<div id="prompt-textarea" contenteditable="true" role="textbox">` (ProseMirror).
+- Send button: `<button data-testid="send-button" aria-label="Send prompt">` — only renders once there's text; empty composer shows a dictation/voice button instead.
+
+Built `fixtures/chatgpt.com/2026-07-10-composer/composer.html` (oracle-marked, allowlisted attrs only), added a `.gitignore` negation so it survives the blanket `*.html` rule, secret-grepped it clean, ran `test_composer_fixture_oracle.js` for real. Committed `d74ff90`.
+
+**Surprise: the oracle PASSES.** `findPromptArea()`/`findSendButton()` already match the live DOM exactly — selectors are NOT stale. So #19 isn't selector churn; Task 5 needs a different fix target than assumed.
+
+I then tried to reproduce the reported symptom live: cleared composer, clicked blank page area, real Ctrl+V with real clipboard content — composer stayed empty, looks like a real repro. But couldn't fully trust it: zero console output across a fresh reload (every init step in `10-lifecycle.js` is wrapped in `safeInit()`, which always logs on error — silence either way is odd), and the extension's own floating control panel, visible once right after first navigating there, never reappeared on later reloads. Both are consistent with the extension not actually being the loaded/active one on this browser tab, which would make my repro meaningless.
+
+Your #2 (disabling other extensions) and #6 (confirming it's Edge, not — cut off, what's the rest?) both bear directly on this. Once other extensions are disabled, I'll redo the clean repro test and check console again — if it's still silent, that itself is a new finding (extension present but inert) rather than a "wrong browser" issue.
+
+Re #4: yes, routing the actual Task 5 selector/logic fix through codex-cli per standing instruction once we have a confirmed root cause.
+Re #3: noted, will look at Prompt-queue commit history if it becomes relevant to this bug — not obviously connected to #19 yet, will ask before spending time there unless you mean something specific.
+
+Continuing now: retrying the live test, and reading `99-bootstrap.js`'s entrypoint to check for any condition that could skip `init()` silently regardless of which browser this is.
