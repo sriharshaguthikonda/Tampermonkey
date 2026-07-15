@@ -298,13 +298,42 @@
     }
 
     function initWithStoredSettings() {
-        chrome.storage.sync.get(null, (items) => {
-            const profile = getCurrentProfile();
-            TTSReader.settingsProfile = profile;
-            const settings = getStoredProfileSettings(items || {}, profile);
-            applySettings(settings, { silent: true });
-            safeInit('TTSReader.init', () => TTSReader.init());
-        });
+        const profile = getCurrentProfile();
+        TTSReader.settingsProfile = profile;
+        let initialized = false;
+        const applyAndInit = (items, source) => {
+            safeInit(`applySettings:${source}`, () => {
+                applySettings(getStoredProfileSettings(items || {}, profile), { silent: true });
+            });
+            if (!initialized) {
+                initialized = true;
+                safeInit('TTSReader.init', () => TTSReader.init());
+            }
+        };
+
+        // ponytail: storage.sync.get can stall or fail (issue #21, layer 1 of #19).
+        // Fail open to profile defaults after 2 seconds; a late callback re-applies
+        // stored settings while init still runs only once.
+        const storageLoadTimeoutId = setTimeout(() => {
+            console.warn('[TTSReader] Settings storage load timed out; using profile defaults');
+            applyAndInit({}, 'timeout');
+        }, 2000);
+
+        try {
+            chrome.storage.sync.get(null, (items) => {
+                clearTimeout(storageLoadTimeoutId);
+                if (chrome.runtime.lastError) {
+                    console.error('[TTSReader] Failed to load settings from storage.sync', chrome.runtime.lastError);
+                    applyAndInit({}, 'sync-error');
+                    return;
+                }
+                applyAndInit(items || {}, 'sync');
+            });
+        } catch (error) {
+            clearTimeout(storageLoadTimeoutId);
+            console.error('[TTSReader] storage.sync.get threw while loading settings', error);
+            applyAndInit({}, 'sync-throw');
+        }
 
         chrome.storage.onChanged.addListener((changes, area) => {
             if (area !== 'sync') return;
