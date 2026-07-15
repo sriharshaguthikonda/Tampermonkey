@@ -226,18 +226,31 @@
             if (this.isEditableElement(activeElement) && !this.isPromptFocused(promptArea)) return true;
 
             const visible = (el) => {
+                if (!el || el.isConnected === false) return false;
+                if (el.closest('[aria-hidden="true"], [inert]')) return false;
                 const style = window.getComputedStyle(el);
-                return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
+                if (style.display === 'none' || style.visibility === 'hidden') return false;
+                if (Number.parseFloat(style.opacity || '1') <= 0.01) return false;
+                const rect = el.getBoundingClientRect();
+                return el.getClientRects().length > 0 &&
+                    rect.width > 1 && rect.height > 1 &&
+                    rect.bottom > 0 && rect.right > 0 &&
+                    rect.top < window.innerHeight && rect.left < window.innerWidth;
             };
 
             const modal = Array.from(document.querySelectorAll('[role="dialog"]')).find(visible);
             if (modal) return true;
 
-            const menu = Array.from(document.querySelectorAll('[role="menu"], [role="listbox"], [data-state="open"]')).find(visible);
+            // ponytail: [data-state="open"] was removed because Radix keeps it on persistent chrome
+            // such as the sidebar and pickers, so this guard always fired (issue #19). Real Radix
+            // overlays are covered by dialog/menu/listbox roles because closed content is unmounted;
+            // role-less popovers with a focused input still hit the editable-activeElement guard.
+            // Re-add only a scoped data-state check if a real leak appears.
+            const menu = Array.from(document.querySelectorAll('[role="menu"], [role="listbox"]')).find(visible);
             if (menu) return true;
 
             const editBox = document.querySelector('.bg-token-main-surface-tertiary textarea');
-            if (editBox && editBox.offsetParent !== null) return true;
+            if (editBox && visible(editBox)) return true;
 
             return false;
         },
