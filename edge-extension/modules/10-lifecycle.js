@@ -45,6 +45,9 @@
             this.safeInit('initParagraphObserver', () => this.initParagraphObserver());
             this.safeInit('initMediaEnhancements', () => this.initMediaEnhancements());
             this.safeInit('initSmartCopyEnhancements', () => this.initSmartCopyEnhancements());
+            if (this.isChatGPTPage && typeof this.auditDriftwatchOnce === 'function') {
+                this.safeInit('auditDriftwatchOnce', () => this.auditDriftwatchOnce());
+            }
             if (this.isChatGPTPage) {
                 this.safeInit('initChatGPTEnhancements', () => this.initChatGPTEnhancements());
                 this.safeInit('initAutoReadObserver', () => this.initAutoReadObserver());

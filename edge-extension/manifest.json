@@ -50,6 +50,7 @@
         "modules/20-smart-copy-part1.js",
         "modules/20-smart-copy-part2.js",
         "modules/20-smart-copy-part3.js",
+        "modules/22-driftwatch.js",
         "modules/25-prompt-send-part1.js",
         "modules/25-prompt-send-part2.js",
         "modules/30-media-boost.js",

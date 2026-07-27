@@ -7,13 +7,98 @@
         return;
     }
 
+    // chatgpt.com moved the composer from a plain ProseMirror div to a shape that keeps
+    // churning (contenteditable/role/id combos rearranged across redesigns). driftwatch's
+    // chatgpt.com pack tracks composer/sendButton as ordered fallback strategies; if
+    // window.driftwatch or its pack is unavailable (module load order, older cached
+    // content script) this returns null and callers fall back to the hardcoded arrays
+    // below, so paste/send never throws. See Prompt-queue's content-chat-state.js for the
+    // same fail-soft pattern applied to conversationTurn.
+    function getDriftwatchChatGptInstance() {
+        try {
+            const dw = window.driftwatch;
+            const pack = dw && dw.packs && dw.packs['chatgpt.com'];
+            if (!dw || !pack || typeof dw.use !== 'function') return null;
+            return dw.use(pack);
+        } catch (_error) {
+            return null;
+        }
+    }
+
+    // composer/sendButton are risk:"action" anchors in the pack: past their degradeLimit
+    // they fail closed (el: null) rather than guessing. That null is handled exactly like
+    // "selector matched nothing" below — resolveDriftwatch* never throws.
+    function resolveDriftwatchComposer() {
+        const dw = getDriftwatchChatGptInstance();
+        if (!dw) return null;
+        try {
+            const result = dw.resolve('composer', document);
+            return (result && result.ok && result.el) ? result.el : null;
+        } catch (_error) {
+            return null;
+        }
+    }
+
+    function resolveDriftwatchSendButton() {
+        const dw = getDriftwatchChatGptInstance();
+        if (!dw) return null;
+        try {
+            // sendButton declares `expected` per state; without a state driftwatch returns
+            // "unknown-state" (el: null). "idle" matches this function's own intent — find a
+            // live, clickable send button — so streaming pages (no button) correctly miss here
+            // and fall through to the legacy array below, same as today.
+            const result = dw.resolve('sendButton', document, { state: 'idle' });
+            return (result && result.ok && result.el) ? result.el : null;
+        } catch (_error) {
+            return null;
+        }
+    }
+
+    let driftwatchAudited = false;
+
+    function auditDriftwatchOnce() {
+        if (driftwatchAudited) return;
+        driftwatchAudited = true;
+        const dw = window.driftwatch;
+        const pack = dw && dw.packs && dw.packs['chatgpt.com'];
+        if (!dw || !pack || typeof dw.audit !== 'function') return;
+        const log = ns.diagnostics && typeof ns.diagnostics.log === 'function' ? ns.diagnostics.log : null;
+        if (!log) return;
+        let report;
+        try {
+            report = dw.audit(pack, document);
+        } catch (_error) {
+            return;
+        }
+        const degraded = [];
+        const broken = [];
+        for (const name of Object.keys(report.anchors || {})) {
+            const status = report.anchors[name].status;
+            if (status === 'broken' || status === 'ambiguous') broken.push(name);
+            else if (status === 'degraded') degraded.push(name);
+        }
+        // Anchor names only — never page text, per driftwatch's own privacy contract.
+        if (broken.length) {
+            log('warn', 'driftwatch anchors broken', { anchors: broken.join(',') });
+        } else if (degraded.length) {
+            log('warn', 'driftwatch anchors degraded', { anchors: degraded.join(',') });
+        } else {
+            log('debug', 'driftwatch audit clean', { summary: report.summary });
+        }
+    }
+
     Object.assign(ns.TTSReader, {
         // SECTION 06: Prompt / Send / Paste
         // -----------------------------------------------------------------------------
         // (See refactor_plan.md section B.1 for the canonical section list.)
         // =============================================================================
 
+        auditDriftwatchOnce,
+
         findPromptArea() {
+            const driftwatchEl = resolveDriftwatchComposer();
+            if (driftwatchEl && this.isUsablePromptArea(driftwatchEl)) return driftwatchEl;
+
             const selectors = [
                 '#prompt-textarea.ProseMirror[contenteditable="true"][role="textbox"]',
                 'div.ProseMirror[contenteditable="true"][aria-label="Chat with ChatGPT"]',
@@ -50,6 +135,9 @@
         },
 
         findSendButton() {
+            const driftwatchEl = resolveDriftwatchSendButton();
+            if (driftwatchEl && this.isSendButtonReady(driftwatchEl)) return driftwatchEl;
+
             const selectors = this.getSendButtonSelectors();
             for (const selector of selectors) {
                 const button = document.querySelector(selector);
