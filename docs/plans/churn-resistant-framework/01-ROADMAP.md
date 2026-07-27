@@ -1,5 +1,38 @@
 # Roadmap: Churn-Resistant Selector Framework (v2)
 
+> ## ⚠️ STATUS 2026-07-27 — D1 SUPERSEDED, engine now lives in its own repo
+>
+> **The engine exists and is built: [`driftwatch`](file:///C:/Windows_software/driftwatch) (separate repo, public, MIT).**
+> User decision, verbatim: *"pick better name seperate repo now!"* — this **supersedes decision D1**
+> and the Phase B/C sequencing below, which said build `packages/anchor-core/` locally and extract
+> only after an ophel proof. There is no `packages/anchor-core/` and there will not be one.
+>
+> Why the D1 gate was skipped honestly rather than ignored: D1 required "1 real churn survived"
+> before extraction. That churn arrived and was measured — chatgpt.com moved the conversation turn
+> from `<article data-testid="conversation-turn-1">` to
+> `<section data-turn-id=… data-testid="conversation-turn-1" data-turn="user">`. Verified against
+> live chatgpt.com on 2026-07-27: `article[data-testid^="conversation-turn-"]` matches **0**,
+> `[data-testid^="conversation-turn-"]` matches **2**. driftwatch resolves both the March and July
+> fixtures with the same strategy.
+>
+> **Consequence for the phases below:** B is delivered (as driftwatch, not as a local package).
+> C's "extract to its own repo" step is already done; only the ophel adoption half remains.
+> D (pack format) is partially delivered — packs are data-only JSON today, but remote overlays,
+> preflight and pin/kill are NOT built. E, F, G are untouched.
+>
+> **Design corrections made during the build** that contradict parts of 00-DESIGN.md:
+> - "Generic before qualified" holds for *observe* anchors only. Live measurement:
+>   `button[aria-label^="Copy"]` matches **23** elements on a real page. Action anchors are
+>   tag-qualified and scoped via a `requires: ["inside:<anchor>"]` vocabulary.
+> - Anchors permitting zero matches unconditionally can never report broken. Expectations are
+>   state-conditioned (`idle` vs `streaming`) or the anchor rots undetected.
+> - The fixture ratchet uses a *current frontier* (`fixtures/<pack>/current/<variant>/`), not a
+>   single newest dated fixture — A/B variants, mobile and logged-out can all be current at once.
+>
+> Rationale and the full deferral list: `driftwatch/docs/REVIEW-2026-07-27-external.md`.
+> Standing rule from D8b still holds: Prompt-queue, the ophel fork, and every future extension
+> consume driftwatch rather than hardcoding site selectors.
+
 Phases exit on **acceptance gates, not calendar** — no day estimates, no delivery-date claims. Each phase has a plan file in [phases/](phases/) with agent-executable tasks and test gates. Implementing agents MUST read [AGENT-RULES.md](AGENT-RULES.md) first. Repo ground truth (selector inventories, seams, file:line): [RECON-codex-2026-07-10.md](RECON-codex-2026-07-10.md). Rationale for this shape: [RESPONSE-to-first-critique.md](RESPONSE-to-first-critique.md) §4.
 
 Parallelism rule: **one phase per repo at a time**; cross-repo parallelism only where declared below (G ∥ D/E is the only declared case).
@@ -34,6 +67,10 @@ G  data-layer spike                     [depends B; runs PARALLEL to D/E; D/E ne
 ## Standing decisions
 
 [00-DESIGN.md](00-DESIGN.md) Decisions D1–D17. Success criteria S1–S6 measured at M2/M4.
+
+## Completion-detection handoff
+
+The active implementation should use the concrete Ophel generation-completion evidence and ordered fallback recommendation in [Generation-completion handoff (2026-07-27)](../../Research/churn-generation-completion-handoff-2026-07-27.md). This is input to Phase A/B evidence work, not a new phase.
 
 ## Out of scope (explicit)
 
