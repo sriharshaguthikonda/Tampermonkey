@@ -34,7 +34,7 @@ function makeElementStub() {
 }
 
 function makePanelDocument() {
-    const state = { panelHTML: '' };
+    const state = { panelHTML: '', headCss: [] };
     const registry = {};
 
     function parseCheckboxes(html) {
@@ -52,7 +52,11 @@ function makePanelDocument() {
 
     const document = {
         documentElement: { style: { setProperty() {} } },
-        head: { appendChild() {} },
+        head: {
+            appendChild(el) {
+                if (el && typeof el.textContent === 'string') state.headCss.push(el.textContent);
+            }
+        },
         body: {
             appendChild(el) {
                 if (el && el.id === 'tts-control-panel') {
@@ -103,7 +107,7 @@ const NOOP_METHODS = [
 function makeUiRuntime(options = {}) {
     const persistCalls = [];
     const setterCalls = [];
-    const { document, registry, getPanelHTML } = makePanelDocument();
+    const { document, registry, state, getPanelHTML } = makePanelDocument();
 
     const reader = {
         CONFIG: {
@@ -130,6 +134,7 @@ function makeUiRuntime(options = {}) {
         isChatGPTPage: options.isChatGPTPage !== false
     };
     for (const name of NOOP_METHODS) reader[name] = () => {};
+    if (options.packData) reader.packData = options.packData;
     for (const toggle of PROMPT_TOGGLES) {
         reader[toggle.setter] = function (value) {
             setterCalls.push({ name: toggle.setter, value });
@@ -160,7 +165,7 @@ function makeUiRuntime(options = {}) {
     vm.runInContext(fs.readFileSync(fullPath, 'utf8'), context, { filename: fullPath });
     reader.createUI();
 
-    return { reader, registry, persistCalls, setterCalls, getPanelHTML };
+    return { reader, registry, persistCalls, setterCalls, getPanelHTML, getHeadCss: () => state.headCss.join('\n') };
 }
 
 function testChatGPTOverlayRendersAllPromptTogglesMirroringConfig() {
@@ -375,7 +380,21 @@ async function testStorageChangeAppliesSettingsAndSyncsPromptToggles() {
     assert.strictEqual(registry['tts-nice-auto-send-toggle'].checked, true);
 }
 
+function testSelectableTextCssComesFromPackDataOnChatGPT() {
+    const packed = makeUiRuntime({ packData: (key) => (key === 'styleTargetSelectors' ? ['[x-unit]', '[x-unit] *'] : []) });
+    const css = packed.getHeadCss();
+    assert.ok(css.includes('[x-unit], [x-unit] * { user-select: text !important;'), 'pack targets must drive the user-select rule');
+    assert.ok(!css.includes('data-message-author-role'), 'dead role selectors must be gone on chatgpt.com');
+
+    const empty = makeUiRuntime({ packData: () => [] });
+    assert.ok(!empty.getHeadCss().includes('user-select: text !important'), 'empty pack list: no site rule');
+
+    const saved = makeUiRuntime({ isChatGPTPage: false });
+    assert.ok(saved.getHeadCss().includes('section[data-turn] * { user-select: text !important;'), 'saved pages keep the legacy selectors');
+}
+
 const tests = [
+    testSelectableTextCssComesFromPackDataOnChatGPT,
     testChatGPTOverlayRendersAllPromptTogglesMirroringConfig,
     testPromptToggleChangeFiresSetterAndPersistsProfileSetting,
     testSyncPromptTogglesReflectsExternalConfigChange,

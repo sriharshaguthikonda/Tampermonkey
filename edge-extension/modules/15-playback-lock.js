@@ -303,7 +303,8 @@
             if (!this.limitWarningBusUnsubscribe && ns.observerBus) {
                 this.limitWarningBusUnsubscribe = ns.observerBus.subscribe({
                     name: 'limit-warning',
-                    selector: 'button[data-testid="close-button"]',
+                    // S3.11: wake on dialogs; the close control itself comes from pack data.
+                    selector: '[role="dialog"]',
                     onFlush: () => this.checkAndCloseLimitWarnings()
                 });
             }

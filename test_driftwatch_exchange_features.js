@@ -337,6 +337,21 @@ async function testObserverBusDeliversExchangeScopedBatches() {
     console.log('PASS testObserverBusDeliversExchangeScopedBatches');
 }
 
+function testEmphasisStylingTargetsComeFromPackData() {
+    const { reader, document } = loadReader(SYNTHETIC_EXCHANGE_HTML);
+    reader.CONFIG.CHATGPT_TEXT_STYLING = true;
+    reader.applyChatGPTTextStyling();
+    const css = document.getElementById('tts-chatgpt-text-styling').textContent;
+    assert.ok(css.includes('[data-markdown-text-style="assistant-message"] em'), 'em rule must target the pack markdown root');
+    assert.ok(css.includes('[data-markdown-text-style="assistant-message"] strong'), 'strong rule must target the pack markdown root');
+    assert.ok(!css.includes('data-message-author-role'), 'dead role attribute must be gone');
+
+    reader.packData = () => [];
+    reader.applyChatGPTTextStyling();
+    assert.strictEqual(document.getElementById('tts-chatgpt-text-styling'), null, 'empty pack list: no style rule');
+    console.log('PASS testEmphasisStylingTargetsComeFromPackData');
+}
+
 (async () => {
     await testResolutionMemoExpiresAfterMicrotask();
     testExchangesAndScopedPerExchangeResolution();
@@ -347,6 +362,7 @@ async function testObserverBusDeliversExchangeScopedBatches() {
     testCitationExclusionAndAutoReadEligibilityOnSyntheticExchange();
     testPackDataKeysNonEmpty();
     testIgnoreSelectorComposition();
+    testEmphasisStylingTargetsComeFromPackData();
     await testObserverBusDeliversExchangeScopedBatches();
 })().catch((error) => {
     console.error(error);

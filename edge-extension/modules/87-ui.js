@@ -28,6 +28,14 @@
 
         createUI() {
             document.documentElement.style.setProperty('--tts-focus-fade-ms', `${this.CONFIG.NAV_FOCUS_FADE_MS}ms`);
+            // S3.12: forced user-select targets come from pack data on chatgpt.com (no site
+            // rule when the list is empty); saved pages keep the pre-2026-09 selectors.
+            const selectableTargets = this.isChatGPTPage
+                ? (typeof this.packData === 'function' ? this.packData('styleTargetSelectors') : [])
+                : ['[data-message-author-role]', '[data-message-author-role] *', 'section[data-turn]', 'section[data-turn] *'];
+            const selectableTextRule = selectableTargets.length > 0
+                ? `${selectableTargets.join(', ')} { user-select: text !important; -webkit-user-select: text !important; }`
+                : '';
             const style = document.createElement('style');
             style.textContent = `
                 :root {
@@ -55,17 +63,7 @@
                 .tts-navigation-focus { background-color: rgba(52, 152, 219, 0.3) !important; box-shadow: inset 4px 0 0 #3498db !important; transition: background-color 0.3s, box-shadow 0.3s; }
                 .tts-focus-fade-out { box-shadow: none !important; background-color: transparent !important; transition: background-color var(--tts-focus-fade-ms, 500ms) ease, box-shadow var(--tts-focus-fade-ms, 500ms) ease; }
                 .tts-overlay-hidden [data-tts-ui] { display: none !important; }
-                [data-message-author-role],
-                [data-message-author-role] *,
-                section[data-turn],
-                section[data-turn] *,
-                [data-message-author-role] .markdown,
-                [data-message-author-role] .whitespace-pre-wrap,
-                section[data-turn] .markdown,
-                section[data-turn] .whitespace-pre-wrap {
-                    user-select: text !important;
-                    -webkit-user-select: text !important;
-                }
+                ${selectableTextRule}
 
                 /* NEW: In-game waypoint style pointer */
                 #tts-pointer {

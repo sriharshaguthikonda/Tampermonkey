@@ -609,17 +609,21 @@
                 return;
             }
 
+            // S3.12: emphasis targets come from pack data (no rule when the list is empty).
+            const targets = typeof this.packData === 'function' ? this.packData('styleTargetSelectors') : [];
+            if (targets.length === 0) return;
+            const within = (tag) => targets.map((selector) => `${selector} ${tag}`).join(', ');
             const style = document.createElement('style');
             style.id = 'tts-chatgpt-text-styling';
             style.setAttribute('data-tts-ui', 'true');
             style.textContent = `
-                [data-message-author-role] .markdown em {
+                ${within('em')} {
                     text-decoration: none !important;
                     font-weight: 700 !important;
                     font-style: normal !important;
                     color: #f7335d !important;
                 }
-                [data-message-author-role] .markdown strong {
+                ${within('strong')} {
                     color: #1177ff !important;
                     font-weight: 700 !important;
                     font-style: normal !important;

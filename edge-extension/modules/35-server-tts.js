@@ -401,11 +401,23 @@
 
         checkAndCloseLimitWarnings() {
             if (!this.isChatGPTPage || !this.CONFIG.AUTO_CLOSE_LIMIT_WARNING) return;
-            const closeButtons = Array.from(document.querySelectorAll('button[data-testid="close-button"]'));
+            // S3.11: close controls come from pack data and count only inside a visible
+            // dialog about a limit. Pack v2 has no usageLimitClose list yet (the dialog was
+            // never observed live), so today this is a no-op.
+            const selectors = typeof this.packData === 'function' ? this.packData('usageLimitClose') : [];
+            if (selectors.length === 0) return;
+            const closeButtons = [];
+            document.querySelectorAll('[role="dialog"]').forEach((dialog) => {
+                if (typeof dialog.checkVisibility !== 'function' || !dialog.checkVisibility()) return;
+                if (!/(limit|usage|cap|plan)/i.test(dialog.textContent || '')) return;
+                try {
+                    closeButtons.push(...dialog.querySelectorAll(selectors.join(', ')));
+                } catch (_error) {
+                    // Fail soft: a malformed pack selector closes nothing.
+                }
+            });
             closeButtons.forEach((button) => {
                 if (button.dataset.tmxLimitCloseScheduled === '1') return;
-                const text = (button.closest('div')?.textContent || '').toLowerCase();
-                if (!/(limit|usage|cap|plan)/.test(text)) return;
                 button.dataset.tmxLimitCloseScheduled = '1';
                 setTimeout(() => {
                     if (this.CONFIG.AUTO_CLOSE_LIMIT_WARNING && button.isConnected) {
