@@ -10,6 +10,26 @@
 
     // S4 live-smoke probes (dev only). Statuses, counts and booleans only — never page
     // text, so nothing a conversation says can leave the tab through the pong.
+    // Spoken-text probe: counts and booleans about what reached speechSynthesis.speak
+    // in this (content-script) world. The text itself is never stored.
+    const speechProbe = { hooked: false, tokens: [], utterances: 0, leadingEmoji: 0, tokenHits: {} };
+
+    function hookSpeech() {
+        if (speechProbe.hooked || !window.speechSynthesis) return;
+        speechProbe.hooked = true;
+        const synth = window.speechSynthesis;
+        const speak = synth.speak.bind(synth);
+        synth.speak = (utterance) => {
+            const text = String((utterance && utterance.text) || '');
+            speechProbe.utterances += 1;
+            if (/^\s*\p{Extended_Pictographic}/u.test(text)) speechProbe.leadingEmoji += 1;
+            speechProbe.tokens.forEach((t) => {
+                if (text.includes(t)) speechProbe.tokenHits[t] = (speechProbe.tokenHits[t] || 0) + 1;
+            });
+            return speak(utterance);
+        };
+    }
+
     function devProbes(req, r) {
         const out = {};
         if (!r) return out;
@@ -39,6 +59,40 @@
                 tokens: Object.fromEntries(req.tokens.map((t) => [t, entries.findIndex((entry) => String(entry.text || '').includes(String(t)))]))
             };
         }
+        const diag = window.__TTSNS && window.__TTSNS.diagnostics;
+        if (typeof req.debug === 'boolean' && r.CONFIG) {
+            r.CONFIG.DEBUG_LOGGING = req.debug;
+            if (diag) (req.debug ? diag.enable() : diag.disable());
+        }
+        if (diag && typeof diag.getDiagnostics === 'function') {
+            // Entry details can carry page text, so only counts leave the tab.
+            const buffer = diag.getDiagnostics().buffer || [];
+            out.diag = {
+                debug: !!(r.CONFIG && r.CONFIG.DEBUG_LOGGING),
+                entries: buffer.length,
+                errors: buffer.filter((entry) => entry.level === 'error').length
+            };
+        }
+        const current = document.querySelector('.tts-current-sentence');
+        const exchangeEl = current && typeof r.exchangeForElement === 'function' ? r.exchangeForElement(current) : null;
+        const markdownRoot = exchangeEl ? r.resolveInExchange('assistantMarkdownRoot', exchangeEl) : null;
+        out.state.currentInMarkdownRoot = Boolean(markdownRoot && markdownRoot.contains(current));
+        if (typeof r.hasBlockingOpenElements === 'function' && typeof r.findPromptArea === 'function') {
+            // What the global paste guard would decide right now.
+            const promptArea = r.findPromptArea();
+            out.state.pasteBlocked = r.hasBlockingOpenElements(promptArea);
+            out.state.promptFocused = Boolean(promptArea && r.isPromptFocused(promptArea));
+        }
+        if (Array.isArray(req.tokens)) speechProbe.tokens = req.tokens.map(String);
+        if (req.hookSpeech) hookSpeech();
+        out.speech = {
+            hooked: speechProbe.hooked,
+            utterances: speechProbe.utterances,
+            leadingEmoji: speechProbe.leadingEmoji,
+            tokenHits: speechProbe.tokenHits,
+            paragraphs: Array.isArray(r.paragraphsList) ? r.paragraphsList.length : null,
+            currentIndex: Number.isInteger(r.currentParagraphIndex) ? r.currentParagraphIndex : null
+        };
         return out;
     }
 
