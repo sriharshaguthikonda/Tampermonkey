@@ -33,6 +33,17 @@
 > Standing rule from D8b still holds: Prompt-queue, the ophel fork, and every future extension
 > consume driftwatch rather than hardcoding site selectors.
 
+> ## STATUS 2026-09-21 — Churn event #2 (chatgpt.com September 2026 redesign)
+>
+> driftwatch's first real repair job. Measured live on 2026-09-21 against pack v1: conversationTurn, assistantMessage and copyResponseButton are broken; composer is ambiguous in effect (its bare contenteditable-textbox strategy also matches the new code-block editor); sendButton fails closed (only its third strategy matches, past degradeLimit 1); stopButton is degraded.
+>
+> This is NOT a selector-only break: one [data-turn-key] exchange root now holds both the user and the assistant unit (turn is no longer message), the response action bar sits outside the assistant unit, and finished code blocks are contenteditable editors instead of pre/code. Consumer logic must change too, so milestone M4 (next real change repaired by pack bump alone within 1 day) is not met by this churn; record it as M4 evidence.
+>
+> - Plan: [chatgpt-2026-09-churn/PLAN.md](../chatgpt-2026-09-churn/PLAN.md)
+> - Evidence: [docs/Research/chatgpt-2026-09-churn/](../../Research/chatgpt-2026-09-churn/)
+> - Prior-art gate record (repair-assist stays Phase F, build later): [driftwatch landscape.yaml](file:///C:/Windows_software/driftwatch/docs/Research/landscape.yaml)
+> - Phase mapping: the repair runs Phase-A style (users are broken, so repair before framework work); pack v2 is a Phase D data change; surfacing canary drift in the extension diagnostics seeds Phase E.
+
 Phases exit on **acceptance gates, not calendar** — no day estimates, no delivery-date claims. Each phase has a plan file in [phases/](phases/) with agent-executable tasks and test gates. Implementing agents MUST read [AGENT-RULES.md](AGENT-RULES.md) first. Repo ground truth (selector inventories, seams, file:line): [RECON-codex-2026-07-10.md](RECON-codex-2026-07-10.md). Rationale for this shape: [RESPONSE-to-first-critique.md](RESPONSE-to-first-critique.md) §4.
 
 Parallelism rule: **one phase per repo at a time**; cross-repo parallelism only where declared below (G ∥ D/E is the only declared case).

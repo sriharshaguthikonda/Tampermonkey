@@ -447,3 +447,12 @@ bb27d9b docs(plan): round-2 review complete — all 4 contested items resolved v
 - `chrome://extensions` is blocked from Claude-in-Chrome navigation (security boundary, expected) — can't visually confirm install/enable state that way.
 - Secret filter on `javascript_tool` blocked a raw `form.outerHTML` dump as cookie/query-string-like data — expected/correct behavior per AGENT-RULES 19–20; worked around by building an attribute-allowlist skeleton in-page instead of dumping raw HTML.
 ---
+
+## Handoff: 2026-09-21 (manual) — ChatGPT September 2026 churn (churn event #2)
+
+- Status: planning phase; implementation not started.
+- Plan: [docs/plans/chatgpt-2026-09-churn/PLAN.md](../plans/chatgpt-2026-09-churn/PLAN.md)
+- Evidence: [docs/Research/chatgpt-2026-09-churn/](../Research/chatgpt-2026-09-churn/) — 00 live DOM probe, 01 feature inventory, 02 driftwatch gap analysis, 03 Mar/Jul/Sep DOM diff.
+- Churn roadmap status block: [01-ROADMAP.md](../plans/churn-resistant-framework/01-ROADMAP.md) (STATUS 2026-09-21).
+- driftwatch side: file:///C:/Windows_software/driftwatch/docs/ROADMAP.md and docs/Research/landscape.yaml.
+- Worker routing (plan D-S8): Z Code via bin/zcode.sh — GLM-5.3 for large tasks, GLM-5.3-Flash (flash-worker) for medium/small; codex gpt-5.6-sol alternate; gpt-6-astra review only; one ornith agent at a time; Claude subagents fallback only. Plan v2 after astra review 2026-09-21 (REWORK -> fixed).

@@ -2,6 +2,7 @@
 
 ## Active work
 
+- **P0 — ChatGPT 2026-09 churn repair:** plan [docs/plans/chatgpt-2026-09-churn/PLAN.md](./docs/plans/chatgpt-2026-09-churn/PLAN.md); evidence in [docs/Research/chatgpt-2026-09-churn/](./docs/Research/chatgpt-2026-09-churn/). Read both before touching any ChatGPT selector — site selectors now go through driftwatch (edge-extension/modules/22-driftwatch.js), not hardcoded strings.
 - **Open issues:** see [`TODO.md`](./TODO.md) for P0/P1-sorted index, or [GitHub Issues](https://github.com/sriharshaguthikonda/Tampermonkey/issues).
 - **Working branch:** `enhance-tts-functionality` (non-default; default is `gemini-version`).
 

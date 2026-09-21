@@ -1,5 +1,15 @@
 # Roadmap
 
+## Active Phase (P0, users broken): ChatGPT 2026-09 churn repair (Churn Event #2)
+
+- Plan: [PLAN.md](docs/plans/chatgpt-2026-09-churn/PLAN.md)
+- Evidence: [docs/Research/chatgpt-2026-09-churn/](docs/Research/chatgpt-2026-09-churn/) (live DOM probe 2026-09-21, feature inventory, driftwatch gap analysis, Mar/Jul/Sep DOM diff)
+- Why: the 2026-09 chatgpt.com redesign removed data-testid, data-message-author-role and #prompt-textarea; one exchange root now holds both user and assistant units; most TTS features stopped finding their targets.
+- Approach: repair runs through driftwatch (pack v2) per the churn roadmap docs/plans/churn-resistant-framework/01-ROADMAP.md; edge extension first, then userscript parity.
+
+Status:
+- Planned 2026-09-21. Implementation not started.
+
 ## Active Phase: Auto-Read Navigation Controls
 
 Goal: Add scoped automatic-reading start skip, single-message looping, separate arrow navigation skip, and editable shortcuts across Edge extension and Tampermonkey userscript.
