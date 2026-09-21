@@ -7,52 +7,14 @@
         return;
     }
 
-    // chatgpt.com moved the composer from a plain ProseMirror div to a shape that keeps
-    // churning (contenteditable/role/id combos rearranged across redesigns). driftwatch's
-    // chatgpt.com pack tracks composer/sendButton as ordered fallback strategies; if
-    // window.driftwatch or its pack is unavailable (module load order, older cached
-    // content script) this returns null and callers fall back to the hardcoded arrays
-    // below, so paste/send never throws. See Prompt-queue's content-chat-state.js for the
-    // same fail-soft pattern applied to conversationTurn.
-    function getDriftwatchChatGptInstance() {
-        try {
-            const dw = window.driftwatch;
-            const pack = dw && dw.packs && dw.packs['chatgpt.com'];
-            if (!dw || !pack || typeof dw.use !== 'function') return null;
-            return dw.use(pack);
-        } catch (_error) {
-            return null;
-        }
-    }
-
-    // composer/sendButton are risk:"action" anchors in the pack: past their degradeLimit
-    // they fail closed (el: null) rather than guessing. That null is handled exactly like
-    // "selector matched nothing" below — resolveDriftwatch* never throws.
-    function resolveDriftwatchComposer() {
-        const dw = getDriftwatchChatGptInstance();
-        if (!dw) return null;
-        try {
-            const result = dw.resolve('composer', document);
-            return (result && result.ok && result.el) ? result.el : null;
-        } catch (_error) {
-            return null;
-        }
-    }
-
-    function resolveDriftwatchSendButton() {
-        const dw = getDriftwatchChatGptInstance();
-        if (!dw) return null;
-        try {
-            // sendButton declares `expected` per state; without a state driftwatch returns
-            // "unknown-state" (el: null). "idle" matches this function's own intent — find a
-            // live, clickable send button — so streaming pages (no button) correctly miss here
-            // and fall through to the legacy array below, same as today.
-            const result = dw.resolve('sendButton', document, { state: 'idle' });
-            return (result && result.ok && result.el) ? result.el : null;
-        } catch (_error) {
-            return null;
-        }
-    }
+    // S3.8 (churn 2026-09): composer/send resolution goes through driftwatch pack v2 via
+    // the shared 23-resolution helpers — no hardcoded site selector arrays remain (the
+    // pre-repair fallback lists were confirmed 0-match live and are deleted, not
+    // commented out). composer/sendButton are risk:"action" anchors scoped inside
+    // composerForm: past their degradeLimit they fail closed (null), and sendButton is
+    // state-conditioned — it is resolved with state 'composing' because an idle-EMPTY
+    // page legitimately has no Send button (R3). The Dictate/Voice mic exclusion is a
+    // code invariant (00-DESIGN #19), kept in isSendButtonReady below, never in pack data.
 
     let driftwatchAudited = false;
 
@@ -60,7 +22,7 @@
         if (driftwatchAudited) return;
         driftwatchAudited = true;
         const dw = window.driftwatch;
-        const pack = dw && dw.packs && dw.packs['chatgpt.com'];
+        const pack = ns.TTSReader.getChatGptPack();
         if (!dw || !pack || typeof dw.audit !== 'function') return;
         const log = ns.diagnostics && typeof ns.diagnostics.log === 'function' ? ns.diagnostics.log : null;
         if (!log) return;
@@ -96,65 +58,159 @@
         auditDriftwatchOnce,
 
         findPromptArea() {
-            const driftwatchEl = resolveDriftwatchComposer();
-            if (driftwatchEl && this.isUsablePromptArea(driftwatchEl)) return driftwatchEl;
-
-            const selectors = [
-                '#prompt-textarea.ProseMirror[contenteditable="true"][role="textbox"]',
-                'div.ProseMirror[contenteditable="true"][aria-label="Chat with ChatGPT"]',
-                'div[role="textbox"][contenteditable="true"][aria-label="Chat with ChatGPT"]',
-                'form div.ProseMirror[contenteditable="true"][data-virtualkeyboard="true"]',
-                '#prompt-textarea[contenteditable="true"]',
-                'div[contenteditable="true"][id="prompt-textarea"]',
-                'div[data-testid="prompt-textarea"][contenteditable="true"]',
-                'textarea#prompt-textarea',
-                'textarea[name="prompt-textarea"]:not([style*="display: none"])',
-                'textarea[data-testid="prompt-textarea"]',
-                'textarea[aria-label="Chat with ChatGPT"]'
-            ];
-
-            for (const selector of selectors) {
-                const element = document.querySelector(selector);
-                if (element && this.isUsablePromptArea(element)) return element;
-            }
+            const composer = this.resolveSingleton('composer');
+            if (composer && this.isUsablePromptArea(composer)) return composer;
             return null;
         },
 
-        getSendButtonSelectors() {
-            return [
-                'form button[aria-label="Send prompt"]',
-                'form button[aria-label="Send message"]',
-                'form button[data-testid="send-button"]',
-                'button.composer-submit-button-color[aria-label="Send prompt"]',
-                'button.composer-submit-button-color[aria-label="Send message"]',
-                'button[aria-label="Send prompt"]',
-                'button[aria-label="Send message"]',
-                'button[data-testid="send-button"]',
-                'button.btn.relative.btn-primary:not([aria-label="Dictate button"])'
-            ];
+        // The form that scopes the real composer. Absent on a lazy NEW-CHAT page before
+        // the first interaction — that page only has the pendingComposerInput stub.
+        findComposerForm() {
+            return this.resolveSingleton('composerForm');
+        },
+
+        // Pre-hydration stub on the lazy new-chat page: textarea#pending-home-input.
+        // Writing text into it (writePendingComposerInput) makes the page mount the real
+        // composer form and carry the text over (measured live 2026-09-21).
+        findPendingComposerInput() {
+            const stub = this.resolveSingleton('pendingComposerInput');
+            if (!stub) return null;
+            if (stub.disabled || stub.getAttribute('aria-hidden') === 'true') return null;
+            return stub;
+        },
+
+        // Framework-controlled textarea: a plain `.value =` write is invisible to the
+        // framework's change detection (it patches the value descriptor), so the write
+        // goes through the native prototype setter, and the bubbling input event is what
+        // triggers hydration of the real composer.
+        writePendingComposerInput(text) {
+            const stub = this.findPendingComposerInput();
+            if (!stub || stub.tagName !== 'TEXTAREA') return false;
+            const normalizedText = String(text || '').replace(/\r\n/g, '\n');
+            try {
+                const descriptor = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
+                if (!descriptor || typeof descriptor.set !== 'function') return false;
+                descriptor.set.call(stub, normalizedText);
+                stub.dispatchEvent(new Event('input', { bubbles: true }));
+                return true;
+            } catch (_error) {
+                return false;
+            }
+        },
+
+        // Waits for the real composer form to mount after a stub write (~1.5-3 s live).
+        // MutationObserver carries the wait (mutation callbacks are not timer-throttled
+        // in background tabs); the poll is the safety net, and the whole wait is bounded.
+        waitForComposerForm(timeoutMs = 5000) {
+            const boundedMs = Math.max(0, Number(timeoutMs) || 0);
+            return new Promise((resolve) => {
+                const existing = this.findComposerForm();
+                if (existing) {
+                    resolve(existing);
+                    return;
+                }
+                let settled = false;
+                let observer = null;
+                let pollTimer = null;
+                let timeoutTimer = null;
+                const finish = (form) => {
+                    if (settled) return;
+                    settled = true;
+                    if (observer) observer.disconnect();
+                    clearInterval(pollTimer);
+                    clearTimeout(timeoutTimer);
+                    resolve(form || null);
+                };
+                const check = () => {
+                    const form = this.findComposerForm();
+                    if (form) finish(form);
+                };
+                const observeRoot = document.body || document.documentElement;
+                if (observeRoot && typeof MutationObserver === 'function') {
+                    observer = new MutationObserver(check);
+                    observer.observe(observeRoot, { childList: true, subtree: true });
+                }
+                pollTimer = setInterval(check, 250);
+                timeoutTimer = setTimeout(() => finish(this.findComposerForm()), boundedMs);
+            });
+        },
+
+        // Paste-anywhere entry (S3.8). Lands text in the REAL composer; on a lazy
+        // new-chat page it hydrates through the stub first, waits (bounded) for the real
+        // composer form to mount, then continues there — re-applying the text only if the
+        // page did not carry it over. Never throws past this boundary; failures notify
+        // the user and return false.
+        async applyPromptText(text, options = {}) {
+            const waitMs = options.waitMs == null ? 5000 : Math.max(0, Number(options.waitMs) || 0);
+
+            const liveComposer = this.findPromptArea();
+            if (liveComposer) {
+                const applied = this.setPromptText(text);
+                if (!applied) this.notifyPromptFailure('Could not write to the ChatGPT composer.');
+                else if (options.autoSend) this.scheduleSendButtonClick();
+                return applied;
+            }
+
+            if (!this.findComposerForm() && this.findPendingComposerInput()) {
+                const written = this.writePendingComposerInput(text);
+                if (!written) {
+                    this.notifyPromptFailure('Could not write to the ChatGPT composer.');
+                    return false;
+                }
+                const form = await this.waitForComposerForm(waitMs);
+                if (!form) {
+                    this.notifyPromptFailure('ChatGPT composer did not appear in time — text left in the input.');
+                    return false;
+                }
+                const mounted = this.findPromptArea();
+                if (!mounted) {
+                    this.notifyPromptFailure('ChatGPT composer appeared but could not be used.');
+                    return false;
+                }
+                const carried = String(this.getPromptText(mounted) || '').trim();
+                if (carried) {
+                    mounted.focus();
+                } else {
+                    this.setPromptText(text);
+                }
+                if (options.autoSend) this.scheduleSendButtonClick();
+                return true;
+            }
+
+            const applied = this.setPromptText(text);
+            if (!applied) this.notifyPromptFailure('ChatGPT composer not found on this page.');
+            return applied;
+        },
+
+        notifyPromptFailure(message) {
+            try {
+                if (typeof this.showNotification === 'function') this.showNotification(message);
+            } catch (_error) {
+                // fail soft — notification is best-effort
+            }
         },
 
         findSendButton() {
-            const driftwatchEl = resolveDriftwatchSendButton();
-            if (driftwatchEl && this.isSendButtonReady(driftwatchEl)) return driftwatchEl;
-
-            const selectors = this.getSendButtonSelectors();
-            for (const selector of selectors) {
-                const button = document.querySelector(selector);
-                if (button && this.isSendButtonReady(button)) return button;
-            }
+            // R3: Send exists only while the composer holds text. idle-empty legitimately
+            // has no Send button, so the send path always resolves with state 'composing'
+            // and treats "absent" as "nothing to click", never as an error.
+            const button = this.resolveSingleton('sendButton', 'composing');
+            if (button && this.isSendButtonReady(button)) return button;
             return null;
         },
 
+        // Generic shape check for send-capture (no site selector literals): a button
+        // inside the resolved composer form whose label says Send and passes the mic
+        // exclusion. Works across the Jul ("Send prompt", testid button) and Sept
+        // ("Send", submit button) composers alike.
         isSendButtonElement(element) {
-            if (!element || !element.matches) return false;
-            return this.getSendButtonSelectors().some((selector) => {
-                try {
-                    return element.matches(selector);
-                } catch (_error) {
-                    return false;
-                }
-            });
+            if (!element || element.tagName !== 'BUTTON') return false;
+            if (element.disabled || element.getAttribute('aria-disabled') === 'true') return false;
+            const label = String(element.getAttribute('aria-label') || '').toLowerCase();
+            if (!label.startsWith('send')) return false;
+            const composerForm = this.findComposerForm();
+            if (!composerForm || typeof composerForm.contains !== 'function') return false;
+            return composerForm.contains(element) && this.isSendButtonReady(element);
         },
 
         isUsablePromptArea(element) {

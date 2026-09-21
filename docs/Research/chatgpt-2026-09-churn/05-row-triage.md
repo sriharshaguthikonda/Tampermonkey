@@ -32,39 +32,39 @@ Pack-v2 anchor names verified live against `C:/Windows_software/driftwatch/packs
 
 | inventory ref | feature | current selector/logic | class | target pack anchor | sub-stage | reason |
 |---|---|---|---|---|---|---|
-| `25-prompt-send-part1.js:35` | 6 | `#prompt-textarea` (composer strategy 3, id) | route-via-driftwatch | composer (`composer.prompt-textarea`) | S3.8 | kept as trailing Jul fallback in pack v2 per D-S2; still resolved via `dw.resolve('composer', document)` |
-| `25-prompt-send-part1.js:35` | 6 | `[contenteditable="true"][role="textbox"]` (bare, composer strategy 2) | route-via-driftwatch | composer | S3.8 | this exact bare strategy is DELETED from pack v2 (D-S2: ambiguous with code-block editor, probe §3.3); call site still routes via driftwatch, now resolves through `composer.markdown-textbox`/`composer.prompt-textarea` scoped `inside:composerForm` |
-| `25-prompt-send-part1.js:35` | 6 | `div#prompt-textarea[contenteditable="true"]` (composer strategy 1) | route-via-driftwatch | composer (`composer.prompt-textarea-div`) | S3.8 | kept as trailing fallback in pack v2 |
-| `25-prompt-send-part1.js:50` | 6 | `button[data-testid="send-button"]` (sendButton strategy) | route-via-driftwatch | sendButton (`send.testid`) | S3.8 | retained as trailing fallback; pack v2 puts `send.submit-aria` FIRST (Sept-correct) per D-S2 |
-| `25-prompt-send-part1.js:50` | 6 | `button#composer-submit-button:not([disabled])` | route-via-driftwatch | sendButton (`send.composer-submit-id`) | S3.8 | retained as trailing fallback, now `inside:composerForm` |
-| `25-prompt-send-part1.js:50` | 6 | `form button[aria-label^="Send"]:not([disabled])` | route-via-driftwatch | sendButton (`send.aria-prefix`) | S3.8 | retained as trailing fallback |
-| `25-prompt-send-part1.js:69` | 6/13 | `form[data-type="unified-composer"] #composer-submit-button[data-testid="stop-button"]` | route-via-driftwatch | stopButton (`stop.composer-submit-testid`) | S3.8 | retained as trailing fallback, `unified-composer` itself confirmed dead (S0.12 findings) but kept per D-S2 "keep dated strategies as trailing fallbacks" |
-| `25-prompt-send-part1.js:69` | 6/13 | `main form button[aria-label^="Stop"]:not([disabled])` | route-via-driftwatch | stopButton (`stop.aria-prefix`) | S3.8 | retained as trailing fallback; pack v2 puts `stop.aria-exact` FIRST |
+| `25-prompt-send-part1.js:35` | 6 | `#prompt-textarea` (composer strategy 3, id) | route-via-driftwatch | composer (`composer.prompt-textarea`) | S3.8 — done (S3a) | kept as trailing Jul fallback in pack v2 per D-S2; still resolved via `dw.resolve('composer', document)` |
+| `25-prompt-send-part1.js:35` | 6 | `[contenteditable="true"][role="textbox"]` (bare, composer strategy 2) | route-via-driftwatch | composer | S3.8 — done (S3a) | this exact bare strategy is DELETED from pack v2 (D-S2: ambiguous with code-block editor, probe §3.3); call site still routes via driftwatch, now resolves through `composer.markdown-textbox`/`composer.prompt-textarea` scoped `inside:composerForm` |
+| `25-prompt-send-part1.js:35` | 6 | `div#prompt-textarea[contenteditable="true"]` (composer strategy 1) | route-via-driftwatch | composer (`composer.prompt-textarea-div`) | S3.8 — done (S3a) | kept as trailing fallback in pack v2 |
+| `25-prompt-send-part1.js:50` | 6 | `button[data-testid="send-button"]` (sendButton strategy) | route-via-driftwatch | sendButton (`send.testid`) | S3.8 — done (S3a) | retained as trailing fallback; pack v2 puts `send.submit-aria` FIRST (Sept-correct) per D-S2 |
+| `25-prompt-send-part1.js:50` | 6 | `button#composer-submit-button:not([disabled])` | route-via-driftwatch | sendButton (`send.composer-submit-id`) | S3.8 — done (S3a) | retained as trailing fallback, now `inside:composerForm` |
+| `25-prompt-send-part1.js:50` | 6 | `form button[aria-label^="Send"]:not([disabled])` | route-via-driftwatch | sendButton (`send.aria-prefix`) | S3.8 — done (S3a) | retained as trailing fallback |
+| `25-prompt-send-part1.js:69` | 6/13 | `form[data-type="unified-composer"] #composer-submit-button[data-testid="stop-button"]` | route-via-driftwatch | stopButton (`stop.composer-submit-testid`) | S3.8 — done (S3a) | retained as trailing fallback, `unified-composer` itself confirmed dead (S0.12 findings) but kept per D-S2 "keep dated strategies as trailing fallbacks" |
+| `25-prompt-send-part1.js:69` | 6/13 | `main form button[aria-label^="Stop"]:not([disabled])` | route-via-driftwatch | stopButton (`stop.aria-prefix`) | S3.8 — done (S3a) | retained as trailing fallback; pack v2 puts `stop.aria-exact` FIRST |
 
 ### 2.2 Prompt send — hardcoded fallback arrays (feature 6, was §2.2, 20 rows)
 
 | inventory ref | feature | current selector/logic | class | target pack anchor | sub-stage | reason |
 |---|---|---|---|---|---|---|
-| `25-prompt-send-part1.js:103` | 6 | `#prompt-textarea.ProseMirror[contenteditable="true"][role="textbox"]` | delete | n/a | S3.8 | PLAN.md S3.2 names `:103-133` explicitly: every entry confirmed 0-match live |
-| `25-prompt-send-part1.js:104` | 6 | `div.ProseMirror[contenteditable="true"][aria-label="Chat with ChatGPT"]` | delete | n/a | S3.8 | dead — aria-label is now `"Ask ChatGPT"` (01 §4) |
-| `25-prompt-send-part1.js:105` | 6 | `div[role="textbox"][contenteditable="true"][aria-label="Chat with ChatGPT"]` | delete | n/a | S3.8 | dead, same stale aria-label |
-| `25-prompt-send-part1.js:106` | 6 | `form div.ProseMirror[contenteditable="true"][data-virtualkeyboard="true"]` | delete | n/a | S3.8 | dead attribute vocabulary, 0-match |
-| `25-prompt-send-part1.js:107` | 6 | `#prompt-textarea[contenteditable="true"]` | delete | n/a | S3.8 | `id="prompt-textarea"` confirmed gone (01 §4) |
-| `25-prompt-send-part1.js:108` | 6 | `div[contenteditable="true"][id="prompt-textarea"]` | delete | n/a | S3.8 | dead, same reason |
-| `25-prompt-send-part1.js:109` | 6 | `div[data-testid="prompt-textarea"][contenteditable="true"]` | delete | n/a | S3.8 | `data-testid` vocabulary gone site-wide (probe §1) |
-| `25-prompt-send-part1.js:110` | 6 | `textarea#prompt-textarea` | delete | n/a | S3.8 | dead, composer is not a `<textarea>` |
-| `25-prompt-send-part1.js:111` | 6 | `textarea[name="prompt-textarea"]:not([style*="display: none"])` | delete | n/a | S3.8 | dead |
-| `25-prompt-send-part1.js:112` | 6 | `textarea[data-testid="prompt-textarea"]` | delete | n/a | S3.8 | dead |
-| `25-prompt-send-part1.js:113` | 6 | `textarea[aria-label="Chat with ChatGPT"]` | delete | n/a | S3.8 | dead |
-| `25-prompt-send-part1.js:125` | 6 | `form button[aria-label="Send prompt"]` | delete | n/a | S3.8 | live aria-label is exactly `"Send"` (01 §4), not `"Send prompt"` |
-| `25-prompt-send-part1.js:126` | 6 | `form button[aria-label="Send message"]` | delete | n/a | S3.8 | dead, same reason |
-| `25-prompt-send-part1.js:127` | 6 | `form button[data-testid="send-button"]` | delete | n/a | S3.8 | `data-testid` gone |
-| `25-prompt-send-part1.js:128` | 6 | `button.composer-submit-button-color[aria-label="Send prompt"]` | delete | n/a | S3.8 | dead class + dead label |
-| `25-prompt-send-part1.js:129` | 6 | `button.composer-submit-button-color[aria-label="Send message"]` | delete | n/a | S3.8 | dead |
-| `25-prompt-send-part1.js:130` | 6 | `button[aria-label="Send prompt"]` | delete | n/a | S3.8 | dead |
-| `25-prompt-send-part1.js:131` | 6 | `button[aria-label="Send message"]` | delete | n/a | S3.8 | dead |
-| `25-prompt-send-part1.js:132` | 6 | `button[data-testid="send-button"]` | delete | n/a | S3.8 | dead |
-| `25-prompt-send-part1.js:133` | 6 | `button.btn.relative.btn-primary:not([aria-label="Dictate button"])` | delete | n/a | S3.8 | dead selector; its embedded Dictate-exclusion INTENT is preserved as a fresh code-level guard in the S3.8 migration (S0.10 finding 3, "Dictate/Voice exclusion" stays own-UI-keep), not via this CSS `:not()` |
+| `25-prompt-send-part1.js:103` | 6 | `#prompt-textarea.ProseMirror[contenteditable="true"][role="textbox"]` | delete | n/a | S3.8 — done (S3a) | PLAN.md S3.2 names `:103-133` explicitly: every entry confirmed 0-match live |
+| `25-prompt-send-part1.js:104` | 6 | `div.ProseMirror[contenteditable="true"][aria-label="Chat with ChatGPT"]` | delete | n/a | S3.8 — done (S3a) | dead — aria-label is now `"Ask ChatGPT"` (01 §4) |
+| `25-prompt-send-part1.js:105` | 6 | `div[role="textbox"][contenteditable="true"][aria-label="Chat with ChatGPT"]` | delete | n/a | S3.8 — done (S3a) | dead, same stale aria-label |
+| `25-prompt-send-part1.js:106` | 6 | `form div.ProseMirror[contenteditable="true"][data-virtualkeyboard="true"]` | delete | n/a | S3.8 — done (S3a) | dead attribute vocabulary, 0-match |
+| `25-prompt-send-part1.js:107` | 6 | `#prompt-textarea[contenteditable="true"]` | delete | n/a | S3.8 — done (S3a) | `id="prompt-textarea"` confirmed gone (01 §4) |
+| `25-prompt-send-part1.js:108` | 6 | `div[contenteditable="true"][id="prompt-textarea"]` | delete | n/a | S3.8 — done (S3a) | dead, same reason |
+| `25-prompt-send-part1.js:109` | 6 | `div[data-testid="prompt-textarea"][contenteditable="true"]` | delete | n/a | S3.8 — done (S3a) | `data-testid` vocabulary gone site-wide (probe §1) |
+| `25-prompt-send-part1.js:110` | 6 | `textarea#prompt-textarea` | delete | n/a | S3.8 — done (S3a) | dead, composer is not a `<textarea>` |
+| `25-prompt-send-part1.js:111` | 6 | `textarea[name="prompt-textarea"]:not([style*="display: none"])` | delete | n/a | S3.8 — done (S3a) | dead |
+| `25-prompt-send-part1.js:112` | 6 | `textarea[data-testid="prompt-textarea"]` | delete | n/a | S3.8 — done (S3a) | dead |
+| `25-prompt-send-part1.js:113` | 6 | `textarea[aria-label="Chat with ChatGPT"]` | delete | n/a | S3.8 — done (S3a) | dead |
+| `25-prompt-send-part1.js:125` | 6 | `form button[aria-label="Send prompt"]` | delete | n/a | S3.8 — done (S3a) | live aria-label is exactly `"Send"` (01 §4), not `"Send prompt"` |
+| `25-prompt-send-part1.js:126` | 6 | `form button[aria-label="Send message"]` | delete | n/a | S3.8 — done (S3a) | dead, same reason |
+| `25-prompt-send-part1.js:127` | 6 | `form button[data-testid="send-button"]` | delete | n/a | S3.8 — done (S3a) | `data-testid` gone |
+| `25-prompt-send-part1.js:128` | 6 | `button.composer-submit-button-color[aria-label="Send prompt"]` | delete | n/a | S3.8 — done (S3a) | dead class + dead label |
+| `25-prompt-send-part1.js:129` | 6 | `button.composer-submit-button-color[aria-label="Send message"]` | delete | n/a | S3.8 — done (S3a) | dead |
+| `25-prompt-send-part1.js:130` | 6 | `button[aria-label="Send prompt"]` | delete | n/a | S3.8 — done (S3a) | dead |
+| `25-prompt-send-part1.js:131` | 6 | `button[aria-label="Send message"]` | delete | n/a | S3.8 — done (S3a) | dead |
+| `25-prompt-send-part1.js:132` | 6 | `button[data-testid="send-button"]` | delete | n/a | S3.8 — done (S3a) | dead |
+| `25-prompt-send-part1.js:133` | 6 | `button.btn.relative.btn-primary:not([aria-label="Dictate button"])` | delete | n/a | S3.8 — done (S3a) | dead selector; its embedded Dictate-exclusion INTENT is preserved as a fresh code-level guard in the S3.8 migration (S0.10 finding 3, "Dictate/Voice exclusion" stays own-UI-keep), not via this CSS `:not()` |
 
 ### 2.3 Diagnostics app-root probe (feature 14, was §2.3, 1 row)
 
@@ -154,7 +154,7 @@ Pack-v2 anchor names verified live against `C:/Windows_software/driftwatch/packs
 | `87-ui.js:47-54` | 16 | forced `user-select` CSS targeting `[data-message-author-role]`/`section[data-turn]` + `.markdown`/`.whitespace-pre-wrap` combinations | route-via-driftwatch | userUnit/assistantUnit + assistantMarkdownRoot | S3.12 | S3.2 task text is explicit: retarget to unit-key + `assistantMarkdownRoot` selectors, "selector literals from pack data" (R7); own panel ids stay untouched |
 | `10-lifecycle.js:59-60` | 1/16 | hostname check `chat.openai.com` / `chatgpt.com` | own-UI-keep | n/a | n/a | hostname gate — named local invariant (R7), not a DOM selector at all |
 | `40-voice.js:250` | 15 | `[role="img"][aria-label], img[alt], [aria-label][data-testid*="emoji"]` (leading speaker emoji strip) | own-UI-keep | n/a | n/a | generic ARIA/alt-based detection, not a chatgpt-specific structural selector |
-| `08-observer-bus.js:14-30` | infra | own-UI `IGNORE_SELECTOR` list (`.tmx-copy-row`, `[data-tmx-control]`, `#tts-*` ids) | own-UI-keep | n/a | S3.3 | observer-bus noise filter — named local invariant (R7); S3.3 extends bus subscriptions for `exchangeRoot`/`assistantUnit` while keeping this filter as-is |
+| `08-observer-bus.js:14-30` | infra | own-UI `IGNORE_SELECTOR` list (`.tmx-copy-row`, `[data-tmx-control]`, `#tts-*` ids) | own-UI-keep | n/a | S3.3 — done (S3a) | observer-bus noise filter — named local invariant (R7); S3.3 extends bus subscriptions for `exchangeRoot`/`assistantUnit` while keeping this filter as-is |
 
 ---
 

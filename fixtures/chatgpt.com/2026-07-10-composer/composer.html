@@ -4,8 +4,12 @@ Attributes stripped to a fixed allowlist (id/role/contenteditable/data-testid/ar
 data-virtualkeyboard/placeholder) before this file was written — no classes, no href/src,
 no session/cookie/query-string data. Text content and svg internals never captured.
 data-oracle / data-oracle-negative markers added by hand for test_composer_fixture_oracle.js.
+2026-09-21 (churn S3.13): data-type="unified-composer" restored on the form — the live July
+composer form carried it (driftwatch 2026-07-28 fixture's composerForm strategy 3), the original
+sanitizer allowlist dropped it, and driftwatch pack v2 scopes composer/sendButton inside
+composerForm, which cannot resolve on a bare <form>.
 -->
-<form>
+<form data-type="unified-composer">
   <div><input id="upload-files" type="file"></input></div>
   <div>
     <div>

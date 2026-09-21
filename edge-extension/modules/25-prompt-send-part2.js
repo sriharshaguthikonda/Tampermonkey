@@ -188,12 +188,10 @@
         },
 
         setQueryAndSend(query, autoSend = false) {
-            const applied = this.setPromptText(query);
-            if (!applied) return false;
-            if (autoSend) {
-                this.scheduleSendButtonClick();
-            }
-            return true;
+            // S3.8: async (Promise<boolean>) — on a lazy new-chat page the text lands in
+            // the pendingComposerInput stub and the send waits for the real composer to
+            // mount (applyPromptText). No caller branches on the return synchronously.
+            return this.applyPromptText(query, { autoSend });
         },
 
         scheduleSendButtonClick() {
@@ -258,9 +256,13 @@
         handleGlobalPaste(event) {
             if (!this.isChatGPTPage) return;
             const promptArea = this.findPromptArea();
-            if (!promptArea) return;
+            // S3.8 lazy new-chat: no composer form exists yet, only the pre-hydration
+            // stub — paste still lands (applyPromptText hydrates through the stub and
+            // waits for the real composer to mount).
+            const pendingStub = promptArea ? null : this.findPendingComposerInput();
+            if (!promptArea && !pendingStub) return;
 
-            if (this.isPromptFocused(promptArea)) {
+            if (promptArea && this.isPromptFocused(promptArea)) {
                 if (this.CONFIG.REGULAR_PASTE_ENABLED && this.CONFIG.REGULAR_AUTO_SEND_IN_INPUT) {
                     setTimeout(() => this.scheduleSendButtonClick(), 40);
                 }
@@ -281,23 +283,28 @@
             event.preventDefault();
             event.stopPropagation();
 
+            // Async path: applyPromptText notifies the user on failure itself, so only
+            // the success notifications happen here.
             if (this.CONFIG.NICE_AUTO_PASTE_ENABLED) {
                 const formattedQuery = `According to NICE guidelines, what is the answer for the following:\n\n${pastedText.trim()}`;
-                const success = this.setQueryAndSend(formattedQuery, this.CONFIG.NICE_AUTO_SEND);
-                if (success) {
-                    this.showNotification(`NICE query pasted${this.CONFIG.NICE_AUTO_SEND ? ' and sent' : ''}.`);
-                }
+                this.applyPromptText(formattedQuery, { autoSend: this.CONFIG.NICE_AUTO_SEND })
+                    .then((success) => {
+                        if (success) {
+                            this.showNotification(`NICE query pasted${this.CONFIG.NICE_AUTO_SEND ? ' and sent' : ''}.`);
+                        }
+                    })
+                    .catch(() => { });
                 return;
             }
 
             if (this.CONFIG.REGULAR_PASTE_ENABLED) {
-                const success = this.setPromptText(pastedText);
-                if (success) {
-                    if (this.CONFIG.REGULAR_AUTO_SEND) {
-                        this.scheduleSendButtonClick();
-                    }
-                    this.showNotification(`Text pasted${this.CONFIG.REGULAR_AUTO_SEND ? ' and sent' : ''}.`);
-                }
+                this.applyPromptText(pastedText, { autoSend: this.CONFIG.REGULAR_AUTO_SEND })
+                    .then((success) => {
+                        if (success) {
+                            this.showNotification(`Text pasted${this.CONFIG.REGULAR_AUTO_SEND ? ' and sent' : ''}.`);
+                        }
+                    })
+                    .catch(() => { });
             }
         },
 

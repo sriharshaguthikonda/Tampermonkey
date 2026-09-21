@@ -4,226 +4,219 @@ const path = require('path');
 const vm = require('vm');
 
 const repoRoot = __dirname;
-const fixturePath = path.join(repoRoot, 'fixtures', 'chatgpt.com', '2026-07-10-composer', 'composer.html');
 
-// ponytail: no DOM library in this repo (no node_modules, Phase A forbids adding packages).
-// Minimal HTML parser + CSS selector matcher scoped to exactly what
-// PROMPT_SELECTORS/SEND_SELECTORS use: tag, #id, .class, [attr], [attr="v"],
-// [attr*="v"], descendant combinator, :not(...). Upgrade to a real DOM lib
-// if a future phase needs broader CSS support.
+// jsdom from the driftwatch repo (24.1.3, `:has()` verified — PLAN S0.9); this repo has
+// no node_modules by design. The old hand-rolled DOM matcher could not parse `:has()`,
+// which pack v2 needs, and it could not run the driftwatch engine's inside: containment
+// (no .contains), so the extension modules now load into a real DOM instead.
+const { JSDOM } = require(path.join(repoRoot, '..', 'driftwatch', 'node_modules', 'jsdom'));
 
-const VOID_TAGS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr']);
-
-function parseAttributes(attrStr) {
-    const attrs = {};
-    const re = /([a-zA-Z_:][-\w:.]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
-    let m;
-    while ((m = re.exec(attrStr))) {
-        const value = m[2] !== undefined ? m[2] : m[3] !== undefined ? m[3] : m[4] !== undefined ? m[4] : '';
-        attrs[m[1].toLowerCase()] = value;
+// S3.13: the oracle runs against BOTH frontiers. July = legacy vocabulary
+// (#prompt-textarea composer, testid Send — state 'composing' since its Send is
+// present+enabled). Sept 2026-09-21 = idle-empty (Send absent is CORRECT) and
+// composing (enabled submit Send).
+const FIXTURES = [
+    {
+        name: 'july-composer',
+        html: path.join(repoRoot, 'fixtures', 'chatgpt.com', '2026-07-10-composer', 'composer.html'),
+        composerOracle: 'composer-input',
+        sendOracle: 'send-button'
+    },
+    {
+        name: 'sept-idle',
+        html: path.join(repoRoot, 'fixtures', 'chatgpt.com', '2026-09-21-idle', 'conversation.html'),
+        composerOracle: 'composer',
+        sendOracle: null
+    },
+    {
+        name: 'sept-composing',
+        html: path.join(repoRoot, 'fixtures', 'chatgpt.com', '2026-09-21-composing', 'conversation.html'),
+        composerOracle: 'composer',
+        sendOracle: 'sendButton'
     }
-    return attrs;
-}
+];
 
-function makeNode(tagName, attrs) {
-    return {
-        nodeType: 1,
-        tagName,
-        _attrs: attrs,
-        children: [],
-        parentNode: null,
-        getAttribute(name) {
-            const v = this._attrs[name.toLowerCase()];
-            return v === undefined ? null : v;
-        },
-        get disabled() { return this._attrs.disabled !== undefined; },
-        get isContentEditable() { return this._attrs.contenteditable === 'true'; },
-        matches(selectorString) {
-            return chainMatches(this, parseSelector(selectorString));
-        }
-    };
-}
+const MODULES = [
+    '00-namespace.js',
+    '22-driftwatch.js',
+    '23-resolution.js',
+    '25-prompt-send-part1.js'
+];
 
-function parseHtml(html) {
-    const root = makeNode('#ROOT', {});
-    const stack = [root];
-    const re = /<!--[\s\S]*?-->|<(\/?)([a-zA-Z][\w-]*)([^>]*?)(\/?)>/g;
-    let m;
-    while ((m = re.exec(html))) {
-        if (m[0].startsWith('<!--')) continue;
-        const [, closing, tagName, attrStr, selfClose] = m;
-        if (closing) {
-            for (let k = stack.length - 1; k >= 1; k--) {
-                if (stack[k].tagName === tagName.toUpperCase()) { stack.length = k; break; }
-            }
-            continue;
-        }
-        const node = makeNode(tagName.toUpperCase(), parseAttributes(attrStr));
-        node.parentNode = stack[stack.length - 1];
-        stack[stack.length - 1].children.push(node);
-        if (!selfClose && !VOID_TAGS.has(tagName.toLowerCase())) {
-            stack.push(node);
-        }
+function loadReader(html) {
+    const dom = new JSDOM(html, { url: 'https://chatgpt.com/', runScripts: 'dangerously' });
+    const context = dom.getInternalVMContext();
+    for (const name of MODULES) {
+        const modulePath = path.join(repoRoot, 'edge-extension', 'modules', name);
+        vm.runInContext(fs.readFileSync(modulePath, 'utf8'), context, { filename: modulePath });
     }
-    return root;
-}
-
-function parseCompound(str) {
-    const compound = { tag: null, id: null, classes: [], attrs: [], nots: [] };
-    let s = str.trim();
-    let m = s.match(/^[a-zA-Z][\w-]*/);
-    if (m) { compound.tag = m[0].toUpperCase(); s = s.slice(m[0].length); }
-    while (s.length) {
-        if ((m = s.match(/^#([\w-]+)/))) { compound.id = m[1]; s = s.slice(m[0].length); continue; }
-        if ((m = s.match(/^\.([\w-]+)/))) { compound.classes.push(m[1]); s = s.slice(m[0].length); continue; }
-        if ((m = s.match(/^\[([\w-]+)(?:([*^$]?=)"([^"]*)")?\]/))) {
-            compound.attrs.push({ name: m[1], op: m[2] || null, value: m[3] !== undefined ? m[3] : null });
-            s = s.slice(m[0].length); continue;
-        }
-        if ((m = s.match(/^:not\(([^)]*)\)/))) {
-            compound.nots.push(parseCompound(m[1]));
-            s = s.slice(m[0].length); continue;
-        }
-        throw new Error(`cannot parse selector fragment "${s}" (from "${str}")`);
-    }
-    return compound;
-}
-
-function splitCompounds(selectorString) {
-    const parts = [];
-    let current = '';
-    let depth = 0;
-    let inQuote = null;
-    for (const ch of selectorString.trim()) {
-        if (inQuote) {
-            current += ch;
-            if (ch === inQuote) inQuote = null;
-            continue;
-        }
-        if (ch === '"' || ch === "'") { inQuote = ch; current += ch; continue; }
-        if (ch === '[' || ch === '(') { depth++; current += ch; continue; }
-        if (ch === ']' || ch === ')') { depth--; current += ch; continue; }
-        if (/\s/.test(ch) && depth === 0) {
-            if (current) parts.push(current);
-            current = '';
-            continue;
-        }
-        current += ch;
-    }
-    if (current) parts.push(current);
-    return parts;
-}
-
-function parseSelector(selectorString) {
-    return splitCompounds(selectorString).map(parseCompound);
-}
-
-function compoundMatches(node, compound) {
-    if (compound.tag && node.tagName !== compound.tag) return false;
-    if (compound.id && node.getAttribute('id') !== compound.id) return false;
-    if (compound.classes.length) {
-        const classes = (node.getAttribute('class') || '').split(/\s+/).filter(Boolean);
-        for (const c of compound.classes) if (!classes.includes(c)) return false;
-    }
-    for (const a of compound.attrs) {
-        const val = node.getAttribute(a.name);
-        if (val === null) return false;
-        if (a.op === null) continue;
-        if (a.op === '=' && val !== a.value) return false;
-        if (a.op === '*=' && !val.includes(a.value)) return false;
-        if (a.op === '^=' && !val.startsWith(a.value)) return false;
-        if (a.op === '$=' && !val.endsWith(a.value)) return false;
-    }
-    for (const notCompound of compound.nots) {
-        if (compoundMatches(node, notCompound)) return false;
-    }
-    return true;
-}
-
-function chainMatches(node, compounds) {
-    const last = compounds[compounds.length - 1];
-    if (!compoundMatches(node, last)) return false;
-    if (compounds.length === 1) return true;
-    const rest = compounds.slice(0, -1);
-    let ancestor = node.parentNode;
-    while (ancestor) {
-        if (chainMatches(ancestor, rest)) return true;
-        ancestor = ancestor.parentNode;
-    }
-    return false;
-}
-
-function querySelectorAllFrom(root, selectorString) {
-    const compounds = parseSelector(selectorString);
-    const results = [];
-    (function walk(node) {
-        if (node.nodeType === 1 && node !== root && chainMatches(node, compounds)) results.push(node);
-        for (const child of node.children) walk(child);
-    })(root);
-    return results;
-}
-
-function getComputedStyleStub(node) {
-    const style = node.getAttribute('style') || '';
-    return {
-        display: /display\s*:\s*none/.test(style) ? 'none' : 'block',
-        visibility: /visibility\s*:\s*hidden/.test(style) ? 'hidden' : 'visible'
-    };
-}
-
-function loadReaderAgainstFixture(fixtureRoot) {
-    const fakeDocument = {
-        activeElement: null,
-        querySelector(sel) {
-            const r = querySelectorAllFrom(fixtureRoot, sel);
-            return r.length ? r[0] : null;
-        },
-        querySelectorAll(sel) {
-            return querySelectorAllFrom(fixtureRoot, sel);
-        }
-    };
-    const reader = {};
-    const context = {
-        console,
-        document: fakeDocument,
-        window: {
-            __TTSNS: { TTSReader: reader, helpers: {} },
-            document: fakeDocument,
-            getComputedStyle: getComputedStyleStub,
-            getSelection: () => null,
-            addEventListener() {}
-        }
-    };
-    context.window.document = fakeDocument;
-    vm.createContext(context);
-    const modulePath = path.join(repoRoot, 'edge-extension', 'modules', '25-prompt-send-part1.js');
-    vm.runInContext(fs.readFileSync(modulePath, 'utf8'), context, { filename: modulePath });
-    return reader;
+    return { dom, reader: dom.window.__TTSNS.TTSReader };
 }
 
 function testComposerFixtureOracle() {
-    const html = fs.readFileSync(fixturePath, 'utf8');
-    const fixtureRoot = parseHtml(html);
-    const reader = loadReaderAgainstFixture(fixtureRoot);
+    for (const fixture of FIXTURES) {
+        const html = fs.readFileSync(fixture.html, 'utf8');
+        const { dom, reader } = loadReader(html);
+        const doc = dom.window.document;
 
-    const promptArea = reader.findPromptArea();
-    assert.ok(promptArea, 'findPromptArea() found nothing against the fixture');
-    assert.strictEqual(promptArea.getAttribute('data-oracle'), 'composer-input',
-        `findPromptArea() matched wrong element (data-oracle=${promptArea.getAttribute('data-oracle')})`);
+        const promptArea = reader.findPromptArea();
+        assert.ok(promptArea, `${fixture.name}: findPromptArea() found nothing against the fixture`);
+        assert.strictEqual(promptArea.getAttribute('data-oracle'), fixture.composerOracle,
+            `${fixture.name}: findPromptArea() matched wrong element`);
+        assert.ok(!promptArea.hasAttribute('data-oracle-negative'),
+            `${fixture.name}: findPromptArea() returned a negative-oracle element`);
 
-    const sendButton = reader.findSendButton();
-    assert.ok(sendButton, 'findSendButton() found nothing against the fixture');
-    assert.strictEqual(sendButton.getAttribute('data-oracle'), 'send-button',
-        `findSendButton() matched wrong element (data-oracle=${sendButton.getAttribute('data-oracle')})`);
+        // The composer must be the form-scoped one, never the code-block editor that
+        // shares contenteditable+role=textbox inside an exchange.
+        const composerForm = reader.findComposerForm();
+        assert.ok(composerForm, `${fixture.name}: findComposerForm() found nothing`);
+        assert.ok(composerForm.contains(promptArea),
+            `${fixture.name}: composer resolved outside the composer form`);
+        const codeEditor = doc.querySelector('[aria-label="Edit code"]');
+        if (codeEditor) {
+            assert.notStrictEqual(promptArea, codeEditor, `${fixture.name}: composer is the code-block editor`);
+            assert.ok(!composerForm.contains(codeEditor), `${fixture.name}: code editor inside the composer form`);
+        }
 
-    for (const selector of reader.getSendButtonSelectors()) {
-        const matches = querySelectorAllFrom(fixtureRoot, selector);
-        for (const el of matches) {
-            assert.strictEqual(el.getAttribute('data-oracle-negative'), null,
-                `send selector "${selector}" matched a negative-oracle element (${el.getAttribute('data-oracle-negative')})`);
+        const sendButton = reader.findSendButton();
+        if (fixture.sendOracle === null) {
+            assert.strictEqual(sendButton, null,
+                `${fixture.name}: findSendButton() must return null while idle-empty`);
+        } else {
+            assert.ok(sendButton, `${fixture.name}: findSendButton() found nothing`);
+            assert.strictEqual(sendButton.getAttribute('data-oracle'), fixture.sendOracle,
+                `${fixture.name}: findSendButton() matched wrong element`);
+        }
+
+        // Mic exclusion is a CODE invariant (00-DESIGN #19): Dictate is a sibling button
+        // inside the same composer form, enabled, and must never be a send target.
+        const dictate = doc.querySelector('button[aria-label="Dictate"], button[aria-label="Start dictation"]');
+        if (dictate) {
+            assert.strictEqual(reader.isSendButtonElement(dictate), false,
+                `${fixture.name}: Dictate mic classified as a send button`);
+            assert.notStrictEqual(sendButton, dictate, `${fixture.name}: send target is the Dictate mic`);
         }
     }
+    console.log('PASS testComposerFixtureOracle (july-composer + sept-idle + sept-composing)');
 }
 
-testComposerFixtureOracle();
-console.log('PASS testComposerFixtureOracle');
+function testResolutionHelpers() {
+    const html = fs.readFileSync(FIXTURES[2].html, 'utf8');
+    const { reader } = loadReader(html);
+
+    // S3.3 helpers: exchanges() enumerates document-wide (the ONLY anchor allowed to),
+    // resolveInExchange scopes per exchange, resolveSingleton carries state.
+    const exchanges = reader.exchanges();
+    assert.ok(Array.isArray(exchanges) && exchanges.length >= 3,
+        'exchanges() returned fewer than 3 exchanges against sept-composing');
+
+    const userUnit = reader.resolveInExchange('userUnit', exchanges[0]);
+    assert.ok(userUnit, 'resolveInExchange(userUnit) failed in exchange 0');
+    assert.strictEqual(userUnit.getAttribute('data-oracle-exchange'), 'userUnit',
+        'resolveInExchange(userUnit) matched wrong element in exchange 0');
+
+    const assistantUnit = reader.resolveInExchange('assistantUnit', exchanges[exchanges.length - 1]);
+    assert.ok(assistantUnit, 'resolveInExchange(assistantUnit) failed in the last exchange');
+    assert.strictEqual(assistantUnit.getAttribute('data-oracle-exchange'), 'assistantUnit',
+        'resolveInExchange(assistantUnit) matched wrong element in the last exchange');
+
+    // Per-exchange resolution must stay INSIDE its exchange (never another exchange's unit).
+    const foreign = reader.resolveInExchange('userUnit', exchanges[exchanges.length - 1]);
+    if (foreign) {
+        assert.ok(exchanges[exchanges.length - 1].contains(foreign),
+            'resolveInExchange returned an element outside its own exchange');
+    }
+
+    // resolveSingleton with state: idle page must NOT yield a send button.
+    const idleHtml = fs.readFileSync(FIXTURES[1].html, 'utf8');
+    const { reader: idleReader } = loadReader(idleHtml);
+    assert.strictEqual(idleReader.resolveSingleton('sendButton', 'composing'), null,
+        'idle-empty page resolved a send button');
+    assert.ok(idleReader.resolveSingleton('composerForm'),
+        'idle page must still resolve the composer form');
+
+    // Missing engine fails soft: helpers on a bare reader (no driftwatch) return
+    // null/[], never throw (D7 pattern).
+    const bareDom = new JSDOM('<html><body></body></html>', { url: 'https://chatgpt.com/', runScripts: 'dangerously' });
+    const bareCtx = bareDom.getInternalVMContext();
+    const nsPath = path.join(repoRoot, 'edge-extension', 'modules', '00-namespace.js');
+    const resPath = path.join(repoRoot, 'edge-extension', 'modules', '23-resolution.js');
+    vm.runInContext(fs.readFileSync(nsPath, 'utf8'), bareCtx, { filename: nsPath });
+    vm.runInContext(fs.readFileSync(resPath, 'utf8'), bareCtx, { filename: resPath });
+    const bareReader = bareDom.window.__TTSNS.TTSReader;
+    // (length check, not deepStrictEqual — the array comes from the jsdom realm)
+    assert.strictEqual(bareReader.exchanges().length, 0, 'exchanges() must fail soft to []');
+    assert.strictEqual(bareReader.resolveSingleton('composer'), null, 'resolveSingleton must fail soft to null');
+    assert.strictEqual(bareReader.resolveInExchange('userUnit', bareDom.window.document.body), null,
+        'resolveInExchange must fail soft to null');
+    console.log('PASS testResolutionHelpers');
+}
+
+// S3.8 lazy new-chat page: before the first interaction there is NO form and NO
+// contenteditable — only the pre-hydration textarea stub and a disabled type=button
+// Send decoy that lives outside any form. Hand-written HTML, no page text.
+const LAZY_HTML = `<!doctype html>
+<html>
+<body>
+<main>
+<textarea id="pending-home-input" data-pending-input-initialized=""></textarea>
+<button type="button" aria-label="Send" disabled="" data-oracle-negative="1"></button>
+</main>
+</body>
+</html>`;
+
+async function testLazyComposerPasteFlow() {
+    // Case A: the real composer never mounts — the stub write happens, nothing is
+    // clicked, and the bounded wait fails soft.
+    const caseA = loadReader(LAZY_HTML);
+    const caseADoc = caseA.dom.window.document;
+    const stub = caseADoc.querySelector('textarea#pending-home-input');
+    const decoySend = caseADoc.querySelector('button[aria-label="Send"]');
+    assert.ok(stub && decoySend, 'lazy fixture missing stub or decoy send');
+    const clicks = [];
+    decoySend.click = () => clicks.push(1);
+
+    assert.strictEqual(caseA.reader.findComposerForm(), null, 'lazy page must have no composer form');
+    assert.strictEqual(caseA.reader.findPromptArea(), null, 'lazy page must have no composer');
+    assert.strictEqual(caseA.reader.findPendingComposerInput(), stub, 'pendingComposerInput must resolve the stub');
+    assert.strictEqual(caseA.reader.findSendButton(), null,
+        'disabled type=button Send outside any form must never be the send target');
+
+    const applied = await caseA.reader.applyPromptText('synthetic prompt text', { waitMs: 300 });
+    assert.strictEqual(applied, false, 'applyPromptText must fail when the composer never mounts');
+    assert.strictEqual(stub.value, 'synthetic prompt text',
+        'applyPromptText must write the stub via the native textarea setter');
+    assert.strictEqual(clicks.length, 0, 'the disabled decoy Send was clicked');
+
+    // Case B: the page mounts the real composer shortly after the stub write (as the
+    // live page does ~1.5-3 s). The wait picks it up; jsdom does not carry the text
+    // over, so the extension must land it on the real composer itself.
+    const caseB = loadReader(LAZY_HTML);
+    const caseBDoc = caseB.dom.window.document;
+    const caseBClicks = [];
+    caseBDoc.querySelector('button[aria-label="Send"]').click = () => caseBClicks.push(1);
+
+    const mountTimer = caseB.dom.window.setTimeout(() => {
+        caseBDoc.body.insertAdjacentHTML('beforeend',
+            '<form data-chatgpt-composer=""><div data-composer-markdown="" contenteditable="true" role="textbox" data-oracle="composer"></div></form>');
+    }, 100);
+
+    const ok = await caseB.reader.applyPromptText('synthetic prompt text', { waitMs: 3000 });
+    clearTimeout(mountTimer);
+    assert.strictEqual(ok, true, 'applyPromptText must succeed once the composer mounts');
+    const composer = caseB.reader.findPromptArea();
+    assert.ok(composer, 'mounted composer not found after applyPromptText');
+    assert.ok(String(composer.textContent || '').includes('synthetic prompt text'),
+        'text was not landed on the real composer');
+    assert.strictEqual(caseBClicks.length, 0, 'the disabled decoy Send was clicked');
+    console.log('PASS testLazyComposerPasteFlow (stub write, bounded wait, no decoy click)');
+}
+
+(async () => {
+    testComposerFixtureOracle();
+    testResolutionHelpers();
+    await testLazyComposerPasteFlow();
+})().catch((error) => {
+    console.error(error);
+    process.exit(1);
+});
