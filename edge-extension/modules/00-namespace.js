@@ -215,7 +215,7 @@
         pasteHandler: null,
         sendCaptureHandler: null,
         copyBusUnsubscribe: null,
-        editBusUnsubscribe: null,
+        doubleClickEditHandler: null,
         limitWarningBusUnsubscribe: null,
         promptHistoryBusUnsubscribe: null,
         pendingPromptHistoryElements: null,

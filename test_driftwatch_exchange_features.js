@@ -22,6 +22,7 @@ const MODULES = [
     '23-resolution.js',
     '25-prompt-send-part1.js',
     '25-prompt-send-part2.js',
+    '35-server-tts.js',
     '20-smart-copy-part1.js',
     '40-voice.js',
     '50-text.js',
@@ -387,6 +388,37 @@ async function testPasteGuardBlocksOnOpenEditSurfaceForm() {
     console.log('PASS testPasteGuardBlocksOnOpenEditSurfaceForm');
 }
 
+async function testDoubleClickEditFocusesEditSurfaceNotCodeEditorDecoy() {
+    const html = `<!doctype html><html><body><div id="decoy" contenteditable="true" tabindex="-1"></div><main>${exchangeMarkup('dbl-1')}</main></body></html>`;
+    const { document, reader, window } = loadReader(html);
+    const article = document.querySelector('[data-turn-key="dbl-1"]');
+    const userUnit = document.querySelector('[data-content-search-unit-key="dbl-1:0:user"]');
+    userUnit.insertAdjacentHTML('beforeend', '<button aria-label="Edit message">e</button>');
+    let editClicks = 0;
+    userUnit.querySelector('button').addEventListener('click', () => {
+        editClicks += 1;
+        article.insertAdjacentHTML('beforeend', '<form><div id="edit-target" data-composer-markdown contenteditable="true" tabindex="-1"></div></form>');
+    });
+
+    // A single delegated listener: the second attach must not add another one.
+    reader.CONFIG.DOUBLE_CLICK_EDIT_ENABLED = true;
+    reader.attachDoubleClickListeners();
+    reader.attachDoubleClickListeners();
+
+    // A dblclick on the assistant unit clicks nothing (hit-test is userUnit-scoped).
+    document.querySelector('[data-content-search-unit-key="dbl-1:2:assistant"] p').dispatchEvent(new window.MouseEvent('dblclick', { bubbles: true }));
+    await Promise.resolve();
+    assert.strictEqual(editClicks, 0);
+
+    // A dblclick on the user unit opens the edit surface and focuses it — never the
+    // out-of-exchange decoy code editor.
+    userUnit.querySelector('p').dispatchEvent(new window.MouseEvent('dblclick', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 300));
+    assert.strictEqual(editClicks, 1);
+    assert.strictEqual(document.activeElement && document.activeElement.id, 'edit-target');
+    console.log('PASS testDoubleClickEditFocusesEditSurfaceNotCodeEditorDecoy');
+}
+
 (async () => {
     await testResolutionMemoExpiresAfterMicrotask();
     testExchangesAndScopedPerExchangeResolution();
@@ -401,6 +433,7 @@ async function testPasteGuardBlocksOnOpenEditSurfaceForm() {
     testPromptHistoryHydratesFromUserUnitsInExchangeOrder();
     await testPasteGuardBlocksOnOpenEditSurfaceForm();
     await testObserverBusDeliversExchangeScopedBatches();
+    await testDoubleClickEditFocusesEditSurfaceNotCodeEditorDecoy();
 })().catch((error) => {
     console.error(error);
     process.exit(1);

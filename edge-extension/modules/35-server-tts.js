@@ -369,25 +369,40 @@
 
         handleDoubleClickEdit(event) {
             if (!this.isChatGPTPage || !this.CONFIG.DOUBLE_CLICK_EDIT_ENABLED) return;
-            const messageContainer = event.target.closest('.group\\/conversation-turn, [data-message-author-role="user"]');
-            if (!messageContainer) return;
-            const editButton = messageContainer.querySelector('button[aria-label="Edit message"]');
+            if (typeof this.exchangeForElement !== 'function') return;
+            // S3.9: hit-test the userUnit of the exchange holding the target.
+            const exchangeEl = this.exchangeForElement(event.target);
+            const userUnit = exchangeEl && this.resolveInExchange('userUnit', exchangeEl);
+            if (!userUnit || !userUnit.contains(event.target)) return;
+            const editButton = this.resolveInExchange('editMessageButton', exchangeEl);
             if (!editButton) return;
+            const key = this.exchangeKey(exchangeEl);
             editButton.click();
+            this.focusEditSurface(exchangeEl, key, Date.now() + 1000);
+        },
+
+        focusEditSurface(exchangeEl, key, deadline) {
+            // Focus lands inside the edited exchange's edit form, never a code editor elsewhere.
+            // The form mounts a moment after the click, so poll until the deadline.
             setTimeout(() => {
-                const editor = document.querySelector('textarea, [contenteditable="true"]');
-                if (editor) editor.focus();
+                const current = exchangeEl.isConnected
+                    ? exchangeEl
+                    : this.exchanges().find((candidate) => this.exchangeKey(candidate) === key);
+                const form = current && this.resolveInExchange('editSurfaceForm', current);
+                const editor = form && form.querySelector('[contenteditable="true"], textarea');
+                if (editor) {
+                    editor.focus();
+                    return;
+                }
+                if (Date.now() < deadline) this.focusEditSurface(exchangeEl, key, deadline);
             }, 80);
         },
 
         attachDoubleClickListeners() {
-            if (!this.isChatGPTPage) return;
-            const containers = document.querySelectorAll('.group\\/conversation-turn, .group\\/turn-messages, [data-message-author-role]');
-            containers.forEach((container) => {
-                if (container.dataset.tmxEditListener === '1') return;
-                container.dataset.tmxEditListener = '1';
-                container.addEventListener('dblclick', (event) => this.handleDoubleClickEdit(event));
-            });
+            // S3.9: one delegated listener; the hit-test happens per event.
+            if (!this.isChatGPTPage || this.doubleClickEditHandler) return;
+            this.doubleClickEditHandler = (event) => this.handleDoubleClickEdit(event);
+            document.addEventListener('dblclick', this.doubleClickEditHandler);
         },
 
         setDoubleClickEditEnabled(enabled, silent = false) {

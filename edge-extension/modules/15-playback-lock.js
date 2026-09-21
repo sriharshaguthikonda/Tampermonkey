@@ -291,13 +291,6 @@
 
             this.updateCopyButtons();
 
-            if (!this.editBusUnsubscribe && ns.observerBus) {
-                this.editBusUnsubscribe = ns.observerBus.subscribe({
-                    name: 'double-click-edit',
-                    selector: '.group\\/conversation-turn, .group\\/turn-messages, [data-message-author-role]',
-                    onFlush: () => this.attachDoubleClickListeners()
-                });
-            }
             this.attachDoubleClickListeners();
 
             if (!this.limitWarningBusUnsubscribe && ns.observerBus) {
