@@ -17,19 +17,19 @@
 
         initAutoReadObserver() {
             if (this.autoReadBusUnsubscribe || !ns.observerBus) return;
-            this.autoReadBusUnsubscribe = ns.observerBus.subscribe({
+            // S3.4: keyed on exchangeRoot mutations through the bus; the assistant
+            // message is the pack's assistantUnit resolved with each touched exchange
+            // as scope (role comes from that resolution, never a site attribute).
+            this.autoReadBusUnsubscribe = ns.observerBus.subscribeExchanges({
                 name: 'auto-read',
-                selector: '[data-message-author-role="assistant"], section[data-turn="assistant"]',
-                onFlush: ({ addedNodes }) => {
+                onExchangeChange: ({ exchanges: touchedExchanges }) => {
                     if (!this.CONFIG.AUTO_READ_NEW_MESSAGES) return;
                     if (this.continuousReadingActive || this.ttsActive || this.isNavigating || this.navKeyHeld) return;
 
                     const now = Date.now();
                     let shouldTrigger = false;
-                    addedNodes.forEach((element) => {
-                        const messageElement = element.matches && element.matches('[data-message-author-role="assistant"]')
-                            ? element
-                            : element.closest && element.closest('[data-message-author-role="assistant"]');
+                    touchedExchanges.forEach((exchangeEl) => {
+                        const messageElement = this.resolveInExchange('assistantUnit', exchangeEl);
                         if (!messageElement) return;
                         this.autoReadMessageActivity.set(messageElement, now);
                         if (this.isAutoReadEligibleMessage(messageElement)) {
@@ -54,9 +54,14 @@
         },
 
         getLatestAssistantMessageElement() {
-            const messages = Array.from(document.querySelectorAll('[data-message-author-role="assistant"]'));
-            if (messages.length === 0) return null;
-            return messages[messages.length - 1];
+            // S3.4: the last assistant unit across exchanges in DOM order — the pack's
+            // assistantUnit resolved per exchange, never a document-wide role query.
+            const exchangeList = this.exchanges();
+            for (let i = exchangeList.length - 1; i >= 0; i -= 1) {
+                const messageElement = this.resolveInExchange('assistantUnit', exchangeList[i]);
+                if (messageElement) return messageElement;
+            }
+            return null;
         },
 
         getAssistantParagraphs(messageElement) {
@@ -318,7 +323,9 @@
 
         isAutoReadEligibleMessage(messageElement) {
             if (!messageElement) return false;
-            if (messageElement.getAttribute('data-message-author-role') !== 'assistant') return false;
+            // S3.4: no role-attribute guard — eligibility runs against an element
+            // already resolved as the exchange's assistantUnit; the role comes from
+            // that resolution. The heuristics below stay (own-UI-keep rows :323/:325/:328).
             const messageType = (messageElement.getAttribute('data-message-type') || '').toLowerCase();
             if (messageType && /thinking|analysis|tool|status/.test(messageType)) return false;
             const label = (messageElement.getAttribute('aria-label') || '').toLowerCase();

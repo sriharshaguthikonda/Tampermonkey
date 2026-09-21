@@ -64,6 +64,38 @@
         return false;
     }
 
+    // S3.3: map an arbitrary node to the exchange element containing it by walking
+    // up to the element present in 23-resolution's exchanges() — never a hardcoded
+    // site attribute. When driftwatch or the resolution helpers are unavailable this
+    // returns null and exchange subscriptions stay quiet (fail-soft, D7).
+    function exchangeFor(node) {
+        const reader = ns.TTSReader;
+        if (!reader || typeof reader.exchangeForElement !== 'function') return null;
+        try {
+            return reader.exchangeForElement(node);
+        } catch (_error) {
+            return null;
+        }
+    }
+
+    // Exchanges an added node touches: the one containing it, else every exchange it
+    // contains (an inserted wrapper can carry whole exchanges). exchanges() is
+    // tick-memoized in 23-resolution.js, so a batch shares one enumeration.
+    // ponytail: O(exchanges) contains() checks for nodes outside every exchange.
+    function exchangesTouchedBy(node, seen) {
+        const containing = exchangeFor(node);
+        if (containing) return [containing];
+        const reader = ns.TTSReader;
+        if (!node || typeof node.contains !== 'function' || !reader || typeof reader.exchanges !== 'function') return [];
+        try {
+            // Only NEW exchanges count through containment: a mutation target such as the
+            // list container or body contains every exchange already on the page.
+            return reader.exchanges().filter((exchangeEl) => !seen.has(exchangeEl) && node.contains(exchangeEl));
+        } catch (_error) {
+            return [];
+        }
+    }
+
     function isRelevantForSubscriber(element, subscriber) {
         if (!element || element.isConnected === false || isExtensionOwned(element)) return false;
         if (typeof subscriber.relevant === 'function') {
@@ -227,6 +259,46 @@
                 }
             };
         },
+
+        // S3.3: subscribe to exchangeRoot/assistantUnit change batches. Same options
+        // shape as subscribe() (minus selector/relevant — relevance IS exchange
+        // membership); the own-UI noise filter still applies because it rides the
+        // same subscriber machinery. onExchangeChange receives the DISTINCT exchange
+        // elements touched in the batch — per-exchange anchors (assistantUnit,
+        // assistantMarkdownRoot, ...) are then resolved by the feature with the
+        // exchange as scope (Resolution model R1).
+        subscribeExchanges(options = {}) {
+            // onExchangeChange gets the exchanges a batch touched: the one containing a
+            // mutated node, plus exchanges that newly appeared inside an inserted subtree.
+            const onExchangeChange = typeof options.onExchangeChange === 'function' ? options.onExchangeChange : null;
+            if (!onExchangeChange) {
+                throw new Error('observerBus.subscribeExchanges requires onExchangeChange');
+            }
+            const seen = new WeakSet();
+            try {
+                const reader = ns.TTSReader;
+                if (reader && typeof reader.exchanges === 'function') reader.exchanges().forEach((exchangeEl) => seen.add(exchangeEl));
+            } catch (_error) {
+                // Fail soft: an empty seen set only means the first batch reports every exchange once.
+            }
+            return ns.observerBus.subscribe({
+                name: typeof options.name === 'string' && options.name ? `${options.name}:exchanges` : 'anonymous:exchanges',
+                relevant: (element) => exchangesTouchedBy(element, seen).length > 0,
+                debounceMs: options.debounceMs,
+                maxWaitMs: options.maxWaitMs,
+                onFlush: ({ addedNodes, removedCount, batchCount }) => {
+                    const touched = new Set();
+                    addedNodes.forEach((element) => {
+                        exchangesTouchedBy(element, seen).forEach((exchangeEl) => touched.add(exchangeEl));
+                    });
+                    touched.forEach((exchangeEl) => seen.add(exchangeEl));
+                    if (touched.size === 0 && removedCount === 0 && batchCount === 0) return;
+                    onExchangeChange({ exchanges: Array.from(touched), removedCount, batchCount });
+                }
+            });
+        },
+
+        exchangeFor,
         stop
     };
 })();

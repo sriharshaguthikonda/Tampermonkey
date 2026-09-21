@@ -154,7 +154,13 @@
             if (!element || !element.tagName || element.offsetParent === null || window.getComputedStyle(element).visibility === 'hidden' || window.getComputedStyle(element).display === 'none') {
                 return false;
             }
-            if (element.closest(this.CONFIG.IGNORE_SELECTORS)) return false;
+            // S3.6/00-namespace:258 row — generic/own ignore entries stay in code;
+            // on chatgpt.com the site entries are appended from pack data.
+            const ignoreSelector = typeof this.getIgnoreSelectors === 'function'
+                ? this.getIgnoreSelectors()
+                : this.CONFIG.IGNORE_SELECTORS;
+            if (ignoreSelector && element.closest && element.closest(ignoreSelector)) return false;
+            if (typeof this.isInsideSkippedCodeContainer === 'function' && this.isInsideSkippedCodeContainer(element)) return false;
             if (!this.CONFIG.READ_USER_MESSAGES && this.isUserMessageElement(element)) return false;
             const text = this.getTextFromElement(element);
             if (!text || text.trim().length === 0) return false;

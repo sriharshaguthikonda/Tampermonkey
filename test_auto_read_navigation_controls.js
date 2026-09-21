@@ -17,10 +17,7 @@ function makeRuntime(reader) {
         querySelector() {
             return null;
         },
-        querySelectorAll(selector) {
-            if (selector === '[data-message-author-role="assistant"]') {
-                return reader.__assistantMessages || [];
-            }
+        querySelectorAll() {
             return [];
         }
     };
@@ -63,9 +60,14 @@ function loadModule(reader, relativePath) {
 
 function makeAutoReadReader(overrides = {}) {
     const calls = [];
+    // S3.4 mock update: getLatestAssistantMessageElement() now enumerates exchanges()
+    // and resolves the assistantUnit per exchange (driftwatch pack v2) instead of
+    // querying [data-message-author-role="assistant"] — so the mock provides the two
+    // resolution helpers, and the message stub carries NO role attribute (on the Sept
+    // DOM the attribute is gone; the role comes from the unit resolution itself).
+    const exchangeElement = { id: 'exchange-0' };
     const message = {
-        getAttribute(name) {
-            if (name === 'data-message-author-role') return 'assistant';
+        getAttribute() {
             return '';
         },
         textContent: 'abcdef first paragraph second paragraph',
@@ -105,8 +107,12 @@ function makeAutoReadReader(overrides = {}) {
             { element: { inMessage: false, id: 'p2' }, text: 'outside message' }
         ],
         refreshParagraphsIfNeeded() {},
-        getLatestAssistantMessageElement() {
-            return message;
+        exchanges() {
+            return [exchangeElement];
+        },
+        resolveInExchange(anchor, exchangeEl) {
+            if (anchor === 'assistantUnit' && exchangeEl === exchangeElement) return message;
+            return null;
         },
         readFromParagraph(index, options) {
             calls.push({ index, options: options || {} });
@@ -115,7 +121,6 @@ function makeAutoReadReader(overrides = {}) {
         showNotification() {},
         ...overrides.reader
     };
-    reader.__assistantMessages = [message];
     loadModule(reader, 'edge-extension/modules/50-text.js');
     loadModule(reader, 'edge-extension/modules/70-auto-read.js');
     return { reader, calls, message };

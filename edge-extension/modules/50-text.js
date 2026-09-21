@@ -115,23 +115,20 @@
 
         getRawTextFromElement(element) {
             if (!element) return '';
-            let rawText = '';
-            if (this.isChatGPTPage && !this.CONFIG.READ_REFERENCES) {
-                const refSelector = this.CONFIG.REFERENCE_SELECTORS;
-                if (element.matches && element.matches(refSelector)) {
-                    return '';
-                }
-                if (element.querySelector && element.querySelector(refSelector)) {
-                    const clone = element.cloneNode(true);
-                    clone.querySelectorAll(refSelector).forEach(node => node.remove());
-                    rawText = this.getVisibleTextFromNode(clone);
-                } else {
-                    rawText = this.getVisibleTextFromNode(element);
-                }
-            } else {
-                rawText = this.getVisibleTextFromNode(element);
+            // S3.6 (R7): citation/reference exclusion selectors come from pack data
+            // (citationExclusions); an empty list (pack unavailable) means no
+            // exclusions — the feature no-ops rather than throwing (D7 fail-soft).
+            const refSelector = this.isChatGPTPage && !this.CONFIG.READ_REFERENCES
+                ? (typeof this.packData === 'function' ? this.packData('citationExclusions').join(', ') : '')
+                : '';
+            if (!refSelector) return this.getVisibleTextFromNode(element);
+            if (element.matches && element.matches(refSelector)) return '';
+            if (element.querySelector && element.querySelector(refSelector)) {
+                const clone = element.cloneNode(true);
+                clone.querySelectorAll(refSelector).forEach(node => node.remove());
+                return this.getVisibleTextFromNode(clone);
             }
-            return rawText;
+            return this.getVisibleTextFromNode(element);
         },
 
         extractTTSMetadata(text, fallbackSpeakerEmoji = '', sourceElement = null) {
@@ -333,9 +330,32 @@
             return this.getTextDataFromElement(element).text;
         },
 
+        isInsideSkippedCodeContainer(element) {
+            if (!element || !this.isChatGPTPage) return false;
+            // S3.6: finished code blocks are content inside the pack's codeBlock
+            // wrapper (pre/code exist only while streaming — probe §3.4), and the
+            // markdown-copy exclusion regions (code-block toolbars) are skipped by
+            // the probe-verified attribute. Streaming pre/code stay covered by the
+            // generic pre/code entries in CONFIG.IGNORE_SELECTORS.
+            if (element.closest && element.closest('[data-markdown-copy="exclude"]')) return true;
+            const exchangeEl = typeof this.exchangeForElement === 'function' ? this.exchangeForElement(element) : null;
+            if (!exchangeEl || typeof this.resolveAllInExchange !== 'function') return false;
+            const codeBlocks = this.resolveAllInExchange('codeBlock', exchangeEl);
+            return codeBlocks.some((block) => block === element || (block.contains && block.contains(element)));
+        },
+
         isUserMessageElement(element) {
             if (!element) return false;
-            const userSelectors = this.CONFIG.USER_MESSAGE_SELECTORS;
+
+            if (this.isChatGPTPage) {
+                const exchangeEl = typeof this.exchangeForElement === 'function' ? this.exchangeForElement(element) : null;
+                if (!exchangeEl || typeof this.resolveInExchange !== 'function') return false;
+                const userUnit = this.resolveInExchange('userUnit', exchangeEl);
+                if (userUnit && (userUnit === element || userUnit.contains(element))) return true;
+                return Boolean(userUnit && element.contains && element.contains(userUnit));
+            }
+
+            const userSelectors = '[data-message-author-role="user"], section[data-turn="user"], [data-turn="user"]';
 
             if (element.matches && element.matches(userSelectors)) {
                 return true;

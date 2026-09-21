@@ -253,9 +253,14 @@
         processedParagraph: { element: null, originalHTML: '', wordSpans: [], wordRanges: [], wordOffsets: [], wordLengths: [], wordTexts: [], usesCssHighlights: false },
 
         CONFIG: {
-            CANDIDATE_SELECTORS: 'p, li, h1, h2, h3, h4, h5, h6, td, th, blockquote, .markdown, article',
-            // Add #content-root and all its descendants to ignore list
-            IGNORE_SELECTORS: '.settings-header, nav, script, style, noscript, header, footer, button, a, form, [aria-hidden="true"], [data-tts-ui], .sr-only, pre, code, [class*="code"], [class*="language-"], [class*="highlight"], .token, #thread-bottom-container, #content-root, #content-root *',
+            // S3.6 (00-namespace.js:256 row): generic tag rule only — the dead
+            // `.markdown` entry is dropped (probe §1: 0 matches on Sept).
+            CANDIDATE_SELECTORS: 'p, li, h1, h2, h3, h4, h5, h6, td, th, blockquote, article',
+            // Generic/own ignore entries only (S3.3/S3.6). Site entries (.settings-header,
+            // .sr-only, code-highlight classes, #content-root) come from pack data via
+            // getIgnoreSelectors() on chatgpt.com; the dead #thread-bottom-container is
+            // deleted. pre/code stay: they cover streaming code and are generic HTML.
+            IGNORE_SELECTORS: 'nav, script, style, noscript, header, footer, button, a, form, [aria-hidden="true"], [data-tts-ui], pre, code',
             SPEECH_RATE: 5,
             VOICE_URI: '',
             EMOJI_VOICE_MAPPINGS: [],
@@ -286,10 +291,8 @@
             WORD_HIGHLIGHT_ENABLED: true,
             GAP_TRIM_ENABLED: true,
             READ_USER_MESSAGES: false,
-            USER_MESSAGE_SELECTORS: '[data-message-author-role="user"], section[data-turn="user"], [data-turn="user"]',
             READ_REFERENCES: false,
             CHATGPT_TEXT_STYLING: false,
-            REFERENCE_SELECTORS: '[data-testid="webpage-citation-pill"], [data-testid*="citation"], .webpage-citation-pill, .citation-pill, [data-source], cite',
             PREWRAP_IDLE_TIMEOUT_MS: 250,
             DEFERRED_REVERT_IDLE_MS: 250,
             SHOW_DIAGNOSTICS_PANEL: true,
