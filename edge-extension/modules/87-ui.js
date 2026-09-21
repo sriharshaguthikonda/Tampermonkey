@@ -119,6 +119,17 @@
                 <label for="tts-autoscroll-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-autoscroll-toggle" ${this.CONFIG.AUTO_SCROLL_ENABLED ? 'checked' : ''} style="margin:0;">📜 Auto-scroll</label>
                 <label for="tts-smart-copy-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-smart-copy-toggle" ${this.CONFIG.SMART_COPY_ENABLED ? 'checked' : ''} style="margin:0;">Smart copy</label>
                 <label for="tts-nav-start-skip-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-nav-start-skip-toggle" ${this.CONFIG.APPLY_START_SKIP_TO_NAVIGATION_STARTS ? 'checked' : ''} style="margin:0;">Apply skip on nav</label>
+                ${this.isChatGPTPage ? `
+                <div style="font-weight:bold; margin-top:8px;">Prompt</div>
+                <label for="tts-enter-to-send-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-enter-to-send-toggle" ${this.CONFIG.ENTER_TO_SEND_ENABLED ? 'checked' : ''} style="margin:0;">⏎ Enter to send</label>
+                <label for="tts-global-paste-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-global-paste-toggle" ${this.CONFIG.GLOBAL_PASTE_ENABLED ? 'checked' : ''} style="margin:0;">📋 Global paste</label>
+                <label for="tts-regular-paste-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-regular-paste-toggle" ${this.CONFIG.REGULAR_PASTE_ENABLED ? 'checked' : ''} style="margin:0;">📄 Regular paste</label>
+                <label for="tts-regular-auto-send-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-regular-auto-send-toggle" ${this.CONFIG.REGULAR_AUTO_SEND ? 'checked' : ''} style="margin:0;">➡️ Regular auto-send</label>
+                <label for="tts-regular-auto-send-in-input-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-regular-auto-send-in-input-toggle" ${this.CONFIG.REGULAR_AUTO_SEND_IN_INPUT ? 'checked' : ''} style="margin:0;">⌨️ Auto-send in textbox</label>
+                <label for="tts-double-click-edit-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-double-click-edit-toggle" ${this.CONFIG.DOUBLE_CLICK_EDIT_ENABLED ? 'checked' : ''} style="margin:0;">✏️ Double-click edit</label>
+                <label for="tts-nice-auto-paste-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-nice-auto-paste-toggle" ${this.CONFIG.NICE_AUTO_PASTE_ENABLED ? 'checked' : ''} style="margin:0;">🧲 NICE auto-paste</label>
+                <label for="tts-nice-auto-send-toggle" style="display:flex; align-items:center; gap:6px; margin-top:6px; cursor:pointer;"><input type="checkbox" id="tts-nice-auto-send-toggle" ${this.CONFIG.NICE_AUTO_SEND ? 'checked' : ''} style="margin:0;">🚀 NICE auto-send</label>
+                ` : ''}
                 <div style="display:flex; align-items:center; gap:6px; margin-top:6px;">
                     <label for="tts-click-skip-words" style="flex:1; min-width:0;">Start +X words</label>
                     <input type="number" id="tts-click-skip-words" min="0" step="1" value="${this.CONFIG.CLICK_START_SKIP_WORDS}" style="width:72px; padding:2px; background: rgba(0,0,0,0.8); color:#fff; border:1px solid rgba(255,255,255,0.25); border-radius:3px;">
@@ -202,6 +213,56 @@
                 persistProfileSetting(this.settingsProfile, 'applyStartSkipToNavigationStarts', this.CONFIG.APPLY_START_SKIP_TO_NAVIGATION_STARTS);
             });
             navStartSkipToggle.addEventListener('mousedown', (e) => e.stopPropagation());
+            if (this.isChatGPTPage) {
+                const enterToSendToggle = document.getElementById('tts-enter-to-send-toggle');
+                enterToSendToggle.addEventListener('change', e => {
+                    this.setEnterToSendEnabled(e.target.checked);
+                    persistProfileSetting(this.settingsProfile, 'enterToSendEnabled', this.CONFIG.ENTER_TO_SEND_ENABLED);
+                });
+                enterToSendToggle.addEventListener('mousedown', e => e.stopPropagation());
+                const globalPasteToggle = document.getElementById('tts-global-paste-toggle');
+                globalPasteToggle.addEventListener('change', e => {
+                    this.setGlobalPasteEnabled(e.target.checked);
+                    persistProfileSetting(this.settingsProfile, 'globalPasteEnabled', this.CONFIG.GLOBAL_PASTE_ENABLED);
+                });
+                globalPasteToggle.addEventListener('mousedown', e => e.stopPropagation());
+                const regularPasteToggle = document.getElementById('tts-regular-paste-toggle');
+                regularPasteToggle.addEventListener('change', e => {
+                    this.setRegularPasteEnabled(e.target.checked);
+                    persistProfileSetting(this.settingsProfile, 'regularPasteEnabled', this.CONFIG.REGULAR_PASTE_ENABLED);
+                });
+                regularPasteToggle.addEventListener('mousedown', e => e.stopPropagation());
+                const regularAutoSendToggle = document.getElementById('tts-regular-auto-send-toggle');
+                regularAutoSendToggle.addEventListener('change', e => {
+                    this.setRegularAutoSendEnabled(e.target.checked);
+                    persistProfileSetting(this.settingsProfile, 'regularAutoSend', this.CONFIG.REGULAR_AUTO_SEND);
+                });
+                regularAutoSendToggle.addEventListener('mousedown', e => e.stopPropagation());
+                const regularAutoSendInInputToggle = document.getElementById('tts-regular-auto-send-in-input-toggle');
+                regularAutoSendInInputToggle.addEventListener('change', e => {
+                    this.setRegularAutoSendInInputEnabled(e.target.checked);
+                    persistProfileSetting(this.settingsProfile, 'regularAutoSendInInput', this.CONFIG.REGULAR_AUTO_SEND_IN_INPUT);
+                });
+                regularAutoSendInInputToggle.addEventListener('mousedown', e => e.stopPropagation());
+                const doubleClickEditToggle = document.getElementById('tts-double-click-edit-toggle');
+                doubleClickEditToggle.addEventListener('change', e => {
+                    this.setDoubleClickEditEnabled(e.target.checked);
+                    persistProfileSetting(this.settingsProfile, 'doubleClickEditEnabled', this.CONFIG.DOUBLE_CLICK_EDIT_ENABLED);
+                });
+                doubleClickEditToggle.addEventListener('mousedown', e => e.stopPropagation());
+                const niceAutoPasteToggle = document.getElementById('tts-nice-auto-paste-toggle');
+                niceAutoPasteToggle.addEventListener('change', e => {
+                    this.setNiceAutoPasteEnabled(e.target.checked);
+                    persistProfileSetting(this.settingsProfile, 'niceAutoPasteEnabled', this.CONFIG.NICE_AUTO_PASTE_ENABLED);
+                });
+                niceAutoPasteToggle.addEventListener('mousedown', e => e.stopPropagation());
+                const niceAutoSendToggle = document.getElementById('tts-nice-auto-send-toggle');
+                niceAutoSendToggle.addEventListener('change', e => {
+                    this.setNiceAutoSendEnabled(e.target.checked);
+                    persistProfileSetting(this.settingsProfile, 'niceAutoSend', this.CONFIG.NICE_AUTO_SEND);
+                });
+                niceAutoSendToggle.addEventListener('mousedown', e => e.stopPropagation());
+            }
             const clickSkipWordsInput = document.getElementById('tts-click-skip-words');
             clickSkipWordsInput.addEventListener('input', (e) => {
                 this.setClickStartSkipWords(e.target.value, true);
@@ -251,6 +312,23 @@
             this.progressPanel = progress;
             this.ensureNavigationTrailLayer();
             this.applyOverlayVisibility();
+        },
+
+        syncPromptToggles() {
+            const promptToggleConfigKeys = {
+                'tts-enter-to-send-toggle': 'ENTER_TO_SEND_ENABLED',
+                'tts-global-paste-toggle': 'GLOBAL_PASTE_ENABLED',
+                'tts-regular-paste-toggle': 'REGULAR_PASTE_ENABLED',
+                'tts-regular-auto-send-toggle': 'REGULAR_AUTO_SEND',
+                'tts-regular-auto-send-in-input-toggle': 'REGULAR_AUTO_SEND_IN_INPUT',
+                'tts-double-click-edit-toggle': 'DOUBLE_CLICK_EDIT_ENABLED',
+                'tts-nice-auto-paste-toggle': 'NICE_AUTO_PASTE_ENABLED',
+                'tts-nice-auto-send-toggle': 'NICE_AUTO_SEND'
+            };
+            for (const toggleId of Object.keys(promptToggleConfigKeys)) {
+                const toggle = document.getElementById(toggleId);
+                if (toggle) toggle.checked = Boolean(this.CONFIG[promptToggleConfigKeys[toggleId]]);
+            }
         },
 
         // MODIFIED: This function is now mostly disabled for TTS reading.

@@ -283,6 +283,10 @@
         if (settings.hotkeys && typeof settings.hotkeys === 'object') {
             TTSReader.setHotkeys(settings.hotkeys, true);
         }
+
+        if (typeof TTSReader.syncPromptToggles === 'function') {
+            TTSReader.syncPromptToggles();
+        }
     }
 
     function getStoredProfileSettings(items, profile) {
