@@ -40,7 +40,11 @@ function makeRuntime(reader) {
                     persistProfileSetting: () => {}
                 }
             },
-            addEventListener() {},
+            addEventListener(type, handler) {
+                // the window capture keydown (hotkeys) registers after the
+                // document one, so it owns listeners.keydown here
+                listeners[type] = handler;
+            },
             innerHeight: 1000
         }
     };
@@ -190,6 +194,7 @@ function makeKeyEvent(key, overrides = {}) {
         metaKey: false,
         altKey: false,
         shiftKey: false,
+        stopImmediatePropagation() {},
         preventDefaultCalled: false,
         preventDefault() {
             this.preventDefaultCalled = true;

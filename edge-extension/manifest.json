@@ -41,6 +41,19 @@
         "https://127.0.0.1/*",
         "file:///*"
       ],
+      "js": ["modules/00-early-keydown.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://chat.openai.com/*",
+        "http://localhost/*",
+        "https://localhost/*",
+        "http://127.0.0.1/*",
+        "https://127.0.0.1/*",
+        "file:///*"
+      ],
       "js": [
         "modules/00-namespace.js",
         "modules/05-diagnostics.js",

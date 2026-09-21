@@ -68,8 +68,18 @@
                 this.capturePromptForNativeEnterSend(e);
                 this.handleEnterToSend(e);
                 if (this.handlePromptHistoryHotkeys(e)) return;
+            });
 
-                const activeEl = document.activeElement;
+            // chatgpt.com "type anywhere" is a window capture keydown listener
+            // that moves focus into the composer and inserts the key itself.
+            // Only a listener registered before it can claim hotkeys, so the
+            // handler runs from the document_start shim (00-early-keydown.js)
+            // and stops propagation for handled keys; without the shim it falls
+            // back to a late window capture listener.
+            const hotkeyKeydown = (e) => {
+                // e.target, not document.activeElement: a page capture listener
+                // that ran first may already have moved focus.
+                const activeEl = e.target && e.target.nodeType === 1 ? e.target : document.activeElement;
                 if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable)) return;
                 const key = e.key;
                 const keyLower = String(key || '').toLowerCase();
@@ -90,6 +100,7 @@
 
                 if ((this.keyMatchesHotkey(e, 'BOUNDARY_START') || this.keyMatchesHotkey(e, 'BOUNDARY_END')) && sessionHotkeysActive) {
                     e.preventDefault();
+                    e.stopImmediatePropagation();
                     this.navKeyHeld = false;
                     const previewOnly = !ctrlOrMeta;
                     this.jumpToBoundary(this.keyMatchesHotkey(e, 'BOUNDARY_START') ? 'start' : 'end', { previewOnly });
@@ -98,12 +109,14 @@
 
                 if (this.keyMatchesHotkey(e, 'SESSION_PAUSE') && sessionHotkeysActive) {
                     e.preventDefault();
+                    e.stopImmediatePropagation();
                     this.pauseResumeTTS();
                     return;
                 }
 
                 if ((this.keyMatchesHotkey(e, 'SPEED_DOWN') || this.keyMatchesHotkey(e, 'SPEED_UP')) && sessionHotkeysActive && !ctrlOrMeta && !e.altKey) {
                     e.preventDefault();
+                    e.stopImmediatePropagation();
                     this.adjustSpeechRateByStep(this.keyMatchesHotkey(e, 'SPEED_DOWN') ? -1 : 1);
                     return;
                 }
@@ -111,17 +124,20 @@
                 if (sessionHotkeysActive && !ctrlOrMeta && !e.altKey) {
                     if (this.keyMatchesHotkey(e, 'REPLAY', { caseInsensitive: true })) {
                         e.preventDefault();
+                        e.stopImmediatePropagation();
                         this.replayCurrentParagraph();
                         return;
                     }
                     if (this.keyMatchesHotkey(e, 'LOOP_TOGGLE', { caseInsensitive: true })) {
                         e.preventDefault();
+                        e.stopImmediatePropagation();
                         this.setLoopEnabled(!this.CONFIG.LOOP_ON_END);
                         persistProfileSetting(this.settingsProfile, 'loopOnEnd', this.CONFIG.LOOP_ON_END);
                         return;
                     }
                     if (this.keyMatchesHotkey(e, 'AUTOSCROLL_TOGGLE', { caseInsensitive: true })) {
                         e.preventDefault();
+                        e.stopImmediatePropagation();
                         this.setAutoScrollEnabled(!this.CONFIG.AUTO_SCROLL_ENABLED);
                         persistProfileSetting(this.settingsProfile, 'autoScrollEnabled', this.CONFIG.AUTO_SCROLL_ENABLED);
                         return;
@@ -130,22 +146,26 @@
 
                 if (isNavNext) {
                     e.preventDefault();
+                    e.stopImmediatePropagation();
                     this.navKeyHeld = this.navigate(ctrlOrMeta ? this.getNavigationJumpStep() : this.getArrowNavigationStep(), { previewOnly: true });
                     return;
                 }
                 if (isNavPrev) {
                     e.preventDefault();
+                    e.stopImmediatePropagation();
                     this.navKeyHeld = this.navigate(ctrlOrMeta ? -this.getNavigationJumpStep() : -this.getArrowNavigationStep(), { previewOnly: true });
                     return;
                 }
                 if (this.keyMatchesHotkey(e, 'STOP')) {
                     e.preventDefault();
+                    e.stopImmediatePropagation();
                     this.stopTTS();
                     return;
                 }
 
                 if (shiftOnly && this.keyMatchesHotkey(e, 'ACTIVATE', { caseInsensitive: true })) {
                     e.preventDefault();
+                    e.stopImmediatePropagation();
                     this.clearStalePlaybackFlagsIfIdle();
                     if (this.isPlaybackSessionActive()) { this.stopTTS(); return; }
                     document.body.style.cursor = 'crosshair';
@@ -160,9 +180,12 @@
                     document.addEventListener('click', clickHandler, { once: true, capture: true });
                 } else if (ctrlShift && this.keyMatchesHotkey(e, 'PAUSE_RESUME', { caseInsensitive: true })) {
                     e.preventDefault();
+                    e.stopImmediatePropagation();
                     this.pauseResumeTTS();
                 }
-            });
+            };
+            if (window.__TTSEarlyKeydownInstalled) window.__TTSEarlyKeydown = hotkeyKeydown;
+            else window.addEventListener('keydown', hotkeyKeydown, true);
             document.addEventListener('keyup', (e) => {
                 const activeEl = document.activeElement;
                 if (activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.isContentEditable)) return;

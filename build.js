@@ -34,6 +34,7 @@ function addBuildInfoToManifest(manifest) {
     const contentScripts = Array.isArray(manifest.content_scripts) ? manifest.content_scripts : [];
     for (const script of contentScripts) {
         if (!script || !Array.isArray(script.js)) continue;
+        if (script.run_at === 'document_start') continue;
         const js = script.js.filter(item => item !== 'modules/01-build-info.js');
         const namespaceIndex = js.indexOf('modules/00-namespace.js');
         if (namespaceIndex === -1) {
