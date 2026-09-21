@@ -7,16 +7,6 @@ const repoRoot = __dirname;
 
 function matchesSimpleSelector(element, selector) {
     const trimmed = selector.trim();
-    if (trimmed === '.bg-token-main-surface-tertiary textarea') {
-        if (element.tagName !== 'TEXTAREA') return false;
-        let ancestor = element.parentNode;
-        while (ancestor) {
-            if (ancestor.classList.contains('bg-token-main-surface-tertiary')) return true;
-            ancestor = ancestor.parentNode;
-        }
-        return false;
-    }
-
     const attribute = trimmed.match(/^\[([\w-]+)(?:="([^"]*)")?\]$/);
     if (attribute) {
         const actual = element.getAttribute(attribute[1]);
@@ -156,8 +146,16 @@ runCase(
     false
 );
 
-const editContainer = makeElement({ className: 'bg-token-main-surface-tertiary' });
-const editTextarea = makeElement({ tagName: 'textarea', parentNode: editContainer });
-runCase('visible tertiary edit textarea blocks paste', [editContainer, editTextarea], true);
+// S3.10: an open inline edit form is found per exchange (driftwatch editSurfaceForm).
+const exchangeEl = makeElement();
+const editForm = makeElement({ tagName: 'form' });
+reader.exchanges = () => [exchangeEl];
+reader.resolveInExchange = (name, scope) => (name === 'editSurfaceForm' && scope === exchangeEl ? editForm : null);
+runCase('visible edit-surface form blocks paste', [], true);
+const hiddenEditForm = makeElement({ tagName: 'form', clientRects: [] });
+reader.resolveInExchange = (name) => (name === 'editSurfaceForm' ? hiddenEditForm : null);
+runCase('edit-surface form with no client rects is ignored', [], false);
+reader.resolveInExchange = () => null;
+runCase('no edit-surface form does not block paste', [], false);
 
 if (failures > 0) process.exitCode = 1;

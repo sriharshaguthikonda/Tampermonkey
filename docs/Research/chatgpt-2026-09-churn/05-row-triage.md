@@ -102,12 +102,12 @@ Pack-v2 anchor names verified live against `C:/Windows_software/driftwatch/packs
 
 | inventory ref | feature | current selector/logic | class | target pack anchor | sub-stage | reason |
 |---|---|---|---|---|---|---|
-| `25-prompt-send-part2.js:37` | 7 | `data-message-author-role === 'user'` | route-via-driftwatch | userUnit | S3.10 | dead attribute; role check via `userUnit` resolve |
-| `25-prompt-send-part2.js:38` | 7 | `.whitespace-pre-wrap` (preferred text node) | route-via-driftwatch | userUnit | S3.10 | old extraction class, paired with confirmed-dead `.markdown` sitewide; content read directly off resolved `userUnit` |
-| `25-prompt-send-part2.js:47` | 7 | `[data-message-author-role="user"]` (hydrate history) | route-via-driftwatch | userUnit | S3.10 | dead attribute; hydration source becomes per-exchange `userUnit` |
+| `25-prompt-send-part2.js:37` | 7 | `data-message-author-role === 'user'` | route-via-driftwatch | userUnit | S3.10 — done (S3c) | dead attribute; role check via `userUnit` resolve |
+| `25-prompt-send-part2.js:38` | 7 | `.whitespace-pre-wrap` (preferred text node) | route-via-driftwatch | userUnit | S3.10 — done (S3c) | old extraction class, paired with confirmed-dead `.markdown` sitewide; content read directly off resolved `userUnit` |
+| `25-prompt-send-part2.js:47` | 7 | `[data-message-author-role="user"]` (hydrate history) | route-via-driftwatch | userUnit | S3.10 — done (S3c) | dead attribute; hydration source becomes per-exchange `userUnit` |
 | `25-prompt-send-part2.js:241` | 8 | `[role="dialog"]` visible-check | own-UI-keep | n/a | S3.10 | ARIA-role paste guard — named local invariant (R7); redesign-resistant, untouched |
 | `25-prompt-send-part2.js:249` | 8 | `[role="menu"], [role="listbox"]` visible-check | own-UI-keep | n/a | S3.10 | ARIA-role paste guard — same named invariant |
-| `25-prompt-send-part2.js:252` | 8 | `.bg-token-main-surface-tertiary textarea` (edit-box guard) | route-via-driftwatch | pack data: `editSurfaceForm` (NEW) | S3.10 | confirmed DEAD (S0.10: 0 in edit mode); replacement `[data-turn-key] form [data-composer-markdown]` needs a new pack anchor/data key — `composerForm` strategy 2 deliberately EXCLUDES exchange-scoped forms (`:not([data-turn-key] form)`), so this is not yet coverable by an existing anchor |
+| `25-prompt-send-part2.js:252` | 8 | `.bg-token-main-surface-tertiary textarea` (edit-box guard) | route-via-driftwatch | pack data: `editSurfaceForm` (NEW) | S3.10 — done (S3c) | confirmed DEAD (S0.10: 0 in edit mode); replacement `[data-turn-key] form [data-composer-markdown]` needs a new pack anchor/data key — `composerForm` strategy 2 deliberately EXCLUDES exchange-scoped forms (`:not([data-turn-key] form)`), so this is not yet coverable by an existing anchor |
 
 ### 2.7 Double-click-to-edit + usage-limit auto-close (features 11/12, was §2.7, 5 rows)
 

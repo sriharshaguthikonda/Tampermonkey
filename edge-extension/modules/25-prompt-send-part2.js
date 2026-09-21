@@ -33,20 +33,38 @@
             return this.normalizePromptHistoryText(clone.innerText || clone.textContent || '');
         },
 
-        extractUserMessageText(messageElement) {
-            if (!messageElement || messageElement.getAttribute('data-message-author-role') !== 'user') return '';
-            const preferredNode = messageElement.querySelector('.whitespace-pre-wrap');
-            if (preferredNode) {
-                return this.extractCleanText(preferredNode);
-            }
-            return this.extractCleanText(messageElement);
+        extractUserMessageText(userUnit) {
+            // S3.10: the element is a driftwatch userUnit; its text is the prompt minus the
+            // unit's own action buttons (Edit/Copy).
+            if (!userUnit || typeof userUnit.cloneNode !== 'function') return '';
+            const clone = userUnit.cloneNode(true);
+            clone.querySelectorAll('button').forEach((node) => node.remove());
+            return this.extractCleanText(clone);
+        },
+
+        userUnitsInExchanges(exchangeEls) {
+            // Each userUnit is read once: exchanges are re-reported on every mutation (a
+            // streaming reply, a rating prompt), and re-reading an old unit would append a
+            // stale prompt out of order.
+            if (typeof this.resolveInExchange !== 'function') return [];
+            if (!this.promptHistoryUnitsSeen) this.promptHistoryUnitsSeen = new WeakSet();
+            const units = [];
+            exchangeEls.forEach((exchangeEl) => {
+                const unit = this.resolveInExchange('userUnit', exchangeEl);
+                if (!unit || this.promptHistoryUnitsSeen.has(unit)) return;
+                this.promptHistoryUnitsSeen.add(unit);
+                units.push(unit);
+            });
+            return units;
         },
 
         hydratePromptHistoryFromDom() {
             this.promptHistory = [];
-            const userMessages = Array.from(document.querySelectorAll('[data-message-author-role="user"]'));
-            userMessages.forEach((messageElement) => {
-                const text = this.extractUserMessageText(messageElement);
+            this.promptHistoryUnitsSeen = new WeakSet();
+            if (this.pendingPromptHistoryElements) this.pendingPromptHistoryElements.clear();
+            const exchangeEls = typeof this.exchanges === 'function' ? this.exchanges() : [];
+            this.userUnitsInExchanges(exchangeEls).forEach((userUnit) => {
+                const text = this.extractUserMessageText(userUnit);
                 if (text) this.addPromptToHistory(text);
             });
             this.promptHistoryCursor = -1;
@@ -71,18 +89,6 @@
             this.pendingPromptHistoryElements.add(element);
         },
 
-        collectPromptHistoryCandidates(element) {
-            if (!element) return;
-            if (element.matches && element.matches('[data-message-author-role="user"]')) {
-                this.queuePromptHistoryElement(element);
-            }
-            if (element.querySelectorAll) {
-                element.querySelectorAll('[data-message-author-role="user"]').forEach((candidate) => {
-                    this.queuePromptHistoryElement(candidate);
-                });
-            }
-        },
-
         ensurePromptHistoryFresh() {
             if (!this.pendingPromptHistoryElements || this.pendingPromptHistoryElements.size === 0) return;
             const pending = Array.from(this.pendingPromptHistoryElements);
@@ -101,11 +107,11 @@
                 this.pendingPromptHistoryElements = new Set();
             }
             if (!ns.observerBus) return;
-            this.promptHistoryBusUnsubscribe = ns.observerBus.subscribe({
+            // S3.10: queue the userUnit of each exchange a mutation batch touched.
+            this.promptHistoryBusUnsubscribe = ns.observerBus.subscribeExchanges({
                 name: 'prompt-history',
-                selector: '[data-message-author-role="user"]',
-                onFlush: ({ addedNodes }) => {
-                    addedNodes.forEach((element) => this.collectPromptHistoryCandidates(element));
+                onExchangeChange: ({ exchanges }) => {
+                    this.userUnitsInExchanges(exchanges).forEach((userUnit) => this.queuePromptHistoryElement(userUnit));
                 }
             });
         },
@@ -247,8 +253,14 @@
             const menu = Array.from(document.querySelectorAll('[role="menu"], [role="listbox"]')).find(visible);
             if (menu) return true;
 
-            const editBox = document.querySelector('.bg-token-main-surface-tertiary textarea');
-            if (editBox && visible(editBox)) return true;
+            // S3.10: an open inline edit-message form (driftwatch editSurfaceForm) blocks paste.
+            if (typeof this.exchanges === 'function' && typeof this.resolveInExchange === 'function') {
+                const editOpen = this.exchanges().some((exchangeEl) => {
+                    const form = this.resolveInExchange('editSurfaceForm', exchangeEl);
+                    return Boolean(form) && visible(form);
+                });
+                if (editOpen) return true;
+            }
 
             return false;
         },

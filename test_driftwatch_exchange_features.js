@@ -20,6 +20,8 @@ const MODULES = [
     '10-lifecycle.js',
     '22-driftwatch.js',
     '23-resolution.js',
+    '25-prompt-send-part1.js',
+    '25-prompt-send-part2.js',
     '20-smart-copy-part1.js',
     '40-voice.js',
     '50-text.js',
@@ -352,6 +354,39 @@ function testEmphasisStylingTargetsComeFromPackData() {
     console.log('PASS testEmphasisStylingTargetsComeFromPackData');
 }
 
+function testPromptHistoryHydratesFromUserUnitsInExchangeOrder() {
+    const html = `<!doctype html><html><body><main>${exchangeMarkup('hist-1')}${exchangeMarkup('hist-2')}</main></body></html>`;
+    const { reader, document } = loadReader(html);
+    // A stray <button> inside the user unit (the Edit action) must be stripped by
+    // extractUserMessageText — only the prompt text survives into history. Key names are
+    // plain tokens here (never a `<`-bearing uuid), so nothing parses as a tag.
+    document.querySelector('[data-content-search-unit-key="hist-1:0:user"]').insertAdjacentHTML('beforeend', '<button>edit-token</button>');
+    reader.hydratePromptHistoryFromDom();
+    assert.deepStrictEqual(Array.from(reader.promptHistory), ['hist-1-u', 'hist-2-u']);
+    // The WeakSet in userUnitsInExchanges makes each userUnit read once: a second pass
+    // over the same exchanges yields nothing new.
+    assert.strictEqual(reader.userUnitsInExchanges(reader.exchanges()).length, 0);
+    console.log('PASS testPromptHistoryHydratesFromUserUnitsInExchangeOrder');
+}
+
+async function testPasteGuardBlocksOnOpenEditSurfaceForm() {
+    const { reader, document, window } = loadReader(`<!doctype html><html><body><main>${exchangeMarkup('guard-1')}</main></body></html>`);
+    // jsdom reports zero-size boxes by default; stub layout so the visible() geometry
+    // checks in hasBlockingOpenElements pass for the injected edit form.
+    window.HTMLElement.prototype.getClientRects = function () { return [{}]; };
+    window.HTMLElement.prototype.getBoundingClientRect = function () { return { width: 100, height: 40, top: 10, left: 10, bottom: 50, right: 110 }; };
+
+    assert.strictEqual(reader.hasBlockingOpenElements(null), false, 'no open edit surface yet');
+
+    // The pack's editSurfaceForm anchor is resolved through the tick-scoped memo, which
+    // lasts one microtask — flush it so the freshly inserted form is re-resolved.
+    document.querySelector('[data-turn-key="guard-1"]').insertAdjacentHTML('beforeend', '<form><div data-composer-markdown contenteditable="true"></div></form>');
+    await Promise.resolve();
+
+    assert.strictEqual(reader.hasBlockingOpenElements(null), true, 'open edit surface blocks paste');
+    console.log('PASS testPasteGuardBlocksOnOpenEditSurfaceForm');
+}
+
 (async () => {
     await testResolutionMemoExpiresAfterMicrotask();
     testExchangesAndScopedPerExchangeResolution();
@@ -363,6 +398,8 @@ function testEmphasisStylingTargetsComeFromPackData() {
     testPackDataKeysNonEmpty();
     testIgnoreSelectorComposition();
     testEmphasisStylingTargetsComeFromPackData();
+    testPromptHistoryHydratesFromUserUnitsInExchangeOrder();
+    await testPasteGuardBlocksOnOpenEditSurfaceForm();
     await testObserverBusDeliversExchangeScopedBatches();
 })().catch((error) => {
     console.error(error);
