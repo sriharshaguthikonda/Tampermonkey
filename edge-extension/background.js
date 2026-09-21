@@ -599,6 +599,12 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (!request || !request.action) return false;
 
+    if (request.action === 'devReload') {
+        // Unpacked (dev) installs only: store installs carry update_url.
+        if (!('update_url' in chrome.runtime.getManifest())) chrome.runtime.reload();
+        return false;
+    }
+
     if (request.action === 'getSettings') {
         // return true keeps the message port open; timer ensures sendResponse always fires
         const profile = getProfileFromUrl(request.url || sender?.tab?.url || '');

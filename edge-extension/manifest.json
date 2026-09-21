@@ -41,7 +41,7 @@
         "https://127.0.0.1/*",
         "file:///*"
       ],
-      "js": ["modules/00-early-keydown.js"],
+      "js": ["modules/00-early-keydown.js", "modules/00-dev-reload.js"],
       "run_at": "document_start"
     },
     {
