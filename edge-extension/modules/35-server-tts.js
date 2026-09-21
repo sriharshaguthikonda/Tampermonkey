@@ -275,38 +275,49 @@
             }
         },
 
-        hasNativeTurnCopyActions() {
-            if (!this.isChatGPTPage) return false;
-            return Boolean(document.querySelector('[data-testid="copy-turn-action-button"], button[aria-label="Copy message"]'));
-        },
-
         shouldInjectCustomCopyButtons() {
             if (!this.CONFIG.COPY_BUTTON_ENABLED) return false;
-            if (!this.isConversationSurfaceAvailable()) return false;
-            if (this.hasNativeTurnCopyActions()) return false;
-            return true;
+            return this.isConversationSurfaceAvailable();
         },
 
         getCopyButtonTargets() {
             const targets = [];
-            this.getConversationMessageElements().forEach((messageElement) => {
-                const role = this.getMessageRoleFromElement(messageElement);
-                if (role !== 'assistant' && role !== 'user') return;
-                const contentNode = this.getPreferredMessageContentNode(messageElement);
-                if (!contentNode) return;
-                targets.push({ target: contentNode, role });
+            if (!this.isChatGPTPage) {
+                this.getConversationMessageElements().forEach((messageElement) => {
+                    const role = this.getMessageRoleFromElement(messageElement);
+                    if (role !== 'assistant' && role !== 'user') return;
+                    const contentNode = this.getPreferredMessageContentNode(messageElement);
+                    if (!contentNode) return;
+                    targets.push({ placement: contentNode, content: contentNode, role });
+                });
+                return targets;
+            }
+            // S3.7: per exchange. ChatGPT's own Copy suppresses ours; PLACEMENT (after the
+            // action bar, else after the markdown root) is separate from the copied CONTENT.
+            if (typeof this.exchanges !== 'function') return targets;
+            this.exchanges().forEach((exchangeEl) => {
+                const content = this.resolveInExchange('assistantMarkdownRoot', exchangeEl);
+                const nativeCopy = this.resolveInExchange('copyResponseButton', exchangeEl);
+                const placement = nativeCopy || !content
+                    ? null
+                    : (this.resolveInExchange('responseActionBar', exchangeEl) || content);
+                // Drop rows left at an old spot: the bar and native Copy mount after streaming.
+                exchangeEl.querySelectorAll('.tmx-copy-row').forEach((row) => {
+                    if (row.previousElementSibling !== placement) row.remove();
+                });
+                if (placement) targets.push({ placement, content, role: 'assistant' });
             });
             return targets;
         },
 
-        addCopyButton(target, role = 'assistant') {
-            if (!target || !target.isConnected) return;
+        addCopyButton(placement, content, role = 'assistant') {
+            if (!placement || !placement.isConnected || !content) return;
 
-            const adjacentRow = target.nextElementSibling && target.nextElementSibling.classList
-                && target.nextElementSibling.classList.contains('tmx-copy-row')
-                ? target.nextElementSibling
+            const adjacentRow = placement.nextElementSibling && placement.nextElementSibling.classList
+                && placement.nextElementSibling.classList.contains('tmx-copy-row')
+                ? placement.nextElementSibling
                 : null;
-            if (target.dataset.tmxCopyButtonAttached === '1' && adjacentRow) return;
+            if (placement.dataset.tmxCopyButtonAttached === '1' && adjacentRow) return;
             if (adjacentRow) adjacentRow.remove();
 
             const row = document.createElement('div');
@@ -324,7 +335,7 @@
             copyButton.addEventListener('click', (event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                const text = this.extractConversationTextFromNode(target);
+                const text = this.extractConversationTextFromNode(content);
                 if (!text) return;
                 const payload = this.formatSmartCopyEntries([{ role, text }]);
                 if (!payload) return;
@@ -333,8 +344,8 @@
             });
 
             row.appendChild(copyButton);
-            target.insertAdjacentElement('afterend', row);
-            target.dataset.tmxCopyButtonAttached = '1';
+            placement.insertAdjacentElement('afterend', row);
+            placement.dataset.tmxCopyButtonAttached = '1';
         },
 
         removeCopyButtons() {
@@ -354,7 +365,7 @@
                 this.removeCopyButtons();
                 return;
             }
-            this.getCopyButtonTargets().forEach(({ target, role }) => this.addCopyButton(target, role));
+            this.getCopyButtonTargets().forEach(({ placement, content, role }) => this.addCopyButton(placement, content, role));
         },
 
         setCopyButtonEnabled(enabled, silent = false) {

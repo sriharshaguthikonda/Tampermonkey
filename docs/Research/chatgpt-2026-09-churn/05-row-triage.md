@@ -123,8 +123,8 @@ Pack-v2 anchor names verified live against `C:/Windows_software/driftwatch/packs
 
 | inventory ref | feature | current selector/logic | class | target pack anchor | sub-stage | reason |
 |---|---|---|---|---|---|---|
-| `35-server-tts.js:280` | 10 | `[data-testid="copy-turn-action-button"], button[aria-label="Copy message"]` (native-action presence gate) | route-via-driftwatch | copyResponseButton | S3.7 | native-copy presence check becomes `resolve('copyResponseButton', exchangeEl)` per S3.7 |
-| `35-server-tts.js:290-300` | 10 | reuses feature-5 role/content-node resolution (`insertAdjacentElement('afterend', target)`) | route-via-driftwatch | responseActionBar (placement) + assistantMarkdownRoot (content) | S3.7 | R6 split: today ONE target serves placement AND content extraction; migrated placement anchors to `responseActionBar`, content source to `assistantMarkdownRoot` |
+| `35-server-tts.js:280` | 10 | `[data-testid="copy-turn-action-button"], button[aria-label="Copy message"]` (native-action presence gate) | route-via-driftwatch | copyResponseButton | S3.7 — done (S3c) | native-copy presence check becomes `resolve('copyResponseButton', exchangeEl)` per S3.7 |
+| `35-server-tts.js:290-300` | 10 | reuses feature-5 role/content-node resolution (`insertAdjacentElement('afterend', target)`) | route-via-driftwatch | responseActionBar (placement) + assistantMarkdownRoot (content) | S3.7 — done (S3c) | R6 split: today ONE target serves placement AND content extraction; migrated placement anchors to `responseActionBar`, content source to `assistantMarkdownRoot` |
 
 ### 2.9 Highlighting (feature 2) + selection-seek (feature 4) — was §2.9, 5 rows
 

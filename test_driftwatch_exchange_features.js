@@ -419,6 +419,57 @@ async function testDoubleClickEditFocusesEditSurfaceNotCodeEditorDecoy() {
     console.log('PASS testDoubleClickEditFocusesEditSurfaceNotCodeEditorDecoy');
 }
 
+// Copy-button feature (35-server-tts.js getCopyButtonTargets/addCopyButton) driven
+// through the pack anchors: responseActionBar + copyResponseButton. Tokens only —
+// never real page text, matching the synthetic-exchange convention above.
+async function testCopyButtonSuppressedWhenNativeCopyResolves() {
+    // The action bar carries a native Copy button, so copyResponseButton resolves and
+    // getCopyButtonTargets() must inject no custom row (S3.7 suppression).
+    const html = `<!doctype html><html><body><main>
+<article data-turn-key="cp-1">
+  <div data-content-search-unit-key="cp-1:0:user"><p>cp-1-u</p></div>
+  <div data-content-search-unit-key="cp-1:2:assistant">
+    <div data-markdown-text-style="assistant-message"><p>para-token</p><pre><code>code-token</code></pre></div>
+    <div id="bar"><span><button aria-label="Copy">c</button></span><button aria-label="More actions">m</button></div>
+  </div>
+</article>
+</main></body></html>`;
+    const { reader, document, window } = loadReader(html);
+    makeElementsVisible(window);
+    reader.CONFIG.COPY_BUTTON_ENABLED = true;
+    reader.updateCopyButtons();
+    assert.strictEqual(document.querySelectorAll('.tmx-copy-row').length, 0);
+    console.log('PASS testCopyButtonSuppressedWhenNativeCopyResolves');
+}
+
+async function testCopyButtonPlacedAfterActionBarAndCopiesMarkdownRoot() {
+    // No native Copy button: copyResponseButton stays null, so the custom row mounts
+    // after the action bar and copies from the assistant markdown root on click.
+    const html = `<!doctype html><html><body><main>
+<article data-turn-key="cp-1">
+  <div data-content-search-unit-key="cp-1:0:user"><p>cp-1-u</p></div>
+  <div data-content-search-unit-key="cp-1:2:assistant">
+    <div data-markdown-text-style="assistant-message"><p>para-token</p><pre><code>code-token</code></pre></div>
+    <div id="bar"><button aria-label="More actions">m</button></div>
+  </div>
+</article>
+</main></body></html>`;
+    const { reader, document, window } = loadReader(html);
+    makeElementsVisible(window);
+    let payload = null;
+    reader.copyTextToClipboard = (text) => { payload = text; return Promise.resolve(true); };
+    reader.showNotification = () => {};
+    reader.CONFIG.COPY_BUTTON_ENABLED = true;
+    reader.updateCopyButtons();
+    const bar = document.getElementById('bar');
+    assert.ok(bar.nextElementSibling && bar.nextElementSibling.classList.contains('tmx-copy-row'), 'row must follow the action bar');
+    assert.strictEqual(document.querySelectorAll('.tmx-copy-row').length, 1);
+    bar.nextElementSibling.querySelector('.tmx-copy-button').click();
+    await Promise.resolve();
+    assert.ok(payload && payload.includes('para-token'), 'copied text comes from the markdown root');
+    console.log('PASS testCopyButtonPlacedAfterActionBarAndCopiesMarkdownRoot');
+}
+
 (async () => {
     await testResolutionMemoExpiresAfterMicrotask();
     testExchangesAndScopedPerExchangeResolution();
@@ -434,6 +485,8 @@ async function testDoubleClickEditFocusesEditSurfaceNotCodeEditorDecoy() {
     await testPasteGuardBlocksOnOpenEditSurfaceForm();
     await testObserverBusDeliversExchangeScopedBatches();
     await testDoubleClickEditFocusesEditSurfaceNotCodeEditorDecoy();
+    await testCopyButtonSuppressedWhenNativeCopyResolves();
+    await testCopyButtonPlacedAfterActionBarAndCopiesMarkdownRoot();
 })().catch((error) => {
     console.error(error);
     process.exit(1);
