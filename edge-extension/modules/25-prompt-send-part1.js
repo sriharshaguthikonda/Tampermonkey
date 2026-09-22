@@ -360,9 +360,15 @@
 
             try {
                 if (typeof document.execCommand === 'function') {
-                    insertedWithCommand = document.execCommand('insertText', false, normalizedText);
+                    insertedWithCommand = normalizedText === ''
+                        ? document.execCommand('delete', false)
+                        : document.execCommand('insertText', false, normalizedText);
                 }
             } catch (_error) {
+                insertedWithCommand = false;
+            }
+
+            if (normalizedText === '' && promptArea.textContent.trim() !== '') {
                 insertedWithCommand = false;
             }
 
@@ -382,8 +388,8 @@
             const inputEvent = typeof InputEvent === 'function'
                 ? new InputEvent('input', {
                     bubbles: true,
-                    inputType: 'insertText',
-                    data: normalizedText
+                    inputType: normalizedText === '' ? 'deleteContentBackward' : 'insertText',
+                    data: normalizedText === '' ? null : normalizedText
                 })
                 : new Event('input', { bubbles: true });
             promptArea.dispatchEvent(inputEvent);
