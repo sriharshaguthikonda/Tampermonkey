@@ -3,7 +3,7 @@
 **Version 2 (2026-09-21)** — rewritten after the gpt-6-astra adversarial review (verdict REWORK, 24 findings, 13 high). Every finding's resolution is itemized in the table at the end. v1 lives in git history.
 
 Depends: nothing — users are broken NOW; evidence base complete as of 2026-09-21.
-Blocks: churn-#2 exit criteria (§Exit, the M1-equivalent). Seeds the post-release follow-ups S6 (ophel inventory + Prompt-queue re-vendor) and S7 (drift badge) — neither is an exit blocker (R12). Unblocks users NOW.
+Blocks: churn-#2 exit criteria (§Exit, the M1-equivalent). Seeds the post-release follow-ups S6 (ophel inventory + Prompt-queue re-vendor), S7 (drift badge) and S8 (Model MCP Bridge recovery, the churn-detector field test, [S8-bridge-recovery.md](S8-bridge-recovery.md)) — none is an exit blocker (R12). Unblocks users NOW.
 Cross-repo parallelism declared by this plan: Tampermonkey (S0, S3–S5) ∥ driftwatch (S1–S2); S3 starts only after S2's gate is green.
 
 Evidence (read all before touching anything):
@@ -248,6 +248,28 @@ Tasks:
 
 ACCEPT gate: S3 gate list green; diff contains no `fetch`/`XMLHttpRequest`/network additions (`grep -nE "fetch|XMLHttpRequest|websocket" edge-extension/modules/05-diagnostics.js edge-extension/modules/22-driftwatch.js` finds no new hits vs pre-S7); live check "badge visible, count 0".
 Rollback: revert the S7 commits; canary simply stops being called (it is caller-owned).
+
+### S8 — Model MCP Bridge recovery = churn-detector field test (POST-RELEASE, cross-repo)
+
+Goal: the bridge's ChatGPT channel returns real answers again, and the missing check is added (the consumer's job path must resolve through the pack). NOT an exit blocker.
+Detail, evidence, QA matrix and work packages: [S8-bridge-recovery.md](S8-bridge-recovery.md). Child plans:
+- Prompt-queue [incident-2026-09-22-bridge-channel-dead.md](file:///C:/Windows_software/Chrome_extensions/Prompt-queue/plans/incident-2026-09-22-bridge-channel-dead.md)
+- bridge [browser-channel-recovery-2026-09.md](file:///C:/AI/mcp-model-bridge/docs/plans/browser-channel-recovery-2026-09.md)
+- driftwatch [ROADMAP](file:///C:/Windows_software/driftwatch/docs/ROADMAP.md)
+
+Depends: S6.1 (pack v2 vendored in Prompt-queue). S6.1 deliberately left the full consumer migration undone, and S8.3 does it.
+Root causes (2026-09-22): Prompt-queue disabled in Edge Profile 2 at 12:38:12 (user-action toggle), and Prompt-queue composer-ready + reply capture still on dead literals while the pack is healthy.
+
+- [ ] S8.1 re-enable + live evidence (Prompt-queue, ops)
+- [ ] S8.2 RED consumer contract test on Sept fixtures (Prompt-queue)
+- [ ] S8.3 composer (incl. lazy new chat) + reply capture through the pack (Prompt-queue)
+- [ ] S8.4 error text persisted, host exit logged (Prompt-queue)
+- [ ] S8.5 live gate: synthetic job, temporary chat, `status=done` (orchestrator)
+- [ ] S8.6 bridge L1/L3 tests; S8.7 dead-channel diagnostics; S8.8 client config (bridge)
+- [ ] S8.9 generic `consumerAudit()` once a second consumer adopts it (driftwatch, deferred)
+
+ACCEPT gate: S8.2 test green; S8.5 live gate recorded (booleans/counts); `bridge_health` → `chatgpt_browser.reachable=true`.
+Rollback: per child plan; S8.3 reverts to the literal chain (still broken on Sept DOM, so forward-fix only).
 
 ## Feature acceptance table
 
