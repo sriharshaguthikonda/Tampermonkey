@@ -70,7 +70,14 @@
             out.diag = {
                 debug: !!(r.CONFIG && r.CONFIG.DEBUG_LOGGING),
                 entries: buffer.length,
-                errors: buffer.filter((entry) => entry.level === 'error').length
+                errors: buffer.filter((entry) => entry.level === 'error').length,
+                // Event names are code-defined labels; details are never read.
+                errorEvents: buffer.filter((entry) => entry.level === 'error' || entry.level === 'warn')
+                    .reduce((acc, entry) => {
+                        const name = `${entry.level}:${String(entry.event).slice(0, 60)}`;
+                        acc[name] = (acc[name] || 0) + 1;
+                        return acc;
+                    }, {})
             };
         }
         const current = document.querySelector('.tts-current-sentence');
