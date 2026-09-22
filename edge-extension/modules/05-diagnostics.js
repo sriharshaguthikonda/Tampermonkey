@@ -141,13 +141,19 @@
             env: lastEnvHeader,
             entries: diagnosticsBuffer.slice()
         };
-        try {
-            area.set({ [DIAGNOSTICS_BUFFER_KEY]: payload });
-        } catch (_error) {
+        const fallBackToLocal = () => {
             const fallback = getDiagnosticsStorageArea(false);
             if (fallback && fallback !== area && typeof fallback.set === 'function') {
                 try { fallback.set({ [DIAGNOSTICS_BUFFER_KEY]: payload }); } catch (__error) { /* ignore */ }
             }
+        };
+        try {
+            // MV3 storage.set rejects asynchronously (session storage denied to content
+            // scripts); the catch below only sees synchronous throws.
+            const pending = area.set({ [DIAGNOSTICS_BUFFER_KEY]: payload });
+            if (pending && typeof pending.catch === 'function') pending.catch(fallBackToLocal);
+        } catch (_error) {
+            fallBackToLocal();
         }
     }
 

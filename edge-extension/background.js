@@ -11,6 +11,13 @@ const SERVER_TTS_MAX_SPEED = 2.0;
 const SERVER_TTS_TIMEOUT_MS = 12000;
 
 let playbackLockState = null;
+
+// 05-diagnostics.js (a content script) keeps its ring buffer in storage.session, which is
+// trusted-contexts-only by default: without this every flush rejects with "Access to storage
+// is not allowed from this context". Nothing else lives in session storage.
+if (chrome.storage && chrome.storage.session && typeof chrome.storage.session.setAccessLevel === 'function') {
+    chrome.storage.session.setAccessLevel({ accessLevel: 'TRUSTED_AND_UNTRUSTED_CONTEXTS' }).catch(() => {});
+}
 const activeServerSynthesisRequests = new Map();
 const serverTtsPrefetchCache = new Map();
 
