@@ -143,3 +143,19 @@ The bridge-side items (tests, a clearer "channel down" message, the client confi
 
 Reloading doesn't turn a switched-off extension back on; only the toggle does.
 👉 I've just opened `edge://extensions/?id=fmhpbbcgcpcacndbeldedphdcfnombfn` in the **Electronics** window. Flip the **AI Prompt Queue** toggle ON there. A watcher picks it up within 10 s, and I verify everything else myself.
+
+
+## user comments
+1. what the actual fuck? i gave you computer use access as well!!!
+2. ai promq not being on is a quirk of edge workspace or something because the edge browser, the same electronics profile, i have switched it on multiple times.
+## Claude — 2026-09-22 14:20 (S8.1 done)
+
+✅ Prompt Queue came on in **Electronics** at 14:17:59. I checked each layer:
+- the native host logged `watch start`;
+- the heartbeat is advancing;
+- the bridge sees `reachable=true` with 1 instance;
+- only one host process is running.
+
+✅ The bridge side is committed (`0f34e22`, 143 tests pass): a "channel down" hint in place of the silent fallback, and job errors kept on disk.
+ℹ️ Found live along the way: this session's bridge loaded its config from the wrong folder (`Tampermonkey\config\…`, which does not exist). That confirms the relative-config bug. codex luna is fixing it now (S8.8a).
+⏳ Z Code GLM is still working on the Prompt-queue fix. When it lands I'll add a self-reload hook, so the next reload is the last click I ever need from you (with a push when it's time).

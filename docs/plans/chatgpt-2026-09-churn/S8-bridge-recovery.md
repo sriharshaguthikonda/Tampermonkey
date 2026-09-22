@@ -72,11 +72,11 @@ Last known good: 2026-07-28 job `20260728T000637Z_3847b1e51ff71f5d`, done in 54 
 
 | Gap | Probe | Who | Blocks |
 |---|---|---|---|
-| G1 | Re-enable Prompt-queue in Profile 2; confirm a new `watch start` line + advancing heartbeat + `bridge_health` reachable | orchestrator via Claude in Chrome if `edge://extensions` is reachable, else one click by the user | S8.1 |
+| G1 | Re-enable Prompt-queue in Profile 2; confirm a new `watch start` line + advancing heartbeat + `bridge_health` reachable. **2026-09-22:** Claude in Chrome cannot reach `edge://extensions` (it rewrites it to `https://edge://…`), and computer-use gives browsers read tier only. So it takes one user click. The orchestrator opens the card with `msedge.exe --profile-directory="Profile 2" "edge://extensions/?id=fmhpbbcgcpcacndbeldedphdcfnombfn"`. TRAP: the Edge display names do not match the folders. Folder `Default` shows as "Profile 1" (Prompt Queue ON), and folder `Profile 2` shows as **"Electronics"**, the bridge profile. The first ask sent the user to the wrong window. | user click, then the orchestrator verifies | S8.1 |
 | G2 | Live rectangle of the `Edit code` editor on an existing conversation (F5): temp chat, synthetic prompt, booleans/counts only | orchestrator via Claude in Chrome | S8.3 scope |
 | G3 | Confirm F9: spawn the bridge with `COHERE_API_KEY='${COHERE_API_KEY}'`, run live health → expect 401 | codex luna | S8.8 |
-| G4 | Job-contract table with every timeout (claim deadline, completion wait, worst-case wall time) | ornith (queued, WP6) | S8.4, S8.7 |
-| G5 | Full test counts in a writable env (codex read-only sandbox blocked pytest temp dirs and jest cache: 0 tests ran) | first implementation worker | baseline for every gate |
+| G4 | Job-contract table with every timeout (claim deadline, completion wait, worst-case wall time). **DONE 2026-09-22 (ornith WP6).** Bridge side: claim deadline 60 s → `ChannelDownError`; response deadline 600 s. Extension side: `waitForTabComplete` 30 s, settle 2 s, composer-ready 10 s, send window 60 s, send-button observer 5 s. The completion wait is **unbounded by default**, so the bridge's 600 s is the binding limit. Host side: unclaimed TTL 1800 s; claim TTL 3600 s with requeue until attempts ≥ 2; results kept 86400 s. Two places lose the error text: the content `RESPONSE_COMPLETE` send fails silently (`content.js:2284`), and a claim-expiry requeue keeps only `attempts`. The `ChannelDownError` text still says "reload"; S8.7b fixes it to "enable". | ornith | S8.4, S8.7 |
+| G5 | Full test counts in a writable env (codex read-only sandbox blocked pytest temp dirs and jest cache: 0 tests ran). **Bridge: 139 → 143 passed (S8.6/S8.7, `0f34e22`).** Prompt-queue count comes with S8.2–S8.4. | first implementation worker | baseline for every gate |
 
 ## 5. Minimal implementation sequence
 
