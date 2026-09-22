@@ -8,7 +8,14 @@ const scriptPath = path.join(repoRoot, 'Tampermonkey_scripts', 'ChatGPT Universa
 
 function loadUserscriptForTest() {
     const source = fs.readFileSync(scriptPath, 'utf8')
-        .replace('    TTSReader.init();\n\n})();', '    window.__TTSReaderForTest = TTSReader;\n\n})();');
+        .replace(`    const startTTSReader = () => { TTSReader.init(); };
+    if (typeof document !== 'undefined' && document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', startTTSReader);
+    } else {
+        startTTSReader();
+    }
+
+})();`, '    window.__TTSReaderForTest = TTSReader;\n\n})();');
     const document = {
         body: { appendChild() {} },
         documentElement: { clientHeight: 1000 },
