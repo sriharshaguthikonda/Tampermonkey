@@ -22,9 +22,9 @@ const FIXTURES = [
     ['streaming', path.join(driftwatchRoot, 'fixtures', 'chatgpt.com', 'current', 'streaming', 'conversation.html')]
 ];
 
-function loadReader(html) {
+function loadReader(html, url = 'https://chatgpt.com/c/fixture') {
     const dom = new JSDOM(html, {
-        url: 'https://chatgpt.com/c/fixture',
+        url,
         runScripts: 'outside-only'
     });
     const context = dom.getInternalVMContext();
@@ -40,6 +40,15 @@ function loadReader(html) {
     dom.window.document.body.appendChild(panel);
     reader.diagnosticsPanel = panel;
     return { dom, document: dom.window.document, reader };
+}
+
+function assertDriftingBadge(reader, document, anchor) {
+    reader.auditDriftwatchOnce();
+    const badge = document.getElementById('tts-drift-badge');
+    assert.ok(badge, 'canary must render the diagnostics badge');
+    assert.match(badge.textContent, /^drift: [1-9]\d*$/);
+    assert.ok(badge.title.split(', ').includes(anchor), `tooltip must name ${anchor}`);
+    return badge;
 }
 
 function assertBadge(reader, document, expected) {
@@ -67,10 +76,36 @@ for (const [state, fixture] of FIXTURES) {
 
 {
     const { dom, document, reader } = loadReader(
-        '<!doctype html><html><body><textarea id="pending-home-input"></textarea></body></html>'
+        '<!doctype html><html><body><textarea id="pending-home-input"></textarea></body></html>',
+        'https://chatgpt.com/'
     );
     assert.strictEqual(reader.getAuditState(), 'idle');
     assertBadge(reader, document, 0);
+    dom.window.close();
+}
+
+const COMPOSER_ONLY = '<!doctype html><html><body><form data-chatgpt-composer>'
+    + '<div data-composer-markdown contenteditable="true" role="textbox"><p><br></p></div>'
+    + '</form></body></html>';
+
+{
+    const { dom, document, reader } = loadReader(COMPOSER_ONLY, 'https://chatgpt.com/');
+    assertBadge(reader, document, 0);
+    dom.window.close();
+}
+
+{
+    const { dom, document, reader } = loadReader(COMPOSER_ONLY, 'https://chatgpt.com/c/test-id');
+    assertDriftingBadge(reader, document, 'exchangeRoot');
+    dom.window.close();
+}
+
+{
+    const idleFixture = FIXTURES.find(([state]) => state === 'idle')[1];
+    const { dom, document, reader } = loadReader(fs.readFileSync(idleFixture, 'utf8'), 'https://chatgpt.com/');
+    document.querySelectorAll('[data-turn-key]').forEach((exchange) => exchange.removeAttribute('data-turn-key'));
+    reader.resetResolutionMemo();
+    assertDriftingBadge(reader, document, 'exchangeRoot');
     dom.window.close();
 }
 

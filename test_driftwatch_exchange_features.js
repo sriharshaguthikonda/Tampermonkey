@@ -27,7 +27,8 @@ const MODULES = [
     '40-voice.js',
     '50-text.js',
     '55-selection.js',
-    '70-auto-read.js'
+    '70-auto-read.js',
+    '80-flow.js'
 ];
 
 // The sanitized Sept fixture carries structure only (text stripped by the privacy
@@ -166,7 +167,7 @@ function testParagraphExtractionExcludesCodeAndToolbarSentinels() {
         <div data-content-search-unit-key="structure-only:2:assistant">
           <div data-markdown-text-style="assistant-message">
             <div data-markdown-copy="code-block"><p id="code-sentinel">x</p></div>
-            <p id="toolbar-sentinel" data-markdown-copy="exclude">x</p>
+            <div data-markdown-copy="exclude"><p id="toolbar-sentinel">x</p></div>
             <p id="normal-paragraph">x</p>
           </div>
         </div>
@@ -180,6 +181,8 @@ function testParagraphExtractionExcludesCodeAndToolbarSentinels() {
     assert.strictEqual(result[0].element, document.getElementById('normal-paragraph'));
     assert.ok(!result.some((entry) => entry.element === document.getElementById('code-sentinel')));
     assert.ok(!result.some((entry) => entry.element === document.getElementById('toolbar-sentinel')));
+    assert.ok(reader.packData('speechSkipSelectors').includes('[data-markdown-copy="exclude"]'));
+    assert.strictEqual(reader.isInsideSkippedCodeContainer(document.getElementById('toolbar-sentinel')), true);
     console.log('PASS testParagraphExtractionExcludesCodeAndToolbarSentinels');
 }
 
@@ -264,7 +267,15 @@ function testCitationExclusionAndAutoReadEligibilityOnSyntheticExchange() {
 
 function testPackDataKeysNonEmpty() {
     const { reader } = loadReader();
-    const keys = ['citationExclusions', 'ignoreSelectors', 'nativeSelectionAllowlist', 'styleTargetSelectors'];
+    const keys = [
+        'citationExclusions',
+        'ignoreSelectors',
+        'nativeSelectionAllowlist',
+        'styleTargetSelectors',
+        'speechSkipSelectors',
+        'smartCopyStripSelectors',
+        'conversationPathPatterns'
+    ];
     for (const key of keys) {
         const value = reader.packData(key);
         assert.ok(Array.isArray(value) && value.length > 0, `packData('${key}') must be a non-empty array`);
@@ -293,6 +304,39 @@ function testIgnoreSelectorComposition() {
     reader.isChatGPTPage = false;
     assert.strictEqual(reader.getIgnoreSelectors(), reader.CONFIG.IGNORE_SELECTORS);
     console.log('PASS testIgnoreSelectorComposition');
+}
+
+function testSmartCopyCleanupUsesPackSelectors() {
+    const html = `<!doctype html><html><body>
+      <div id="copy-root">
+        <div aria-label="Response actions"><span id="action-child"></span></div>
+        <span id="kept-node"></span>
+      </div>
+    </body></html>`;
+    const { reader, document } = loadReader(html);
+    const root = document.getElementById('copy-root');
+    reader.cleanSmartCopyWorkingNode(root);
+    assert.strictEqual(document.querySelector('[aria-label="Response actions"]'), null);
+    assert.ok(document.getElementById('kept-node'), 'unrelated content must remain');
+    console.log('PASS testSmartCopyCleanupUsesPackSelectors');
+}
+
+function testComposerClickDoesNotStartReading() {
+    const html = `<!doctype html><html><body>
+      <form data-chatgpt-composer>
+        <div data-composer-markdown contenteditable="true" role="textbox"><span id="composer-target"></span></div>
+      </form>
+    </body></html>`;
+    const { reader, document } = loadReader(html);
+    let stopped = false;
+    let refreshed = false;
+    reader.clearActiveAutoReadScope = () => {};
+    reader.stopTTS = () => { stopped = true; };
+    reader.refreshParagraphsIfNeeded = () => { refreshed = true; };
+    reader.startReadingOnClick({ target: document.getElementById('composer-target') });
+    assert.strictEqual(stopped, false, 'composer click must return before stopping or starting playback');
+    assert.strictEqual(refreshed, false, 'composer click must return before paragraph discovery');
+    console.log('PASS testComposerClickDoesNotStartReading');
 }
 
 async function testObserverBusDeliversExchangeScopedBatches() {
@@ -480,6 +524,8 @@ async function testCopyButtonPlacedAfterActionBarAndCopiesMarkdownRoot() {
     testCitationExclusionAndAutoReadEligibilityOnSyntheticExchange();
     testPackDataKeysNonEmpty();
     testIgnoreSelectorComposition();
+    testSmartCopyCleanupUsesPackSelectors();
+    testComposerClickDoesNotStartReading();
     testEmphasisStylingTargetsComeFromPackData();
     testPromptHistoryHydratesFromUserUnitsInExchangeOrder();
     await testPasteGuardBlocksOnOpenEditSurfaceForm();

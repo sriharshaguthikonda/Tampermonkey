@@ -46,19 +46,35 @@
         }
     }
 
-    // Plan follow-up (d): expected absences must not count as drift. With zero
-    // exchanges resolved (empty or new chat) every exchange-scoped pack anchor is
-    // legitimately missing, as are exchangeRoot/assistantMessage/conversationTurn;
-    // a lazy new-chat composer exposes only the pendingComposerInput stub, so
-    // composer/composerForm are legitimately missing there too.
+    // Plan follow-up (d): expected absences must not count as drift. A page is an
+    // empty chat only when neither exchangeRoot nor any exchange-scoped anchor
+    // matched and its path is not a known conversation path. A lazy new-chat
+    // composer exposes only the pendingComposerInput stub, so composer/composerForm
+    // are legitimately missing there too.
     function computeDriftingAnchors(report, pack) {
         const anchors = report && report.anchors ? report.anchors : {};
         const packAnchors = pack && pack.anchors ? pack.anchors : {};
-        const zeroExchanges = !(anchors.exchangeRoot && anchors.exchangeRoot.matchedCount > 0);
+        const exchangeAnchorNames = Object.keys(packAnchors).filter((name) =>
+            name === 'exchangeRoot' || (packAnchors[name] && packAnchors[name].scope === 'exchange')
+        );
+        const zeroExchangeMatches = exchangeAnchorNames.every((name) =>
+            !(anchors[name] && anchors[name].matchedCount > 0)
+        );
+        const conversationPathPatterns = pack && pack.data && Array.isArray(pack.data.conversationPathPatterns)
+            ? pack.data.conversationPathPatterns
+            : [];
+        const onConversationPath = conversationPathPatterns.some((pattern) => {
+            try {
+                return new RegExp(pattern).test(location.pathname);
+            } catch (_error) {
+                return false;
+            }
+        });
+        const emptyChat = zeroExchangeMatches && !onConversationPath;
         const pendingStatus = anchors.pendingComposerInput && anchors.pendingComposerInput.status;
         const lazyComposer = pendingStatus === 'ok' || pendingStatus === 'degraded';
         const expectedAbsent = new Set();
-        if (zeroExchanges) {
+        if (emptyChat) {
             for (const name of Object.keys(packAnchors)) {
                 if (packAnchors[name] && packAnchors[name].scope === 'exchange') expectedAbsent.add(name);
             }

@@ -325,7 +325,12 @@
 
         startReadingOnClick(event) {
             this.clearActiveAutoReadScope();
-            if (event.target.closest('#thread-bottom-container')) return;
+            if (this.isChatGPTPage) {
+                const composerForm = this.resolveSingleton('composerForm');
+                const pendingComposerInput = this.resolveSingleton('pendingComposerInput');
+                if ((composerForm && composerForm.contains(event.target))
+                    || (pendingComposerInput && pendingComposerInput.contains(event.target))) return;
+            }
 
             this.stopTTS(false);
             this.refreshParagraphsIfNeeded(true);

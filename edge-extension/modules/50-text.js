@@ -335,9 +335,10 @@
             // S3.6: finished code blocks are content inside the pack's codeBlock
             // wrapper (pre/code exist only while streaming — probe §3.4), and the
             // markdown-copy exclusion regions (code-block toolbars) are skipped by
-            // the probe-verified attribute. Streaming pre/code stay covered by the
-            // generic pre/code entries in CONFIG.IGNORE_SELECTORS.
-            if (element.closest && element.closest('[data-markdown-copy="exclude"]')) return true;
+            // pack data. Streaming pre/code stay covered by the generic pre/code
+            // entries in CONFIG.IGNORE_SELECTORS.
+            const speechSkipSelectors = typeof this.packData === 'function' ? this.packData('speechSkipSelectors') : [];
+            if (speechSkipSelectors.length && element.closest && element.closest(speechSkipSelectors.join(', '))) return true;
             const exchangeEl = typeof this.exchangeForElement === 'function' ? this.exchangeForElement(element) : null;
             if (!exchangeEl || typeof this.resolveAllInExchange !== 'function') return false;
             const codeBlocks = this.resolveAllInExchange('codeBlock', exchangeEl);

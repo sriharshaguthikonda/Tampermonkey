@@ -213,21 +213,17 @@
 
         cleanSmartCopyWorkingNode(node) {
             if (!node || !node.querySelectorAll) return;
-            node.querySelectorAll(
-                [
-                    '[data-tmx-control]',
-                    '.tmx-copy-row',
-                    '.tmx-copy-button',
-                    '[data-tts-ui]',
-                    '.sr-only',
-                    'button',
-                    '[data-testid="copy-turn-action-button"]',
-                    '[data-testid*="turn-action"]',
-                    '[aria-label="Response actions"]',
-                    '[aria-label="Your message actions"]',
-                    '[role="group"][aria-label*="actions"]'
-                ].join(', ')
-            ).forEach((target) => target.remove());
+            const selectors = [
+                '[data-tmx-control]',
+                '.tmx-copy-row',
+                '.tmx-copy-button',
+                '[data-tts-ui]',
+                '.sr-only',
+                'button'
+            ];
+            // Saved ChatGPT pages (file://, localhost) carry the same action groups.
+            if (typeof this.packData === 'function') selectors.push(...this.packData('smartCopyStripSelectors'));
+            node.querySelectorAll(selectors.join(', ')).forEach((target) => target.remove());
         },
 
         normalizeSmartCopyText(text) {
