@@ -2,109 +2,11 @@
 
 (older sessions archived to `Q and A archive.md`)
 
-## 2026-07-15 session: FIX #19 EXECUTION (plan approved)
+## 📌 Open items (kept here; everything resolved is in `Q and A archive.md`)
 
-Plan lives in repo: `docs/plans/issue-19-global-paste/PLAN.md` (per your #8).
-
-Root cause found — TWO independent silent-failure layers, both confirmed:
-1. **Init death**: `99-bootstrap.js` — everything runs inside `chrome.storage.sync.get` callback, no timeout. Stall = no panel, no listener, total silence. (Your reload symptom.)
-2. **Guard false-positive — confirmed against YOUR capture** (`TTS Edge Extension Bug.html`, thanks, exactly what was needed): idle chatgpt.com has 7× `data-state="open"` incl. the always-visible sidebar → `hasBlockingOpenElements` fires on every page → paste silently aborts even when extension alive. Selectors themselves healthy (oracle passes).
-
-ChatGPT bridge reviewed both fixes, concurred + hardened them (lastError handling, safeInit around settings-apply, stronger visibility check). Your settings-chain note (#3: global paste / nice paste / auto send linked) — fixes don't touch that chain, defaults only apply if storage stalls.
-
-Now executing, codex agents doing implementation (your #5/#10 — testing their usability right now):
-- [ ] issue #21 filing (storage.sync silent death)
-- [ ] Fix 1: bootstrap fail-open + node test (codex)
-- [ ] Fix 2: drop `[data-state="open"]` from guard + node test (codex)
-- [ ] remaining issues incl. your NEW #4: smart-copy/copy overlay buttons unreadable in system-theme-light (CSS) — filing as GitHub issue
-- [ ] push branch; live verify; only then close #19/#21
-
-Your #9 (repo maps/serena, token burn) — heard. Edit targets pinned to file:line in plan; codex+serena do the edits, no broad rereads.
-
-Nothing blocking. Answer inline anytime; I keep working.
-
-
-## user comments
-1. if you can use parallel codex agents, do it.
-2. codex is dead now!
-
-3. in your work ethic is usage of repomaps and memory mandated..? i dont see you using any at all!?!?
-4. this engine is not only for present ....for future use as well...!!!
-5.
-
-### agent reply — 2026-07-27 (churn engine session)
-
-**Re #2 codex dead:** ✅ Noted. Zero codex calls this session. Delegation = Claude subagents only (Sonnet implementation, Haiku mechanical). I orchestrate + review every diff.
-
-**Re #3 repomaps/memory — fair hit, you're right.** ℹ️ I used the injected repo-intel status + memory context pack, but did my own recon with Explore agents instead of `repo_context_slice`/serena symbol tools. ✅ Correcting from here: serena `find_symbol`/`replace_symbol_body` for all code edits, `repo_context_slice` before touching an unfamiliar file. ⏳ Will save the churn root-cause + driftwatch decisions to memory as durable rows.
-
-**Re #4 future use, not just now:** ✅ That is the design premise. The pack format is site-agnostic data-only JSON — chatgpt.com is just the first pack file. New site = new JSON, zero engine code. New extension = load `dist/driftwatch.js`, call `resolve('sendButton')`. Separate MIT repo so ophel (GPL) and anything future can both consume it.
-
----
-
-🔎 **ROOT CAUSE FOUND for the completion-wait hang** (proven, not a guess):
-
-ChatGPT silently changed the conversation turn element between your two saved captures:
-- 2026-03: `<article data-testid="conversation-turn-1">`
-- 2026-07: `<section data-turn-id=... data-testid="conversation-turn-1" data-turn="user">`
-
-`article` → `section`. Prompt-queue hardcodes `article[data-testid^="conversation-turn-"]` in `content-chat-state.js:160` and `:383` → **matches zero elements today**. Response scope collapses, completion markers never found, and because bridge jobs set `requireCapturedResponse: true` the only two exit conditions are both unreachable. Then `isFiniteResponseTimeoutEnabled` at `content.js:85-89` is **inverted** (`enableMaxWaitTimeout: true` *disables* the timeout) so it never times out either. Infinite wait.
-
-Corroborated: every recent bridge job = `text_chars: 0`, `stoppedByUser` / `job_unclaimed_expired`. Zero successes.
-
-ℹ️ This is exactly the class of failure driftwatch exists to make loud. A passive audit would have printed `conversationTurn: BROKEN` on day one instead of hanging.
-
-👉 **Nothing needed from you right now.** Building in this order: driftwatch repo → core + pack + fixture tests → Prompt-queue fix (red-then-green) → live bridge verify. I'll ping here when I need you to reload the extension for the live test.
-
----
-
-### ⚠️ correction + one question — 2026-07-27
-
-ℹ️ **I overclaimed earlier, correcting it.** I said the bridge hangs forever. It doesn't, deterministically. I submitted a real job, it **completed** (7829 chars, ~4 min). So "infinite hang on every job" was wrong.
-
-✅ **What IS confirmed broken** (verified against live chatgpt.com DOM, not guessed):
-`getLatestAssistantTurn()` at `content-chat-state.js:383` tries `article[data-testid^="conversation-turn-"]` → **0 matches** (dead since the article→section change), falls through to `[data-message-author-role="assistant"]` which returns the *inner* message div. The copy/feedback buttons live **outside** that div. So `findResponseCompletionMarkers` searches the wrong subtree and always returns `[]`.
-
-Meaning: of the two ways completion can be detected, **the fallback one is silently dead**. Everything currently rides on the stop-button path alone. And `content.js:85-89` disables the max-wait timeout by default (inverted helper naming), so there's no backstop if that one path ever misses. One dead spare + no backstop.
-
-⏳ Then I sent a deliberately fast prompt ("reply with exactly the word OK") to test whether a quick response gets missed by the 1500 ms poll. It came back `stoppedByUser` at **exactly 60 seconds**.
-
-👉 **Question: did you click Stop in the Prompt-queue popup around then, or close a ChatGPT tab?**
-I traced every code path — `stoppedByUser` is only ever produced by the popup Stop button or by `chrome.tabs.onRemoved`. Nothing automatic emits it, and the 60s health-check recovery path is skipped entirely in parallel mode (which bridge jobs use). So either you stopped it, or there's a path I haven't found yet.
-
-- If **you clicked it** → nothing more to chase, the fix is the two confirmed defects above.
-- If **you didn't touch it** → there's a third bug, something is killing sessions at 60s and mislabelling it, and I want to find it.
-
-ℹ️ Not blocked either way — I'm fixing the two confirmed defects now regardless. Answer whenever.
-
----
-
-### ✅ REPRODUCED ON DEMAND — 2026-07-27
-
-Ignore my uncertainty above. I can now trigger your bug at will, and the mechanism is fully explained.
-
-**Experiment:**
-| prompt | ChatGPT answer time | bridge result |
-|---|---|---|
-| long design-review question | 2m15s thinking | ✅ completed, 7829 chars |
-| `"say OK"` | ~1 second | ❌ **still `claimed`, unresolved 25+ min later** |
-
-**Why fast responses hang and slow ones don't:**
-1. The churn killed `getLatestAssistantTurn()` — it returns the inner assistant div, and the copy button is outside it. So the **fallback** completion path is permanently dead. Confirmed against live DOM.
-2. That leaves only the stop-button path, which needs the 1500 ms poll to *catch* the stop button while it's visible.
-3. Long answer → stop button visible for minutes → caught → completes.
-4. **Fast answer → stop button appears and disappears between two polls → never caught → nothing left → waits forever.**
-5. No timeout backstop, because `content.js:85-89` disables it by default.
-
-That is why this looked like a ghost: it's speed-correlated, intermittent, and silent. Short prompts hang; long ones work.
-
-⚠️ **Important call I made — I am NOT simply un-inverting the timeout.** `maxWaitMs` is 180s, and your thinking-model answer took **240s**. Flipping that flag would start silently truncating real answers — a worse bug than the one I'm fixing. Fixing the dead selector path instead (the actual cause); the timeout only gets its misleading naming corrected, default behaviour untouched.
-
-👉 The 60s `stoppedByUser` question above is now **low priority** — the real bug is proven without it. Still answer if you remember, but don't go digging.
-
-⏳ In progress: Prompt-queue migration onto driftwatch, with a regression test that must be RED before the fix and GREEN after. Then I re-run `"say OK"` through the bridge — if it returns, you're fixed.
-
----
+- 🔴 **Security decision still yours** — repo is PUBLIC with 12 tracked raw `.html` ChatGPT captures (block below).
+- ⏳ **Model MCP Bridge recovery** — planning phase started 2026-09-22 13:00 (see newest reply at the bottom).
+- ℹ️ Churn follow-up (e) needs a visible Edge window; S5.4 userscript live test **skipped** per your "let the Tampermonkey script be as it is".
 
 ### 🔴 SECURITY — found while checking gitignore, needs YOUR decision
 
@@ -141,37 +43,45 @@ Tell me which and I'll do it. Until you say so I'm leaving it completely alone a
 
 ---
 
-### ⚠️ your "i closed ok answer chatgpt tabs" — my repro is now suspect
+## user comments
+1. don't underestimate ornit agents, they are actually very powerful.
+2. why are you asking stupid questions which profile
+3. let the Tampermonkey script be as it is....we will call it a day!
 
-✅ Thanks, that answers the 60s `stoppedByUser`: closing the tab fires `chrome.tabs.onRemoved` → `stopTabSession()` → default label `stoppedByUser`. Mystery solved, no third bug.
-
-⚠️ **But it also contaminates my "reproduced on demand" claim above.** If you were closing ChatGPT tabs while my `"say OK"` job was in flight, then that job sitting stuck at `claimed` could simply be an orphaned job whose tab vanished — not my selector theory at all. I said "reproduced on demand" and I'm not yet entitled to it. Retracting until re-tested.
-
-👉 **One favour — a clean 3-minute window.** I'm submitting another `"say OK"` job now. Please **don't close or touch any ChatGPT tab** until I post the result here.
-
-Two possible outcomes and what each means:
-- **Job completes** → the selector theory is wrong about fast responses, the earlier hang was your tab close, and I go back and re-diagnose properly.
-- **Job hangs with the tab left open** → theory confirmed for real this time, and the fix is right.
-
-ℹ️ The dead-selector defect itself is **not** in doubt either way — `article[data-testid^="conversation-turn-"]` matching 0 on live chatgpt.com is measured fact, and `findResponseCompletionMarkers` searching the wrong subtree follows from it. What's now unproven is specifically whether that alone causes the fast-response hang.
-
----
-
-### ✅ independent evidence the design rule is right — ophel already survived this
-
-Checked your ophel fork (`Chrome_extensions/ophel/src/adapters/chatgpt.ts`). It has **zero** `article[...]` selectors, and already uses:
-- `'[data-testid^="conversation-turn"]'` (tag-agnostic — the form that survived)
-- `'section[data-turn], [data-testid^="conversation-turn"]'`
-- 21 references to `data-turn`, with a comment noting *"ChatGPT 新版结构：`<section data-turn="user|assistant" data-turn-id=...>`; 老版可能只有 `[data-testid^="conversation-turn"]`"* — i.e. it explicitly tracks both the new section shape and the old one.
-
-So ophel sailed through the churn that broke Prompt-queue, because upstream happened to pick the generic selector. That's independent confirmation of driftwatch's core ranking rule, from a codebase I didn't write. Good news for the donation: ophel's per-site adapter layer is already the right shape to consume driftwatch.
+4. move archival stuff from this q and a to archive! things needed to be done keep them here!
 
 
 
+## Claude — 2026-09-22 13:05 (Q&A archived; bridge recovery planning)
 
+✅ Archived: 628 lines of finished sessions moved to `Q and A archive.md`. Only open items stay here (list at the top).
+✅ Userscript S5.4 live test is skipped, as you said. The Tampermonkey script stays as it is.
+ℹ️ Profile question: understood. I'll read the Edge profile state from disk myself and won't ask you.
+⏳ **Model MCP Bridge, planning phase (no fixes yet).** Break point found so far: the bridge server is up, but **no native-host process is running**. The Prompt-queue heartbeat stopped at 12:38:11 today, and the bridge needs one within the last 45 s. Earlier, on Sep 21, three jobs failed at the ChatGPT DOM step (the Sept churn). Five read-only investigations are running in parallel: codex terra/luna/sol, ZCode GLM-5.3, and one ornith. The plan will go into the repo plans, cross-linked.
+👉 Nothing needed from you right now.
 
 
 
 ## user comments
-1. i closed ok answer chatgpt tabs
-2. memory system update!
+1. i want you to focus on the chatgpt aspect of the bridge.
+2. is ornith free?...it has to bee working all the time!!!
+
+## Claude — 2026-09-22 13:40 (ChatGPT channel: two root causes found)
+
+✅ **Focus = ChatGPT channel.** Provider-key problems (cohere/mistral/gemini/openai) are written down as a side item only.
+ℹ️ **Ornith:** it was free after WP5 finished (13:15). Since 13:31 it has been busy with a **Z Code desktop run you opened** (it is `generating`). One-ornith rule, so I don't start a second copy. I started a **queue runner** that feeds ornith my briefs back to back whenever it is free, so it never sits idle on my side. First in the queue: the job-contract map (every timeout, bridge → extension → back).
+
+**Why the ChatGPT bridge is dead — two separate causes, both verified:**
+
+1. 🔴 **Prompt-queue is switched OFF in Edge Profile 2 since 12:38:12 today.** Edge records it as a *user action* (`disable_reasons [1]`). At 12:35 the userscript session asked you to switch off **TTS Reader** and *leave Prompt-queue on*. Prompt-queue went off 2½ minutes later, and TTS Reader is still on. So most likely the wrong toggle was hit — nothing you need to explain. With the extension off, nothing runs, the native host dies silently, and the bridge sees "no live browser".
+2. 🔴 **Even when it is switched back on, jobs will still fail** because of the September ChatGPT redesign. Prompt-queue's own hard-coded selectors are out of date:
+   - A **new chat** fails at "Composer did not become ready" (the new lazy composer). That is the Sep-21 error.
+   - **Reply capture** finds nothing on the new page, so the bridge never gets an answer.
+   - The driftwatch pack itself is fine on the new page (11/16 ok, 0 broken). Prompt-queue just doesn't use it for those two steps.
+
+   👉 That is exactly the churn-detector test you meant: driftwatch knew, the consumer didn't ask.
+
+ℹ️ Also found: when the browser is dead, `ask_chatgpt` **silently answers from a public model** instead of failing, so the outage looked like "it works, just weird".
+
+⏳ Now writing the recovery plan into the repos (Tampermonkey churn plan S8 + child plans in bridge / Prompt-queue / driftwatch). No fixes yet, as you asked.
+👉 Nothing needed from you right now. Later, step 1 of the fix is turning Prompt-queue back on in Profile 2. I'll try to do that myself first.
