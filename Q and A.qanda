@@ -183,3 +183,19 @@ Reloading doesn't turn a switched-off extension back on; only the toggle does.
 👉 In the **Electronics** window I've opened `edge://extensions/?id=fmhpbbcgcpcacndbeldedphdcfnombfn`. Click the **↻ reload** icon on **AI Prompt Queue** once. It is ON already, so don't toggle it.
 - A watcher detects it within 2 s, then I run the live ChatGPT test myself in a temporary chat.
 - After this, every reload goes through `control/reload` and no click from you is needed again.
+
+## user comments
+1. why is the pycache inside the prompt queue extension directory? have a particular test/ i hope that in future, which will remove pycache from inside the extension directory. 
+2. how many times i have told you?
+## Claude — 2026-09-22 15:50 (pycache, live test result)
+
+🙏 **pycache: my fault.** My Python test runs left `__pycache__` in the Prompt-queue root, and Edge won't load an extension that has a "_" name there. It is gitignored, so I never saw it.
+✅ Fixed permanently (`d0d54a5`): a root `conftest.py` stops Python writing caches and deletes them after every pytest run, and a jest test fails if any "_" name is in the root (checked: fails on a planted `__pycache__`, passes after the cleanup). The rule is also in memory.
+✅ Your reload worked at 15:23:50.
+🔴 **Live job 1 failed with `composer_not_ready`.** The new error codes made that visible at once. The root cause is verified live:
+- bridge job tabs open in the background (hidden);
+- ChatGPT's lazy new-chat page mounts its real composer only when the tab renders a frame, and hidden tabs render none;
+- one forced frame (a debugger screenshot) mounted it instantly, with the text carried over.
+⏳ Fix S8.3b is with codex terra. For a few seconds, only on hidden new-chat job tabs, the extension forces frames through `chrome.debugger` until the composer mounts, then detaches.
+- ⚠️ This adds the `debugger` permission to Prompt Queue. Edge shows a "started debugging this browser" bar for about 1–2 s per new-chat job.
+- The alternative is switching to the job tab, which would steal your focus. Say so if you'd prefer that.
