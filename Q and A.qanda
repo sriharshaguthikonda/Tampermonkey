@@ -108,3 +108,23 @@ The bridge-side items (tests, a clearer "channel down" message, the client confi
 
 ## user comments
 1. start implementation as a task for the churn detector!..hope that is the goal!!
+
+## Claude — 2026-09-22 13:55 (implementation started)
+
+✅ Yes, that is the goal. This is the churn detector's first field test: the fix sends Prompt-queue's job path through the driftwatch pack, and a new contract test fails whenever a consumer bypasses the pack.
+⏳ Running now, in parallel:
+- **Z Code GLM-5.3** in Prompt-queue:
+  - S8.2: the failing contract test comes first.
+  - S8.3: composer, lazy new-chat and reply capture go through the pack.
+  - S8.4: the host keeps the error text.
+- **codex gpt-5.6-sol** in the bridge:
+  - S8.6: the stdio launch test.
+  - S8.7: a "channel down" hint in place of the silent fallback, plus the last 20 job errors kept on disk.
+- **ornith**: job-contract timeouts, then the caller list, then the lazy-composer port. I use these to check GLM's diff.
+
+🔴 **One click only you can do.** My browser tools cannot open `edge://extensions`: Claude in Chrome turns it into `https://edge://…`, and screen control is read-only for browsers. In the **Edge window using Profile 2** (the one Claude in Chrome drives):
+1. Open `edge://extensions`.
+2. Find **AI Prompt Queue** (id `fmhpbbcgcpcacndbeldedphdcfnombfn`, folder `C:\Windows_software\Chrome_extensions\Prompt-queue`).
+3. Switch its toggle **ON**. Leave **TTS Reader** alone.
+
+👉 After that I check everything myself: the native host start line, the heartbeat and `bridge_health`. Then I run one synthetic job in a temporary chat to record the failure before the fix. Please don't reload anything. When the fix lands I'll add a way to reload the extension myself, so you won't be asked again.
