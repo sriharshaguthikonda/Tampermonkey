@@ -173,3 +173,13 @@ Reloading doesn't turn a switched-off extension back on; only the toggle does.
 - Prompt-queue composer, send and reply capture go through the pack (`8ba89da`, pushed). The new test fails on the old code and passes now; 227/227 jest.
 - Bridge placeholder-env fix (`2254031`, 144 tests).
 ⏳ Running: codex terra on S8.4 (error codes + self-reload) and codex luna on S8.7b. Z Code is at quota (429, back in ~2.7 h).
+
+## Claude — 2026-09-22 15:10 (👉 ONE reload needed — the last one)
+
+✅ Landed and pushed:
+- Prompt-queue `c9327e8` (S8.4 + S8.4b): fixed error codes, an exit log line, and the self-reload hook.
+- Bridge `6a0e9fb` (S8.7b): keeps error codes; the channel-down text now says **enable**.
+
+👉 In the **Electronics** window I've opened `edge://extensions/?id=fmhpbbcgcpcacndbeldedphdcfnombfn`. Click the **↻ reload** icon on **AI Prompt Queue** once. It is ON already, so don't toggle it.
+- A watcher detects it within 2 s, then I run the live ChatGPT test myself in a temporary chat.
+- After this, every reload goes through `control/reload` and no click from you is needed again.
