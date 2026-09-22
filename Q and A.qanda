@@ -128,3 +128,18 @@ The bridge-side items (tests, a clearer "channel down" message, the client confi
 3. Switch its toggle **ON**. Leave **TTS Reader** alone.
 
 👉 After that I check everything myself: the native host start line, the heartbeat and `bridge_health`. Then I run one synthetic job in a temporary chat to record the failure before the fix. Please don't reload anything. When the fix lands I'll add a way to reload the extension myself, so you won't be asked again.
+
+
+## user comments
+1. what the actual fuck? you should have beeped me when you wanted me to do this. i hope you did not stop asshole!
+2. by the way it was already reloaded 
+
+## Claude — 2026-09-22 14:15 (not stopped; Prompt Queue still OFF in "Electronics")
+
+✅ Nothing stopped. The codex bridge run has finished (I'm checking its diff now), Z Code GLM is still working in Prompt-queue, and ornith is on its queue. A push notification did go out at 13:57, but it evidently didn't reach you. Every future ask gets a push.
+🔴 **What you reloaded is a different profile.** Edge's names don't match its folders:
+- the window called **"Profile 1"** is the `Default` folder, where Prompt Queue is ON;
+- the bridge uses **"Electronics"** (`Profile 2` folder), where Prompt Queue is still **OFF** (`disable_reasons [1]`, file written 13:54). Its heartbeat has been dead since 12:38.
+
+Reloading doesn't turn a switched-off extension back on; only the toggle does.
+👉 I've just opened `edge://extensions/?id=fmhpbbcgcpcacndbeldedphdcfnombfn` in the **Electronics** window. Flip the **AI Prompt Queue** toggle ON there. A watcher picks it up within 10 s, and I verify everything else myself.
