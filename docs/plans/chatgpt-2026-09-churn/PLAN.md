@@ -157,7 +157,7 @@ Repo: Tampermonkey (evidence into `Q and A.qanda` + research folder). Owner lane
 Tasks:
 
 - [x] S4.0 Dev-only self-reload: find or add an agent-capable reload of the unpacked extension (e.g. a dev-only `chrome.runtime.reload()` hook triggered by a runtime message/keyboard shortcut, gated to dev builds) so the smoke loop iterates without human help. If S0.12 says the agent can toggle the extension itself on `chrome://extensions`, record that as the stronger path. Verify before the loop starts.
-- [ ] S4.1 Run the acceptance table end-to-end: temporary chat, `debugLogging=true` (panel toggle exists, probe §5), synthetic harmless prompts, one check per row. Zero wrong-element resolutions (send resolves to the form submit button, never Dictate/Voice/code editor; copy resolves to the action-bar Copy, never a code-block Copy; post-edit focus lands in the edited unit, never a code editor). Live pack audit per R10 — inject `dist/driftwatch.js` (pack v2 baked) via the browser JS tool and run, with the page's actual state:
+- [x] S4.1 Run the acceptance table end-to-end: temporary chat, `debugLogging=true` (panel toggle exists, probe §5), synthetic harmless prompts, one check per row. Zero wrong-element resolutions (send resolves to the form submit button, never Dictate/Voice/code editor; copy resolves to the action-bar Copy, never a code-block Copy; post-edit focus lands in the edited unit, never a code editor). Live pack audit per R10 — inject `dist/driftwatch.js` (pack v2 baked) via the browser JS tool and run, with the page's actual state:
   ```js
   const dw = window.driftwatch;
   const r = dw.audit(dw.packs['chatgpt.com'], document, { state: 'idle' });
@@ -166,10 +166,43 @@ Tasks:
   JSON.stringify(out); // last expression = the browser JS tool's return value (copy() is DevTools-only); statuses + strategy indices ONLY — no page text leaves the tab
   ```
   Returned statuses must match the expected-status table (R4) — on an idle-empty page `conversationTurn` reads `absent` and `sendButton` reads `absent`, and that is GREEN, not a failure. `{state:'composing'}` variant run once with text in the composer.
-- [ ] S4.2 Record evidence per row (command/observation + boolean/counts one-liner, no page text — R9: never copy `originalSample`/`normalizedSample` strings or speech-error samples into evidence) in `Q and A.qanda`; set table statuses. Failures route back to S3 with the failing row named.
+- [x] S4.2 Record evidence per row (command/observation + boolean/counts one-liner, no page text — R9: never copy `originalSample`/`normalizedSample` strings or speech-error samples into evidence) in `Q and A.qanda`; set table statuses. Failures route back to S3 with the failing row named.
 
 ACCEPT gate: named check "S4 table green" — every manufacturable table row reads `pass` with an evidence pointer; observational rows (F12, and any S0 item carried here) carry their disposition; the statuses-only audit snapshot is recorded; no page text appears in any evidence (orchestrator eyeball).
 Rollback: n/a (verification); a red row blocks exit criteria, not the repo.
+
+#### S4 evidence (2026-09-22)
+
+Live and agent-driven (Claude in Chrome), in temporary chats with agent-authored synthetic prompts. Each check token exists only in the reply, built from joined fragments. The extension is loaded unpacked from source `edge-extension/`, so the pong's `build` is null (expected). Probes: the dev-only `00-dev-reload.js` ping (`1ff7fa5`, `0c7796b`, `f9d67ce`) plus a `speechSynthesis.speak` counter that stores counts only. Evidence is booleans and counts, with no page text (R9).
+
+| Row | Observation |
+|---|---|
+| F1 | Shift+U, then click a paragraph → `ttsActive` true, 1 `.tts-current-sentence`, inside the markdown root. ArrowLeft → index −1; ArrowRight ×2 → index +2; composer length unchanged. Pointer and trail canvas present |
+| F2 | On every start (5): `.tts-current-sentence` count 1, inside the markdown root. Audio does not advance while the Edge window is hidden (follow-up e) |
+| F3 | 4- and 5-paragraph replies in 3 chats: after completion `ttsActive` true at index 0, with the current sentence inside the markdown root and no input |
+| F4 | Crosshair click on paragraph 4 → index 3; the speak counter saw tokens from paragraphs 4–5 only. Double-click paragraph 4 while reading paragraph 1 → index 3, 0 edit forms. Crosshair click on the thread bottom, the composer, or the composer "+" button → `ttsActive` false, 0 menus, composer length 0 |
+| F5 | 2 exchanges: roles user, assistant, user, assistant in DOM order; each reply's tokens first appear in their own assistant entry |
+| F6 | Double-Enter within 300 ms sends; a single Enter is swallowed by design; history +1 |
+| F7 | Ctrl+↑ restores the last prompt, then the one before |
+| F8 | Edit form open → guard blocks (`pasteBlocked` true, `defaultPrevented` true); closed → allowed. ChatGPT's own paste-anywhere still inserts (follow-up c) |
+| F9 | Tab A reading, then tab B auto-reads a new reply → A `ttsActive` false. A restarts → B false. 0 errors |
+| F10 | Native Copy present → 0 injected rows. The native-absent branch is covered by the jsdom test only |
+| F11 | Double-click the reply → 0 edit forms. Double-click the user bubble → `editSurfaceForm` ok@0, focus inside the edit form (not a code editor, not the composer) |
+| F12 | Observational: DOM-sim test green; no limit dialog occurred |
+| F13 | Idle with 1 and 2 exchanges: every anchor ok@0 or table-absent. Composing: `sendButton` ok@0. Streaming: `stopButton` ok@0, `sendButton` absent. Idle with 0 exchanges: exchange anchors `broken@-1`; the table has no such state (follow-up d) |
+| F14 | Debug switched on through the probe (`DEBUG_LOGGING` + `diagnostics.enable()`) → ring buffer entries grow. The popup toggle itself was not driven |
+| F15 | Reply starting with an emoji: 0 spoken utterances start with an emoji |
+| F16 | 1 forced `user-select: text !important` rule; the markdown root matches it; panel, pointer and canvas present |
+| F17 | Reply with a code block holding a token: that token is spoken 0 times; the prose tokens are spoken |
+| F18 | Before `8a703a8`: storage.session rejections (red). After: 0 diagnostics errors and 0 console errors across load, send, auto-read, crosshair, arrow nav, double-click and the two-tab lock; 9 diagnostics entries (no loop) |
+
+Follow-ups found in S4 (not exit blockers):
+- (a) Ctrl+↓ back to an empty draft leaves the old prompt, because `setPromptText('')` in `25-prompt-send-part1.js` inserts nothing (pre-existing).
+- (b) Replies under 3 paragraphs are never auto-read (`AUTO_READ_MIN_PARAGRAPHS` = 3, by design). Decide whether short replies should be read.
+- (c) ChatGPT's native paste-anywhere inserts into the composer even while our guard blocks (edit box open). Blocking it needs an early capture listener, as `00-early-keydown.js` does for keys.
+- (d) Pack v2 has no empty-conversation state. On a new chat the exchange anchors audit `broken`, and the startup audit logs a false "anchors broken" warning. Add the state in driftwatch.
+- (e) Native speech stalls (`speaking` + `pending`, no errors) while the Edge window is hidden. Not re-checked with a visible window.
+- (f) The smart-copy export keeps code blocks (a transcript). Confirm that F17's "exported" wording means speech only.
 
 ### S5 — Userscript parity
 
@@ -220,24 +253,24 @@ All statuses start `open`; S4 flips them with evidence pointers (booleans/counts
 
 | Feature | Module(s) | Anchor(s) / selector source after repair | Live acceptance check (agent-observable) | Status |
 |---|---|---|---|---|
-| 1 TTS playback / navigation | 75-queue, 80-flow, 90-scroll, 45-paragraph | assistantUnit + assistantMarkdownRoot (per exchange); own pointer/panel UI | Start reading a new reply via click/crosshair: exactly one `.tts-current-sentence` element appears inside the resolved assistant markdown root; arrow nav advances it; pointer + trail canvas active | open |
-| 2 Word/sentence highlighting | 60-highlight, 65-prewrap | same read scope as F1; own classes | While speaking, `document.querySelector('.tts-current-sentence')` matches exactly 1 element and it lives inside the resolved `assistantMarkdownRoot` | open |
-| 3 Auto-read new replies | 70-auto-read | exchangeRoot enumeration + assistantUnit per exchange; completion = quiet debounce (`:343`, S0.6-informed) | Send a synthetic prompt; after completion, speaking starts with no user input (`.tts-current-sentence` appears + debug log lines); reasoning block, if present, is not read | open |
-| 4 Selection-seek / click-to-read | 55-selection, 80-flow | generic element candidates (code) + site exclusions from PACK DATA (R7); own IGNORE invariants | Select a sentence in the reply and click: reading starts there; clicking composer/buttons/thread-bottom region does not start reading | open |
-| 5 Smart copy / transcript export | 20-smart-copy p1-3 | userUnit, assistantUnit (per exchange), exchangeRoot (order), assistantMarkdownRoot (content) | With ≥2 exchanges, export lists user+assistant turns in DOM exchange order with correct roles (compare against agent-authored synthetic content only); no NaN/undefined turn indices; collection count == exchange count | open |
-| 6 Prompt send / paste-anywhere | 25-prompt-send p1 | composerForm, composer, sendButton (state-aware: composing = Send present) | Paste anywhere → text lands in the `form [data-composer-markdown]` editor, never the code editor; send clicks the form submit button; Dictate/Start Voice never activated; idle-empty page: Send correctly absent, nothing mis-clicked | open |
-| 7 Prompt history + send capture | 25-prompt-send p2 | userUnit (per exchange); composer per F6 | After 2 exchanges, history recall repopulates the composer with the agent's own last synthetic prompt; Enter/click submit path per S0.5 verdict | open |
-| 8 Global paste guard | 25-prompt-send p2 | `[role=dialog]`/`[role=menu]`/`[role=listbox]` (kept, ARIA-resilient, code invariant); edit-box check from pack data per S0.10 (R7) | With a menu/dialog open, paste does NOT reach the composer; closed, it does | open |
-| 9 Cross-tab playback lock | 15-playback-lock | none (chrome.runtime only) | Regression only: two tabs still arbitrate playback exactly as before | open |
-| 10 Custom copy-button injection | 35-server-tts | responseActionBar (PLACEMENT), copyResponseButton (native check), assistantMarkdownRoot (CONTENT source) — split per R6 | Native Copy present → injection suppressed (`35-server-tts.js:283-287` gate); native absent → injected adjacent to the action bar (fallback strategy); copied text equals that exchange's markdown-root text (asserted), never a code block | open |
-| 11 Double-click-to-edit | 35-server-tts:370-391, 15-playback-lock:297 | userUnit (hit-test + listener attachment), editMessageButton inside userUnit | Double-click the synthetic user bubble opens edit mode on that message; double-click on assistant unit or code block does nothing; post-edit focus lands inside the edited unit's editor, never a code editor | open |
-| 12 Usage-limit auto-close | 35-server-tts:402-417, 15-playback-lock:306 | close control per S0.10, sourced from pack data (R7) | Runnable DOM-sim test green (missing dialog = no-op; unrelated close-button decoy never clicked — R8); live check observational-only if a real limit dialog occurs | open |
-| 13 Live pack audit | agent-injected snippet (R10), no extension API | all pack-v2 anchors, state-aware | Injected dist + pack snippet returns statuses matching the expected-status table (`conversationTurn` `absent` on Sept is green; idle-empty `sendButton` `absent` is green); zero wrong-element matches | open |
-| 14 Diagnostics / debug logging | 05-diagnostics | own panel; drift badge moves to S7 (R12) | `debugLogging=true` toggle emits log lines; ring buffer captures; badge NOT checked in S4 — F14 badge acceptance is S7, post-release | open |
-| 15 Emoji-skip for speech | 40-voice | own detection (code) | Synthetic reply starting with an emoji: debug-log TTS text lacks the leading emoji | open |
-| 16 Page styling + own UI injection | 87-ui, 10-lifecycle | own ids; site style targets = unit-key + assistantMarkdownRoot selectors from pack data (R7) | Panels/pointer present (probe §5 list); computed `user-select` inside the assistant markdown root reflects the forced style | open |
-| 17 Text extraction pipeline | 50-text | assistantMarkdownRoot + codeBlock (per exchange); exclusion selectors from pack data (R7) | Reply containing a code block with a sentinel string: spoken/exported text includes prose, excludes the sentinel and reference pills if present | open |
-| 18 Shared observer bus | 08-observer-bus | infra: exchangeRoot/assistantUnit subscriptions; own noise filter | No console errors during all S4 flows; no self-triggered mutation loops from own UI | open |
+| 1 TTS playback / navigation | 75-queue, 80-flow, 90-scroll, 45-paragraph | assistantUnit + assistantMarkdownRoot (per exchange); own pointer/panel UI | Start reading a new reply via click/crosshair: exactly one `.tts-current-sentence` element appears inside the resolved assistant markdown root; arrow nav advances it; pointer + trail canvas active | pass · [ev](#s4-evidence-2026-09-22) |
+| 2 Word/sentence highlighting | 60-highlight, 65-prewrap | same read scope as F1; own classes | While speaking, `document.querySelector('.tts-current-sentence')` matches exactly 1 element and it lives inside the resolved `assistantMarkdownRoot` | pass · [ev](#s4-evidence-2026-09-22) (audio in a hidden window: follow-up e) |
+| 3 Auto-read new replies | 70-auto-read | exchangeRoot enumeration + assistantUnit per exchange; completion = quiet debounce (`:343`, S0.6-informed) | Send a synthetic prompt; after completion, speaking starts with no user input (`.tts-current-sentence` appears + debug log lines); reasoning block, if present, is not read | pass · [ev](#s4-evidence-2026-09-22) |
+| 4 Selection-seek / click-to-read | 55-selection, 80-flow | generic element candidates (code) + site exclusions from PACK DATA (R7); own IGNORE invariants | Select a sentence in the reply and click: reading starts there; clicking composer/buttons/thread-bottom region does not start reading | pass · [ev](#s4-evidence-2026-09-22) |
+| 5 Smart copy / transcript export | 20-smart-copy p1-3 | userUnit, assistantUnit (per exchange), exchangeRoot (order), assistantMarkdownRoot (content) | With ≥2 exchanges, export lists user+assistant turns in DOM exchange order with correct roles (compare against agent-authored synthetic content only); no NaN/undefined turn indices; collection count == exchange count | pass · [ev](#s4-evidence-2026-09-22) |
+| 6 Prompt send / paste-anywhere | 25-prompt-send p1 | composerForm, composer, sendButton (state-aware: composing = Send present) | Paste anywhere → text lands in the `form [data-composer-markdown]` editor, never the code editor; send clicks the form submit button; Dictate/Start Voice never activated; idle-empty page: Send correctly absent, nothing mis-clicked | pass · [ev](#s4-evidence-2026-09-22) |
+| 7 Prompt history + send capture | 25-prompt-send p2 | userUnit (per exchange); composer per F6 | After 2 exchanges, history recall repopulates the composer with the agent's own last synthetic prompt; Enter/click submit path per S0.5 verdict | pass · [ev](#s4-evidence-2026-09-22) (follow-up a) |
+| 8 Global paste guard | 25-prompt-send p2 | `[role=dialog]`/`[role=menu]`/`[role=listbox]` (kept, ARIA-resilient, code invariant); edit-box check from pack data per S0.10 (R7) | With a menu/dialog open, paste does NOT reach the composer; closed, it does | pass for our guard · [ev](#s4-evidence-2026-09-22) (site-native paste: follow-up c) |
+| 9 Cross-tab playback lock | 15-playback-lock | none (chrome.runtime only) | Regression only: two tabs still arbitrate playback exactly as before | pass · [ev](#s4-evidence-2026-09-22) |
+| 10 Custom copy-button injection | 35-server-tts | responseActionBar (PLACEMENT), copyResponseButton (native check), assistantMarkdownRoot (CONTENT source) — split per R6 | Native Copy present → injection suppressed (`35-server-tts.js:283-287` gate); native absent → injected adjacent to the action bar (fallback strategy); copied text equals that exchange's markdown-root text (asserted), never a code block | pass · [ev](#s4-evidence-2026-09-22) (native-absent branch: jsdom test only) |
+| 11 Double-click-to-edit | 35-server-tts:370-391, 15-playback-lock:297 | userUnit (hit-test + listener attachment), editMessageButton inside userUnit | Double-click the synthetic user bubble opens edit mode on that message; double-click on assistant unit or code block does nothing; post-edit focus lands inside the edited unit's editor, never a code editor | pass · [ev](#s4-evidence-2026-09-22) |
+| 12 Usage-limit auto-close | 35-server-tts:402-417, 15-playback-lock:306 | close control per S0.10, sourced from pack data (R7) | Runnable DOM-sim test green (missing dialog = no-op; unrelated close-button decoy never clicked — R8); live check observational-only if a real limit dialog occurs | observational · [ev](#s4-evidence-2026-09-22) |
+| 13 Live pack audit | agent-injected snippet (R10), no extension API | all pack-v2 anchors, state-aware | Injected dist + pack snippet returns statuses matching the expected-status table (`conversationTurn` `absent` on Sept is green; idle-empty `sendButton` `absent` is green); zero wrong-element matches | pass · [ev](#s4-evidence-2026-09-22) (0-exchange state: follow-up d) |
+| 14 Diagnostics / debug logging | 05-diagnostics | own panel; drift badge moves to S7 (R12) | `debugLogging=true` toggle emits log lines; ring buffer captures; badge NOT checked in S4 — F14 badge acceptance is S7, post-release | pass · [ev](#s4-evidence-2026-09-22) |
+| 15 Emoji-skip for speech | 40-voice | own detection (code) | Synthetic reply starting with an emoji: debug-log TTS text lacks the leading emoji | pass · [ev](#s4-evidence-2026-09-22) |
+| 16 Page styling + own UI injection | 87-ui, 10-lifecycle | own ids; site style targets = unit-key + assistantMarkdownRoot selectors from pack data (R7) | Panels/pointer present (probe §5 list); computed `user-select` inside the assistant markdown root reflects the forced style | pass · [ev](#s4-evidence-2026-09-22) |
+| 17 Text extraction pipeline | 50-text | assistantMarkdownRoot + codeBlock (per exchange); exclusion selectors from pack data (R7) | Reply containing a code block with a sentinel string: spoken/exported text includes prose, excludes the sentinel and reference pills if present | pass for speech · [ev](#s4-evidence-2026-09-22) (export keeps code: follow-up f) |
+| 18 Shared observer bus | 08-observer-bus | infra: exchangeRoot/assistantUnit subscriptions; own noise filter | No console errors during all S4 flows; no self-triggered mutation loops from own UI | pass after `8a703a8` · [ev](#s4-evidence-2026-09-22) |
 
 ## Exit criteria (M1-equivalent for churn #2)
 
