@@ -216,3 +216,5 @@ Reloading doesn't turn a switched-off extension back on; only the toggle does.
 ⏳ Running: **Z Code** (GLM → flash-worker) on S8.7c. `bridge_health` will say "Prompt Queue is disabled in Edge profile folder Profile 2" instead of just "not reachable", by reading `disable_reasons` read-only.
 ❓ **S8.8 needs your OK:** make the bridge entry in `~/.claude.json` use an absolute `--config` path and drop its `${VAR}` env block, so `.env` keys load. I'd back up the file first, and it needs a Claude Code restart. Reply **yes** or **no**.
 📝 Plans updated: Prompt-queue `03fd6d2`, Tampermonkey `b2c8811`.
+
+✅ 21:50 IST: S8.7c landed (bridge `be9adcf`, pytest 151). Z Code did the code; I made the old health tests hermetic, because they had started reading your real Edge folder. After the next Claude Code restart, `bridge_health` names the Edge profile folder where Prompt Queue is off. Nothing else is running; waiting only on your S8.8 yes/no.
