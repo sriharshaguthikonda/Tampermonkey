@@ -199,3 +199,7 @@ Reloading doesn't turn a switched-off extension back on; only the toggle does.
 ⏳ Fix S8.3b is with codex terra. For a few seconds, only on hidden new-chat job tabs, the extension forces frames through `chrome.debugger` until the composer mounts, then detaches.
 - ⚠️ This adds the `debugger` permission to Prompt Queue. Edge shows a "started debugging this browser" bar for about 1–2 s per new-chat job.
 - The alternative is switching to the job tab, which would steal your focus. Say so if you'd prefer that.
+
+## Claude — 2026-09-22 16:00 (lane fallback)
+
+ℹ️ Codex hit its usage limit (resets 18:00) and Z Code is at quota (~17:10). Both implementers are out, so per the routing rules S8.3b went to the **fallback: a Claude Sonnet subagent**. I review its diff as usual.
