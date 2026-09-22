@@ -354,7 +354,9 @@
         setPromptText(text) {
             const promptArea = this.findPromptArea();
             if (!promptArea) return false;
-            const normalizedText = String(text || '').replace(/\r\n/g, '\n');
+            // ProseMirror reads a trailing-newline insertText as Enter, and ChatGPT
+            // sends on Enter — strip trailing newlines so the draft clears instead.
+            const normalizedText = String(text || '').replace(/\r\n/g, '\n').replace(/\n+$/, '');
 
             promptArea.focus();
             if (promptArea.tagName === 'TEXTAREA' || promptArea.tagName === 'INPUT') {

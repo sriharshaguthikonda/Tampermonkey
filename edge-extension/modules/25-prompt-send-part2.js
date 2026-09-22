@@ -14,7 +14,12 @@
             const maxChars = Math.max(500, Number(this.CONFIG.PROMPT_HISTORY_MAX_CHARS) || 6000);
             if (normalized.length > maxChars) return;
             const last = this.promptHistory.length > 0 ? this.promptHistory[this.promptHistory.length - 1] : '';
-            if (last === normalized) return;
+            if (last === normalized) {
+                this.promptHistoryCursor = -1;
+                this.promptHistoryDraft = '';
+                this.promptHistoryDraftTooLarge = false;
+                return;
+            }
 
             this.promptHistory.push(normalized);
             const maxItems = Math.max(20, Number(this.CONFIG.PROMPT_HISTORY_MAX) || 200);
@@ -147,7 +152,7 @@
 
             const direction = event.key === 'ArrowUp' ? -1 : 1;
             const maxChars = Math.max(500, Number(this.CONFIG.PROMPT_HISTORY_MAX_CHARS) || 6000);
-            if (this.promptHistoryCursor === -1) {
+            if (this.promptHistoryCursor === -1 || this.promptHistoryCursor >= this.promptHistory.length) {
                 const draft = this.getPromptText(promptArea);
                 if (draft.length > maxChars) {
                     this.promptHistoryDraft = '';
