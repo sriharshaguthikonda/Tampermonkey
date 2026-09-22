@@ -5,7 +5,7 @@
 ## 📌 Open items (kept here; everything resolved is in `Q and A archive.md`)
 
 - 🔴 **Security decision still yours** — repo is PUBLIC with 12 tracked raw `.html` ChatGPT captures (block below).
-- ⏳ **Model MCP Bridge recovery** — planning phase started 2026-09-22 13:00 (see newest reply at the bottom).
+- ⏳ **Model MCP Bridge recovery**: planning DONE 2026-09-22 13:50; plan = `docs/plans/chatgpt-2026-09-churn/S8-bridge-recovery.md`. Implementation waits for your "go" (starts at S8.1 = switch Prompt-queue back on in Edge Profile 2).
 - ℹ️ Churn follow-up (e) needs a visible Edge window; S5.4 userscript live test **skipped** per your "let the Tampermonkey script be as it is".
 
 ### 🔴 SECURITY — found while checking gitignore, needs YOUR decision
@@ -85,3 +85,26 @@ Tell me which and I'll do it. Until you say so I'm leaving it completely alone a
 
 ⏳ Now writing the recovery plan into the repos (Tampermonkey churn plan S8 + child plans in bridge / Prompt-queue / driftwatch). No fixes yet, as you asked.
 👉 Nothing needed from you right now. Later, step 1 of the fix is turning Prompt-queue back on in Profile 2. I'll try to do that myself first.
+## Claude — 2026-09-22 13:50 (bridge planning done, handoff)
+
+✅ **Plans written, committed, pushed** (bridge repo has no remote → committed locally only):
+- Coordination: `docs/plans/chatgpt-2026-09-churn/S8-bridge-recovery.md` (+ S8 section in `PLAN.md`) — `607cbfd`
+- Prompt-queue: `plans/incident-2026-09-22-bridge-channel-dead.md` + ROADMAP row — `a1b448f`
+- Bridge: `docs/plans/browser-channel-recovery-2026-09.md` + HANDOFF banner — `7e002ef`
+- driftwatch: ROADMAP "Active: consumer contract" — `d699a8f`
+
+**Fix order (not started):**
+1. S8.1: switch Prompt-queue back on in Profile 2.
+2. S8.2: a failing test that proves Prompt-queue ignores the pack.
+3. S8.3: send the composer (including the new lazy new-chat one) and reply capture through the pack, reusing the TTS Reader's working lazy-composer code.
+4. S8.4: keep the error text.
+5. S8.5: one live synthetic job in a temporary chat.
+
+The bridge-side items (tests, a clearer "channel down" message, the client config) run in parallel.
+
+ℹ️ Ornith is now working through a queue: the job-contract timeouts, the list of every caller that needs the fix, and a port recipe for the lazy composer. The results feed straight into the implementation briefs.
+👉 Say **go** when you want implementation to start. Nothing else needed.
+
+
+## user comments
+1. start implementation as a task for the churn detector!..hope that is the goal!!
