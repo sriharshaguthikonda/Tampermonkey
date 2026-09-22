@@ -121,4 +121,23 @@ const COMPOSER_ONLY = '<!doctype html><html><body><form data-chatgpt-composer>'
     dom.window.close();
 }
 
+{
+    // A chat whose replies carry no code: codeBlock is content-optional (pack min 0),
+    // so zero matches audit as 'absent' and must not count as drift.
+    const idleFixture = FIXTURES.find(([state]) => state === 'idle')[1];
+    const { dom, document, reader } = loadReader(fs.readFileSync(idleFixture, 'utf8'));
+    let removed = 0;
+    for (const exchangeEl of reader.exchanges()) {
+        for (const codeEl of reader.resolveAllInExchange('codeBlock', exchangeEl)) {
+            codeEl.remove();
+            removed += 1;
+        }
+    }
+    assert.ok(removed > 0, 'idle fixture must contain code blocks to remove');
+    reader.resetResolutionMemo();
+    const badge = assertBadge(reader, document, 0);
+    assert.ok(!badge.title.split(', ').includes('codeBlock'), 'tooltip must not name codeBlock');
+    dom.window.close();
+}
+
 console.log('PASS test_driftwatch_diagnostics');
