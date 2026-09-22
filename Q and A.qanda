@@ -159,3 +159,17 @@ Reloading doesn't turn a switched-off extension back on; only the toggle does.
 ✅ The bridge side is committed (`0f34e22`, 143 tests pass): a "channel down" hint in place of the silent fallback, and job errors kept on disk.
 ℹ️ Found live along the way: this session's bridge loaded its config from the wrong folder (`Tampermonkey\config\…`, which does not exist). That confirms the relative-config bug. codex luna is fixing it now (S8.8a).
 ⏳ Z Code GLM is still working on the Prompt-queue fix. When it lands I'll add a self-reload hook, so the next reload is the last click I ever need from you (with a push when it's time).
+
+
+## user comments
+1. you're burning lot of tokens, delegate more 
+2. and uh... pace yourself.
+## Claude — 2026-09-22 14:35 (pacing, computer use)
+
+👍 Got it. I'm handing the typing to workers and only reviewing now; I wait for their notifications instead of polling.
+ℹ️ Computer use: the tool gives browsers **read-only** access, no clicks or typing. I tried it at 14:25 and it refused Edge clicks. So one more click is needed after the self-reload lands. From then on, reloads come from a shell (`control/reload` file) and you won't be needed.
+📝 Auto-off in Electronics: recorded as a known quirk. The bridge will report "Prompt Queue OFF in Electronics" precisely (detector S8.7c, read-only) instead of guessing.
+✅ Done since 14:20:
+- Prompt-queue composer, send and reply capture go through the pack (`8ba89da`, pushed). The new test fails on the old code and passes now; 227/227 jest.
+- Bridge placeholder-env fix (`2254031`, 144 tests).
+⏳ Running: codex terra on S8.4 (error codes + self-reload) and codex luna on S8.7b. Z Code is at quota (429, back in ~2.7 h).
