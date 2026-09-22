@@ -203,3 +203,16 @@ Reloading doesn't turn a switched-off extension back on; only the toggle does.
 ## Claude — 2026-09-22 16:00 (lane fallback)
 
 ℹ️ Codex hit its usage limit (resets 18:00) and Z Code is at quota (~17:10). Both implementers are out, so per the routing rules S8.3b went to the **fallback: a Claude Sonnet subagent**. I review its diff as usual.
+
+## Claude — 2026-09-22 21:35 IST (✅ ChatGPT channel restored)
+
+✅ **The bridge's ChatGPT channel works end to end again.** Live tests, all in temporary chats with synthetic prompts:
+- New chat: `status=done`, full trace (announce → claim → send → completion → finish), 38 s.
+- Follow-up in the same conversation: `status=done`, same conversation URL, 29 s.
+- `ask_chatgpt` with fallback off (the original client path, L10): real answer in 22.5 s.
+- Reconnect after reload (L9): heartbeat back in 1.9 s, and the reload came from the shell, not from you.
+🔧 Last bug (S8.3c, `ccaa2c2`): a hidden conversation page renders nothing at all, so the forced frames now run for any hidden ChatGPT job tab, not only new chats. Delegated to the **local ornith** worker with exact edits; I only reviewed (jest 236/236).
+ℹ️ Temporary chats can't be reopened by URL (ChatGPT redirects), so the follow-up test reuses the same tab.
+⏳ Running: **Z Code** (GLM → flash-worker) on S8.7c. `bridge_health` will say "Prompt Queue is disabled in Edge profile folder Profile 2" instead of just "not reachable", by reading `disable_reasons` read-only.
+❓ **S8.8 needs your OK:** make the bridge entry in `~/.claude.json` use an absolute `--config` path and drop its `${VAR}` env block, so `.env` keys load. I'd back up the file first, and it needs a Claude Code restart. Reply **yes** or **no**.
+📝 Plans updated: Prompt-queue `03fd6d2`, Tampermonkey `b2c8811`.
