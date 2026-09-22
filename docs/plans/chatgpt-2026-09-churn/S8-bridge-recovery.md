@@ -1,6 +1,6 @@
 # S8 — Model MCP Bridge recovery = churn-detector field test (cross-repo, POST-RELEASE)
 
-Status: **PLANNED — investigation done 2026-09-22, implementation not started.** Handoff point is [§9](#9-handoff-point).
+Status: **IN PROGRESS (2026-09-22)** — S8.1–S8.4, S8.3b, S8.6, S8.7, S8.7b, S8.8a done; S8.5 new-chat live job passed; S8.3c + existing-conversation job, S8.8 user config and L9 open. Per-step commits in [PLAN.md §S8](PLAN.md#s8--model-mcp-bridge-recovery--churn-detector-field-test-post-release-cross-repo). Original handoff point: [§9](#9-handoff-point).
 Parent: [PLAN.md §S8](PLAN.md#s8--model-mcp-bridge-recovery--churn-detector-field-test-post-release-cross-repo). Scope set by the user: the **ChatGPT channel** of the bridge. This is also the first field test of driftwatch against a consumer other than the TTS Reader. The pack was right, the consumer never asked it, and nothing caught that. That gap is the point of this stage.
 
 Child plans (each repo owns its own fixes):

@@ -261,11 +261,11 @@ Depends: S6.1 (pack v2 vendored in Prompt-queue). S6.1 deliberately left the ful
 Root causes (2026-09-22): Prompt-queue disabled in Edge Profile 2 at 12:38:12 (user-action toggle), and Prompt-queue composer-ready + reply capture still on dead literals while the pack is healthy.
 
 - [x] S8.1 re-enable + live evidence (Prompt-queue, ops). Done 2026-09-22 14:17:59: `watch start` logged, heartbeat advancing, channel `reachable=true`, instances=1, one native-host process. The user toggled it in "Electronics" (folder Profile 2).
-- [ ] S8.2 RED consumer contract test on Sept fixtures (Prompt-queue)
-- [ ] S8.3 composer (incl. lazy new chat) + reply capture through the pack (Prompt-queue)
-- [ ] S8.4 error text persisted, host exit logged (Prompt-queue)
-- [ ] S8.5 live gate: synthetic job, temporary chat, `status=done` (orchestrator)
-- [ ] S8.6 bridge L1/L3 tests ✅ `0f34e22`; S8.7 dead-channel diagnostics ✅ `0f34e22` (S8.7b error code open); S8.8 client config (bridge)
+- [x] S8.2 RED consumer contract test on Sept fixtures (Prompt-queue) — `8ba89da` (4/8 red → 8/8 green)
+- [x] S8.3 composer (incl. lazy new chat) + reply capture through the pack (Prompt-queue) — `8ba89da`; S8.3b hidden job tabs get CDP-forced frames `141cb6f`; S8.3c (hidden conversation pages too) in progress. Pack-first reach order audited (WP9): no literal selector runs before the pack.
+- [x] S8.4 error text persisted, host exit logged (Prompt-queue) — `c9327e8` (fixed `error_code`, exit log, dev self-reload sentinel `control/reload`); no `__pycache__` in the extension root `d0d54a5`
+- [ ] S8.5 live gate: synthetic job, temporary chat, `status=done` (orchestrator). New-chat job PASSED 2026-09-22 (`20260922T101407Z_49cdd0c3ab235a77`, full trace, `text_chars=23`). Existing-conversation job failed `composer_not_ready`: temporary chats cannot be reopened by `/c/<id>` URL, and a hidden conversation page renders nothing → S8.3c + a same-tab follow-up job.
+- [ ] S8.6 bridge L1/L3 tests ✅ `0f34e22`; S8.7 dead-channel diagnostics ✅ `0f34e22`; S8.7b error code kept ✅ `6a0e9fb`; S8.8a `${VAR}` env placeholders treated as unset ✅ `2254031`; S8.8 user client config (`~/.claude.json`, needs user OK) open
 - [ ] S8.9 generic `consumerAudit()` once a second consumer adopts it (driftwatch, deferred)
 
 ACCEPT gate: S8.2 test green; S8.5 live gate recorded (booleans/counts); `bridge_health` → `chatgpt_browser.reachable=true`.
