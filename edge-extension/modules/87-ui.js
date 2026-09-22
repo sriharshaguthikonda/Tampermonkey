@@ -259,7 +259,13 @@
                 diagnostics.setAttribute('data-tts-ui', 'true');
                 diagnostics.setAttribute('aria-hidden', 'true');
                 diagnostics.style.cssText = 'position: fixed; right: 12px; bottom: 12px; background: var(--tts-ui-overlay-bg); color: var(--tts-ui-overlay-text); border: 1px solid var(--tts-ui-overlay-border); padding: 6px 8px; border-radius: 6px; font-family: Arial, sans-serif; font-size: 11px; z-index: 2147483647; pointer-events: none; user-select: none; -webkit-user-select: none;';
-                diagnostics.textContent = 'gap: -- ms | wrap: -- ms';
+                // S7.1: timing text in its own span child — the drift badge
+                // (25-prompt-send-part1.js) renders as a sibling, and 65-prewrap
+                // rewrites only this span on its cadence.
+                const diagnosticsTiming = document.createElement('span');
+                diagnosticsTiming.id = 'tts-diagnostics-timing';
+                diagnosticsTiming.textContent = 'gap: -- ms | wrap: -- ms';
+                diagnostics.appendChild(diagnosticsTiming);
                 document.body.appendChild(diagnostics);
                 this.diagnosticsPanel = diagnostics;
             }

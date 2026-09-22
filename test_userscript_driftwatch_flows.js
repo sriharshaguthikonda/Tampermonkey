@@ -10,6 +10,7 @@ const repoRoot = __dirname;
 const { JSDOM, VirtualConsole } = require(path.join(repoRoot, '..', 'driftwatch', 'node_modules', 'jsdom'));
 
 const scriptPath = path.join(repoRoot, 'Tampermonkey_scripts', 'ChatGPT Universal TTS Reader with Precision Navigation & Highlighting.js');
+const driftwatchModulePath = path.join(repoRoot, 'edge-extension', 'modules', '22-driftwatch.js');
 const IDLE_FIXTURE = path.join(repoRoot, 'fixtures', 'chatgpt.com', '2026-09-21-idle', 'conversation.html');
 const COMPOSING_FIXTURE = path.join(repoRoot, 'fixtures', 'chatgpt.com', '2026-09-21-composing', 'conversation.html');
 
@@ -34,6 +35,13 @@ const LEGACY_SAVED_HTML = `<!doctype html><html><body><main>
 <div data-message-id="m-2" data-message-author-role="user"><div class="markdown"><p id="legacy-user-p">what is the legacy token</p></div></div>
 <div data-message-id="m-3" data-message-author-role="assistant"><div class="markdown"><p>legacy-a2</p></div></div>
 </main></body></html>`;
+
+function testInlineDriftwatchMatchesEdgeModule() {
+    assert.ok(
+        fs.readFileSync(scriptPath, 'utf8').includes(fs.readFileSync(driftwatchModulePath, 'utf8')),
+        'userscript must contain the full current edge-extension driftwatch module verbatim'
+    );
+}
 
 // jsdom fires "Not implemented: ...requestSubmit" when a test clicks a form
 // submit button (composer-flow checks). That diagnostic is expected noise;
@@ -347,6 +355,7 @@ async function testSavedPageUserParagraphReadableWithDetectionOff() {
 }
 
 (async () => {
+    testInlineDriftwatchMatchesEdgeModule();
     await testComposerAndSendButtonResolve();
     await testExchangeEnumerationOnSeptFixture();
     await testAutoReadPicksLastAssistantMarkdownRoot();

@@ -16,36 +16,127 @@
     // page legitimately has no Send button (R3). The Dictate/Voice mic exclusion is a
     // code invariant (00-DESIGN #19), kept in isSendButtonReady below, never in pack data.
 
+    // S7.1 (D-S9 drift visibility): the startup audit is a state-aware driftwatch
+    // canary. dw.canary(pack, doc, opts, onDegrade) forwards { state } to audit
+    // (review-16 fix 1); the diagnostics badge renders from EVERY returned report,
+    // not from onDegrade — which fires only on a NEW degraded fingerprint and
+    // never on recovery (review-16 fix 2). Re-runs ride the existing observer-bus
+    // debounce, throttled by timestamp to one canary per 5 s; the canary owns no
+    // timer, and nothing here touches the network.
+    const DRIFT_CANARY_MIN_INTERVAL_MS = 5000;
     let driftwatchAudited = false;
+    let driftCanaryLastRunAt = 0;
 
-    function auditDriftwatchOnce() {
-        if (driftwatchAudited) return;
-        driftwatchAudited = true;
-        const dw = window.driftwatch;
-        const pack = ns.TTSReader.getChatGptPack();
-        if (!dw || !pack || typeof dw.audit !== 'function') return;
+    // Anchor names only — never page text, per driftwatch's own privacy contract.
+    function handleDriftwatchDegrade(report) {
         const log = ns.diagnostics && typeof ns.diagnostics.log === 'function' ? ns.diagnostics.log : null;
         if (!log) return;
-        let report;
-        try {
-            report = dw.audit(pack, document);
-        } catch (_error) {
-            return;
-        }
+        const drifting = computeDriftingAnchors(report, ns.TTSReader.getChatGptPack());
         const degraded = [];
         const broken = [];
-        for (const name of Object.keys(report.anchors || {})) {
+        for (const name of drifting) {
             const status = report.anchors[name].status;
             if (status === 'broken' || status === 'ambiguous') broken.push(name);
             else if (status === 'degraded') degraded.push(name);
         }
-        // Anchor names only — never page text, per driftwatch's own privacy contract.
         if (broken.length) {
             log('warn', 'driftwatch anchors broken', { anchors: broken.join(',') });
         } else if (degraded.length) {
             log('warn', 'driftwatch anchors degraded', { anchors: degraded.join(',') });
+        }
+    }
+
+    // Plan follow-up (d): expected absences must not count as drift. With zero
+    // exchanges resolved (empty or new chat) every exchange-scoped pack anchor is
+    // legitimately missing, as are exchangeRoot/assistantMessage/conversationTurn;
+    // a lazy new-chat composer exposes only the pendingComposerInput stub, so
+    // composer/composerForm are legitimately missing there too.
+    function computeDriftingAnchors(report, pack) {
+        const anchors = report && report.anchors ? report.anchors : {};
+        const packAnchors = pack && pack.anchors ? pack.anchors : {};
+        const zeroExchanges = !(anchors.exchangeRoot && anchors.exchangeRoot.matchedCount > 0);
+        const pendingStatus = anchors.pendingComposerInput && anchors.pendingComposerInput.status;
+        const lazyComposer = pendingStatus === 'ok' || pendingStatus === 'degraded';
+        const expectedAbsent = new Set();
+        if (zeroExchanges) {
+            for (const name of Object.keys(packAnchors)) {
+                if (packAnchors[name] && packAnchors[name].scope === 'exchange') expectedAbsent.add(name);
+            }
+            expectedAbsent.add('exchangeRoot');
+            expectedAbsent.add('assistantMessage');
+            expectedAbsent.add('conversationTurn');
+        }
+        if (lazyComposer) {
+            expectedAbsent.add('composer');
+            expectedAbsent.add('composerForm');
+        }
+        const drifting = [];
+        for (const name of Object.keys(anchors)) {
+            if (expectedAbsent.has(name)) continue;
+            const status = anchors[name].status;
+            if (status === 'broken' || status === 'ambiguous' || status === 'degraded') {
+                drifting.push(name);
+            }
+        }
+        return drifting;
+    }
+
+    // The badge is its own span inside #tts-diagnostics-panel: 65-prewrap rewrites
+    // the timing text on its cadence, and a panel-level textContent write would
+    // wipe every child (badge included).
+    function renderDriftBadge(drifting) {
+        const panel = ns.TTSReader.diagnosticsPanel;
+        if (!panel || typeof panel.appendChild !== 'function') return;
+        let badge = document.getElementById('tts-drift-badge');
+        if (!badge || badge.parentElement !== panel) {
+            badge = document.createElement('span');
+            badge.id = 'tts-drift-badge';
+            badge.setAttribute('data-tts-ui', 'true');
+            badge.style.marginLeft = '6px';
+            panel.appendChild(badge);
+        }
+        badge.textContent = `drift: ${drifting.length}`;
+        // Tooltip lists anchor names only — never page text.
+        if (drifting.length) {
+            badge.title = drifting.join(', ');
         } else {
-            log('debug', 'driftwatch audit clean', { summary: report.summary });
+            badge.removeAttribute('title');
+        }
+    }
+
+    function runDriftwatchCanary() {
+        const dw = window.driftwatch;
+        const pack = ns.TTSReader.getChatGptPack();
+        if (!dw || !pack || typeof dw.canary !== 'function') return;
+        const state = ns.TTSReader.getAuditState();
+        let report;
+        try {
+            report = dw.canary(pack, document, { state }, handleDriftwatchDegrade);
+        } catch (_error) {
+            return;
+        }
+        const drifting = computeDriftingAnchors(report, pack);
+        renderDriftBadge(drifting);
+        if (!drifting.length && ns.diagnostics && typeof ns.diagnostics.log === 'function') {
+            ns.diagnostics.log('debug', 'driftwatch audit clean', { state, summary: report.summary });
+        }
+    }
+
+    function auditDriftwatchOnce() {
+        if (driftwatchAudited) return;
+        driftwatchAudited = true;
+        driftCanaryLastRunAt = Date.now();
+        runDriftwatchCanary();
+        if (ns.observerBus && typeof ns.observerBus.subscribe === 'function') {
+            ns.observerBus.subscribe({
+                name: 'driftwatch-canary',
+                onFlush: () => {
+                    const now = Date.now();
+                    if (now - driftCanaryLastRunAt < DRIFT_CANARY_MIN_INTERVAL_MS) return;
+                    driftCanaryLastRunAt = now;
+                    runDriftwatchCanary();
+                }
+            });
         }
     }
 

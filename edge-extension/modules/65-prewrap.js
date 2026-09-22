@@ -261,7 +261,16 @@
             if (!this.diagnosticsPanel) return;
             const gap = this.lastGapMs === null ? '--' : Math.round(this.lastGapMs);
             const wrap = this.lastWrapMs === null ? '--' : Math.round(this.lastWrapMs);
-            this.diagnosticsPanel.textContent = `gap: ${gap} ms | wrap: ${wrap} ms`;
+            // S7.1: the timing text lives in its own span so the drift badge
+            // (a sibling from 25-prompt-send-part1.js) survives this update —
+            // a panel-level textContent write would wipe every child.
+            let timing = this.diagnosticsPanel.querySelector('#tts-diagnostics-timing');
+            if (!timing) {
+                timing = document.createElement('span');
+                timing.id = 'tts-diagnostics-timing';
+                this.diagnosticsPanel.appendChild(timing);
+            }
+            timing.textContent = `gap: ${gap} ms | wrap: ${wrap} ms`;
         },
 
         updateProgressPanel(forceHide = false) {

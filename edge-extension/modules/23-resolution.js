@@ -213,6 +213,22 @@
         return base ? `${base}, ${siteEntries.join(', ')}` : siteEntries.join(', ');
     }
 
+    // S7.1 page-state classifier for state-aware driftwatch audits (sendButton/
+    // stopButton declare per-state expected counts). 'streaming' while the stop
+    // control resolves, else 'composing' while the composer holds text, else
+    // 'idle' — an empty idle composer legitimately has no Send button (R3).
+    // No site selectors: pack resolution plus the generic getPromptText read
+    // (25-prompt-send-part1.js).
+    function getAuditState() {
+        if (this.resolveSingleton('stopButton', 'streaming')) return 'streaming';
+        const composer = this.resolveSingleton('composer');
+        if (composer && typeof this.getPromptText === 'function') {
+            const text = this.getPromptText(composer);
+            if (text && text.trim()) return 'composing';
+        }
+        return 'idle';
+    }
+
     Object.assign(ns.TTSReader, {
         getChatGptPack,
         getChatGptSite,
@@ -224,6 +240,7 @@
         exchangeForElement,
         exchangeKey,
         resetResolutionMemo,
-        getIgnoreSelectors
+        getIgnoreSelectors,
+        getAuditState
     });
 })();
