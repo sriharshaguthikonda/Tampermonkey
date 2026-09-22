@@ -335,7 +335,20 @@
             copyButton.addEventListener('click', (event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                const text = this.extractConversationTextFromNode(content);
+                // S5 parity fix: the markdown root can be REPLACED while the action
+                // bar (and this row) survives — resolve the exchange's CURRENT
+                // markdown root at click time instead of the node captured when the
+                // row was injected. Saved pages keep the captured content node.
+                let source = content;
+                if (this.isChatGPTPage && typeof this.exchangeForElement === 'function' && typeof this.resolveInExchange === 'function') {
+                    try {
+                        const exchangeEl = this.exchangeForElement(placement);
+                        source = (exchangeEl && this.resolveInExchange('assistantMarkdownRoot', exchangeEl)) || content;
+                    } catch (_error) {
+                        source = content;
+                    }
+                }
+                const text = this.extractConversationTextFromNode(source);
                 if (!text) return;
                 const payload = this.formatSmartCopyEntries([{ role, text }]);
                 if (!payload) return;

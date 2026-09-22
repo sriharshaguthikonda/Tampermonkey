@@ -256,13 +256,45 @@ function testEarlyShimReceivesHandler() {
     assert.strictEqual(counts.clearStalePlaybackFlagsIfIdle, 1);
 }
 
+function testEscapeWithoutSessionReachesPageListener() {
+    // S5 fix: the STOP (Escape) handler is a window CAPTURE listener — claiming
+    // the key with no reader session would block every page Escape handler
+    // (dialogs, menus). No session -> pass through, uncancelled.
+    const rt = makeTestRuntime();
+    rt.document.activeElement = rt.body;
+
+    const e = rt.dispatchKey('Escape');
+
+    assert.strictEqual(rt.pageListenerCallsGetter(), 1, 'Escape with no session must reach later page listeners');
+    assert.strictEqual(e.preventDefaultCalled, false);
+    assert.strictEqual(e.stopImmediatePropagationCalled, false);
+    assert.strictEqual(rt.counts.clearStalePlaybackFlagsIfIdle, 1, 'stale flags are still cleared before the session check');
+}
+
+function testEscapeDuringSessionIsStillClaimed() {
+    const rt = makeTestRuntime();
+    rt.document.activeElement = rt.body;
+    let stopCalls = 0;
+    rt.reader.stopTTS = () => { stopCalls += 1; };
+    rt.reader.isPlaybackSessionActive = () => true;
+
+    const e = rt.dispatchKey('Escape');
+
+    assert.strictEqual(stopCalls, 1, 'Escape during a session must stop TTS');
+    assert.strictEqual(e.preventDefaultCalled, true);
+    assert.strictEqual(e.stopImmediatePropagationCalled, true);
+    assert.strictEqual(rt.pageListenerCallsGetter(), 0, 'Escape during a session must still block page listeners');
+}
+
 const tests = [
     testWindowKeydownListenerIsCapturePhase,
     testShiftUHandledInCaptureBeforeTypeAnywhere,
     testPlainKeyPropagatesToPageListener,
     testShiftUIgnoredInsideComposer,
     testShiftUHandledWhenPageMovedFocusFirst,
-    testEarlyShimReceivesHandler
+    testEarlyShimReceivesHandler,
+    testEscapeWithoutSessionReachesPageListener,
+    testEscapeDuringSessionIsStillClaimed
 ];
 
 (async () => {

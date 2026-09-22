@@ -157,6 +157,12 @@
                     return;
                 }
                 if (this.keyMatchesHotkey(e, 'STOP')) {
+                    // S5 fix: this handler is a window CAPTURE listener — claiming
+                    // Escape with no reader session blocks every page Escape handler
+                    // (dialogs, menus). Clear stale flags first (ACTIVATE parity),
+                    // then only claim the key while a session is actually active.
+                    this.clearStalePlaybackFlagsIfIdle();
+                    if (!this.isPlaybackSessionActive()) return;
                     e.preventDefault();
                     e.stopImmediatePropagation();
                     this.stopTTS();
