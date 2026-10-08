@@ -346,6 +346,10 @@
         <section class="actions">
             <button id="resetBtn" class="button secondary">Reset to defaults</button>
             <button id="saveBtn" class="button primary">Save changes</button>
+            <button id="exportSettingsBtn" class="button secondary" type="button">Export settings JSON</button>
+            <button id="importSettingsBtn" class="button secondary" type="button">Import settings JSON</button>
+            <input type="file" id="importSettingsFile" accept="application/json,.json" hidden>
+            <p class="note">Import replaces the current profile's values for the keys present in the file.</p>
         </section>
     </main>
 

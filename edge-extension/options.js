@@ -180,6 +180,9 @@ document.addEventListener('DOMContentLoaded', () => {
         resetBtn: document.getElementById('resetBtn'),
         resetOverlayPositionBtn: document.getElementById('resetOverlayPositionBtn'),
         exportDiagnosticsBtn: document.getElementById('exportDiagnosticsBtn'),
+        exportSettingsBtn: document.getElementById('exportSettingsBtn'),
+        importSettingsBtn: document.getElementById('importSettingsBtn'),
+        importSettingsFile: document.getElementById('importSettingsFile'),
         hotkeyActivate: document.getElementById('hotkeyActivate'),
         hotkeyPauseResume: document.getElementById('hotkeyPauseResume'),
         hotkeyNavNext: document.getElementById('hotkeyNavNext'),
@@ -606,8 +609,8 @@ document.addEventListener('DOMContentLoaded', () => {
         return settings;
     }
 
-    function flashSaved() {
-        elements.saveBtn.textContent = 'Saved';
+    function flashSaved(message = 'Saved') {
+        elements.saveBtn.textContent = message;
         if (saveFeedbackTimer) clearTimeout(saveFeedbackTimer);
         saveFeedbackTimer = setTimeout(() => {
             elements.saveBtn.textContent = 'Save changes';
@@ -693,6 +696,117 @@ document.addEventListener('DOMContentLoaded', () => {
             anchor.remove();
             setTimeout(() => URL.revokeObjectURL(url), 0);
         });
+    }
+
+    function isPlainObject(value) {
+        if (!value || typeof value !== 'object') return false;
+        const prototype = Object.getPrototypeOf(value);
+        if (prototype === null) return true;
+        const constructor = Object.prototype.hasOwnProperty.call(prototype, 'constructor') && prototype.constructor;
+        return typeof constructor === 'function'
+            && Function.prototype.toString.call(constructor) === Function.prototype.toString.call(Object);
+    }
+
+    function sanitizeJsonValue(value) {
+        if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
+        if (typeof value === 'number' && Number.isFinite(value)) return value;
+        if (Array.isArray(value)) {
+            return value
+                .map(sanitizeJsonValue)
+                .filter(item => item !== undefined);
+        }
+        if (!isPlainObject(value)) return undefined;
+        const next = {};
+        Object.entries(value).forEach(([key, item]) => {
+            const sanitized = sanitizeJsonValue(item);
+            if (sanitized !== undefined) next[key] = sanitized;
+        });
+        return next;
+    }
+
+    function exportSettingsJson() {
+        chrome.storage.sync.get({ [SETTINGS_STORAGE_KEY]: {} }, (items) => {
+            const settingsByProfile = sanitizeJsonValue(items[SETTINGS_STORAGE_KEY]);
+            const exported = {
+                format: 'tts-settings',
+                version: 1,
+                settingsByProfile: isPlainObject(settingsByProfile) ? settingsByProfile : {}
+            };
+            const blob = new Blob([JSON.stringify(exported, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const anchor = document.createElement('a');
+            anchor.href = url;
+            anchor.download = `tts-settings-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+            document.body.appendChild(anchor);
+            anchor.click();
+            anchor.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 0);
+        });
+    }
+
+    function filterImportedProfile(settings) {
+        if (!isPlainObject(settings)) return {};
+        const filtered = {};
+        Object.entries(settings).forEach(([key, value]) => {
+            if (!Object.prototype.hasOwnProperty.call(BASE_DEFAULT_SETTINGS, key)) return;
+            const defaultValue = BASE_DEFAULT_SETTINGS[key];
+            if (key === 'hotkeys') {
+                if (!isPlainObject(value)) return;
+                filtered.hotkeys = {};
+                Object.keys(BASE_DEFAULT_SETTINGS.hotkeys).forEach((hotkey) => {
+                    if (typeof value[hotkey] === 'string') filtered.hotkeys[hotkey] = value[hotkey];
+                });
+                return;
+            }
+            if (Array.isArray(defaultValue)) {
+                if (Array.isArray(value)) filtered[key] = value;
+                return;
+            }
+            if (defaultValue === null) {
+                if (value === null || isPlainObject(value)) filtered[key] = value;
+                return;
+            }
+            if (typeof value === typeof defaultValue) filtered[key] = value;
+        });
+        return filtered;
+    }
+
+    async function importSettingsFile(file) {
+        try {
+            const imported = JSON.parse(await file.text());
+            if (imported.format !== 'tts-settings' || !isPlainObject(imported.settingsByProfile)) {
+                throw new Error('Invalid settings file');
+            }
+            chrome.storage.sync.get({ [SETTINGS_STORAGE_KEY]: {} }, (items) => {
+                const existing = isPlainObject(items[SETTINGS_STORAGE_KEY])
+                    ? items[SETTINGS_STORAGE_KEY]
+                    : {};
+                const next = { ...existing };
+                [PROFILE_CHATGPT, PROFILE_LOCAL, PROFILE_FILE].forEach((profile) => {
+                    if (!Object.prototype.hasOwnProperty.call(imported.settingsByProfile, profile)) return;
+                    const filtered = filterImportedProfile(imported.settingsByProfile[profile]);
+                    const existingProfile = isPlainObject(existing[profile]) ? existing[profile] : {};
+                    next[profile] = {
+                        ...getProfileDefaults(profile),
+                        ...existingProfile,
+                        ...filtered
+                    };
+                    if (filtered.hotkeys) {
+                        next[profile].hotkeys = {
+                            ...getProfileDefaults(profile).hotkeys,
+                            ...(isPlainObject(existingProfile.hotkeys) ? existingProfile.hotkeys : {}),
+                            ...filtered.hotkeys
+                        };
+                    }
+                });
+                chrome.storage.sync.set({ [SETTINGS_STORAGE_KEY]: next }, () => {
+                    loadProfile(currentProfile);
+                    flashSaved('Imported');
+                });
+            });
+        } catch (_error) {
+            flashSaved('Import failed');
+        }
     }
 
     elements.settingsProfile.addEventListener('change', () => {
@@ -781,6 +895,17 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     elements.exportDiagnosticsBtn.addEventListener('click', () => {
         exportDiagnosticsJson();
+    });
+    elements.exportSettingsBtn.addEventListener('click', () => {
+        exportSettingsJson();
+    });
+    elements.importSettingsBtn.addEventListener('click', () => {
+        elements.importSettingsFile.click();
+    });
+    elements.importSettingsFile.addEventListener('change', async () => {
+        const file = elements.importSettingsFile.files && elements.importSettingsFile.files[0];
+        if (file) await importSettingsFile(file);
+        elements.importSettingsFile.value = '';
     });
 
     function initializeProfileAndLoad() {
