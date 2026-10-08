@@ -255,7 +255,7 @@
         CONFIG: {
             // S3.6 (00-namespace.js:256 row): generic tag rule only — the dead
             // `.markdown` entry is dropped (probe §1: 0 matches on Sept).
-            CANDIDATE_SELECTORS: 'p, li, h1, h2, h3, h4, h5, h6, td, th, blockquote, article',
+            CANDIDATE_SELECTORS: 'p, li, h1, h2, h3, h4, h5, h6, td, th, blockquote, article, [data-testid="chatgpt-writing-block"] textarea[aria-label="Subject"]',
             // Generic/own ignore entries only (S3.3/S3.6). Site entries (.settings-header,
             // .sr-only, code-highlight classes, #content-root) come from pack data via
             // getIgnoreSelectors() on chatgpt.com; the dead #thread-bottom-container is

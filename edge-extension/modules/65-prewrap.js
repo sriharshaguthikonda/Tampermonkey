@@ -124,6 +124,14 @@
             };
         },
 
+        isEditableHighlightTarget(paraElement) {
+            return Boolean(paraElement && paraElement.closest && paraElement.closest('textarea, [contenteditable]:not([contenteditable="false"])'));
+        },
+
+        isTextareaHighlightTarget(paraElement) {
+            return Boolean(paraElement && paraElement.matches && paraElement.matches('textarea'));
+        },
+
         prepareParagraphForReading(paraElement) {
             if (this.processedParagraph.element && this.processedParagraph.element !== paraElement) {
                 this.deferProcessedParagraphRevert();
@@ -131,6 +139,13 @@
             if (!paraElement || !paraElement.parentNode) return null;
 
             if (!this.wordHighlightActiveForCurrent) {
+                return this.getTextFromElement(paraElement);
+            }
+
+            if (this.isTextareaHighlightTarget(paraElement)) {
+                return this.getTextFromElement(paraElement);
+            }
+            if (this.isEditableHighlightTarget(paraElement) && !this.supportsCssTextHighlights()) {
                 return this.getTextFromElement(paraElement);
             }
 
@@ -152,6 +167,9 @@
         prewrapParagraph(paraElement) {
             if (!paraElement || !paraElement.parentNode) return null;
             if (this.prewrappedParagraphs.has(paraElement)) return this.prewrappedParagraphs.get(paraElement);
+
+            if (this.isTextareaHighlightTarget(paraElement)) return null;
+            if (this.isEditableHighlightTarget(paraElement) && !this.supportsCssTextHighlights()) return null;
 
             const data = this.supportsCssTextHighlights()
                 ? this.buildCssWordHighlightData(paraElement)

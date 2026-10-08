@@ -115,6 +115,9 @@
 
         getRawTextFromElement(element) {
             if (!element) return '';
+            if (element.matches && element.matches('[data-testid="chatgpt-writing-block"] textarea[aria-label="Subject"]')) {
+                return element.value && element.value.trim() ? `Subject: ${element.value}` : '';
+            }
             // S3.6 (R7): citation/reference exclusion selectors come from pack data
             // (citationExclusions); an empty list (pack unavailable) means no
             // exclusions — the feature no-ops rather than throwing (D7 fail-soft).
