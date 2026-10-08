@@ -22,8 +22,8 @@ Started 2026-10-08. Branch `enhance-tts-functionality`. Owner asks (Q&A + chat):
 |---|---|---|---|
 | T1 | Fix card reading: token-anchored ignore selectors, Subject textarea, no DOM mutation inside contenteditable, userscript parity; TDD with synthetic fixture `fixtures/chatgpt.com/writing-block/` + `test_writing_block_reading.js` | codex gpt-6-luna | done (`04a032f`; driftwatch pack `4e95be3`) |
 | O1 | Ophel interference audit (read-only, source in `C:/Windows_software/Chrome_extensions/ophel`) | ornith (`local.sh`) | done (finding 4) |
-| T2 | Cross-profile settings parity: options-page Export/Import settings JSON (prior art: plain JSON export/import is what settings-bearing extensions ship; bundled-defaults+diff is a larger later refactor) | codex luna | dispatched |
-| T3 | `node build.js` + reload all three profiles via `tts-dev-reload`; live verify card reading + auto-read in each | Claude (browser tools only) | verified live before the review fixes; re-verify after final build |
+| T2 | Cross-profile settings parity: options-page Export/Import settings JSON (prior art: plain JSON export/import is what settings-bearing extensions ship; bundled-defaults+diff is a larger later refactor) | codex luna | done (`ea54b8e`; node test + all repo tests pass; not clicked live) |
+| T3 | `node build.js` + reload all three profiles via `tts-dev-reload`; live verify card reading + auto-read in each | Claude (browser tools only) | done: final `node build.js`, `tts-dev-reload` + page reload in all three profiles, `paragraphScan` 112 total / 15 in card / Subject read / 14 editable, no error events |
 | T4 | Second-brain review of the fix and the settings design | ChatGPT via model_bridge | done; export/import now, bundled defaults + diffs later |
 | T5 | Codex luna read-only review of the T1 diff | codex luna | done; fixes applied (blank Subject skipped, `isContentEditable`-safe editable selector, settings probe made read-only) |
 
@@ -37,4 +37,4 @@ Started 2026-10-08. Branch `enhance-tts-functionality`. Owner asks (Q&A + chat):
 - 2026-10-08 T1 landed. Live (synthetic events, hidden tabs): `paragraphScan` = 105 paragraphs, 20 inside the card, Subject read, 19 body items editable; playback starts inside the card; editor DOM unchanged. Verified in all three profiles. Auto-read flipped ON via the settings probe path in the two profiles that had it OFF (revert: options page -> Auto read off -> Save).
 - 2026-10-08 root cause fixed at the source: driftwatch `packs/chatgpt.com.json` selectors are class-token anchored and a pack lint test rejects bare `[class*=...]` substring selectors (driftwatch `4e95be3`); extension `22-driftwatch.js` re-vendored (`check-stamp` ok), userscript block re-spliced, userscript `@version 3.20`.
 - 2026-10-08 dev probes added (`00-dev-reload.js`, inert on store installs): `paragraphScan` counts and read-only `tts-dev-settings` drift report.
-- 2026-10-08 open: T2 export/import (dispatched), final `node build.js` + reload + quick re-verify in the three profiles.
+- 2026-10-08 T2 landed (`ea54b8e`); final build + reload + re-verify done in all three profiles. Open: live click-through of Export/Import in the options page (needs an Edge profile UI session); optional bundled-defaults+diff refactor if drift recurs.

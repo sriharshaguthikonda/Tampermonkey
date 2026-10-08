@@ -218,3 +218,28 @@ Reloading doesn't turn a switched-off extension back on; only the toggle does.
 📝 Plans updated: Prompt-queue `03fd6d2`, Tampermonkey `b2c8811`.
 
 ✅ 21:50 IST: S8.7c landed (bridge `be9adcf`, pytest 151). Z Code did the code; I made the old health tests hermetic, because they had started reading your real Edge folder. After the next Claude Code restart, `bridge_health` names the Edge profile folder where Prompt Queue is off. Nothing else is running; waiting only on your S8.8 yes/no.
+
+
+
+## user comments
+1. pause here with a timer...tokens out!!
+2. drop the env move to config!
+
+
+## user comments
+1. use only ornith z code agents or codex smaller agents not your claude agents
+
+
+2. no reinventing the wheel
+3. prior art
+
+4. delgate to ornith z code.!!!
+
+
+✅ 22:30 IST: TTS email-card fix + profile parity done (`04a032f`, `78048bc`, `ea54b8e`; driftwatch `4e95be3`).
+- **Why the email card was silent:** the pack ignored any class containing "code", and the card carries a Tailwind token called `--codex-base-accent`. Now class-token anchored, Subject textarea is read, the live draft body is never edited. Verified in all 3 Edge profiles after rebuild (card paragraphs found, Subject read, no console errors).
+- **Why auto read worked in some profiles only:** settings are per Edge profile (sync does not work for unpacked extensions) and two profiles had it OFF. I switched it ON in those two. To undo: options page -> Auto read off -> Save.
+- **New:** options page has Export / Import settings JSON, so one profile can copy another in two clicks. Other drift (timings, skip toggles, hotkeys) is only equalised if you import.
+- Ophel: no live conflict found; if auto-scroll ever stalls on an Ophel profile, check Ophel scroll-lock first.
+- Delegation: codex luna did the fix, the review and the options page; ornith audited Ophel.
+- Still waiting on you: S8.8 (bridge `~/.claude.json`). Your note "drop the env move to config" reads like a yes, but I did not touch `~/.claude.json` in this task. Say so if I should.
