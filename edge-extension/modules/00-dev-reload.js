@@ -90,6 +90,17 @@
             out.state.pasteBlocked = r.hasBlockingOpenElements(promptArea);
             out.state.promptFocused = Boolean(promptArea && r.isPromptFocused(promptArea));
         }
+        if (req.paragraphScan && typeof r.findAllParagraphs === 'function') {
+            // Counts/booleans only: what the paragraph finder would read right now.
+            const found = r.findAllParagraphs();
+            const inCard = found.filter((p) => p.element.closest('[data-testid="chatgpt-writing-block"]'));
+            out.scan = {
+                total: found.length,
+                inWritingBlock: inCard.length,
+                subjectRead: inCard.some((p) => /^Subject: ./.test(p.text)),
+                editableInWritingBlock: inCard.filter((p) => p.element.closest('[contenteditable="true"]')).length
+            };
+        }
         if (Array.isArray(req.tokens)) speechProbe.tokens = req.tokens.map(String);
         if (req.hookSpeech) hookSpeech();
         out.speech = {
@@ -127,6 +138,25 @@
                     : null,
                 ...devProbes(e.data, r)
             }, '*');
+            return;
+        }
+        if (e.data.type === 'tts-dev-settings') {
+            // Per-Edge-profile settings drift check, READ-ONLY: this profile's saved chatgpt
+            // settings that differ from the shipped defaults (short scalars only). Never writes.
+            const ns = window.__TTSNS;
+            if (!ns || !ns.constants || !chrome.storage || !chrome.storage.sync) return;
+            const { SETTINGS_STORAGE_KEY, PROFILE_CHATGPT, BASE_DEFAULT_SETTINGS } = ns.constants;
+            chrome.storage.sync.get({ [SETTINGS_STORAGE_KEY]: {} }, (items) => {
+                const saved = (items[SETTINGS_STORAGE_KEY] || {})[PROFILE_CHATGPT] || {};
+                const settings = { _saved: Object.keys(saved).length };
+                // Only values that differ from the shipped defaults (the drift).
+                Object.keys(BASE_DEFAULT_SETTINGS).forEach((k) => {
+                    const v = k in saved ? saved[k] : BASE_DEFAULT_SETTINGS[k];
+                    if (JSON.stringify(v) === JSON.stringify(BASE_DEFAULT_SETTINGS[k])) return;
+                    settings[k] = typeof v === 'string' && v.length > 40 ? '<long>' : v;
+                });
+                window.postMessage({ type: 'tts-dev-settings-result', settings }, '*');
+            });
             return;
         }
         if (e.data.type !== 'tts-dev-reload') return;
